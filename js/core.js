@@ -1136,52 +1136,6 @@ function switchTab(id) {
     const multiToggle = document.getElementById('multiScanToggle');
     const filterToggle = document.getElementById('filterNoBoxToggle');
     const chkFilter = document.getElementById('chkFilterNoBox'); 
-    const isMulti = document.getElementById('chkMultiScan').checked;
-    
-    if (id === 'simpan') {
-        multiToggle.style.display = 'flex';
-        filterToggle.style.display = isMulti ? 'flex' : 'none'; 
-    } else {
-        multiToggle.style.display = 'none';
-        filterToggle.style.display = 'none';
-        if(chkFilter.checked) chkFilter.checked = false;
-    }
-    
-    const root = document.documentElement;
-    if(id === 'simpan') {
-        root.style.setProperty('--active-color', isMulti ? 'var(--purple)' : 'var(--primary)');
-        document.querySelector('header').style.background = isMulti ? 'var(--purple)' : 'var(--primary)';
-    }
-    if(id === 'opname') {
-        root.style.setProperty('--active-color', 'var(--opname)');
-        document.querySelector('header').style.background = 'var(--opname)';
-    }
-    if(id === 'data') {
-        root.style.setProperty('--active-color', 'var(--data)');
-        document.querySelector('header').style.background = 'var(--data)';
-    }
-    if(id === 'offbs') {
-        root.style.setProperty('--active-color', 'var(--offbs)');
-        document.querySelector('header').style.background = 'var(--offbs)';
-        renderOffBsList(); 
-    }
-    
-    if(id === 'opname') handleOpnameRender();
-    if(id === 'simpan') renderSimpanList(true); 
-    if(id === 'data') renderDataList(true);
-    
-    document.getElementById('mainInput').focus();
-}function switchTab(id) {
-    currentTab = id;
-    document.querySelectorAll('.tab-content').forEach(e=>e.classList.remove('active'));
-    document.getElementById('tab-'+id).classList.add('active');
-    document.querySelectorAll('.nav-item').forEach(e=>e.classList.remove('active'));
-    event.currentTarget.classList.add('active');
-    document.getElementById('scrollTopBtn').style.display = 'none';
-    
-    const multiToggle = document.getElementById('multiScanToggle');
-    const filterToggle = document.getElementById('filterNoBoxToggle');
-    const chkFilter = document.getElementById('chkFilterNoBox'); 
     const isMulti = document.getElementById('chkMultiScan') ? document.getElementById('chkMultiScan').checked : false;
     
     // Ambil elemen Global Filter
