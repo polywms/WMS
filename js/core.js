@@ -168,10 +168,12 @@ function processScan(code) {
             qty: scanQty, // Simpan angka qty-nya
             qr: rawCode,
             time: new Date().toLocaleTimeString()
+            synced: false
         });
 
         localStorage.setItem('wms_off_bs', JSON.stringify(offBsSession));
         renderOffBsList();
+        triggerOffBsSync();
         
         feedback('success');
         showToast(`${partNo} (${scanQty} pcs) tersimpan!`);
@@ -1007,14 +1009,24 @@ function renderRakSummary() {
 // ==========================================
 // 7. LOGIKA TAB OFF BS
 // ==========================================
+// UPDATE: Tampilan List OFF BS (Menampilkan status Cloud)
 function renderOffBsList() {
     const container = document.getElementById('offBsList');
-    // Hitung total Qty dari seluruh barang di sesi ini
     const totalPcs = offBsSession.reduce((sum, item) => sum + item.qty, 0);
-    document.getElementById('offBsCount').innerText = `${offBsSession.length} Scan (${totalPcs} pcs)`;
+    const unsyncedCount = offBsSession.filter(i => !i.synced).length;
+    
+    // Beri peringatan di jumlah scan jika ada yang belum sync
+    const syncWarning = unsyncedCount > 0 ? `<span style="color:var(--danger); font-size:0.8rem; margin-left:10px;">(${unsyncedCount} blm sync)</span>` : '';
+    document.getElementById('offBsCount').innerHTML = `${offBsSession.length} Scan (${totalPcs} pcs) ${syncWarning}`;
+    
     container.innerHTML = '';
     
     offBsSession.forEach((item, index) => {
+        // Ikon Awan: Hijau jika sudah masuk G-Sheet, Oranye berkedip jika belum
+        const cloudIcon = item.synced 
+            ? `<i class="fas fa-cloud-check" style="color:#16a34a; font-size:1.1rem;"></i>` 
+            : `<i class="fas fa-cloud-upload-alt" style="color:#f59e0b; font-size:1.1rem;" title="Menunggu Sync..."></i>`;
+
         const div = document.createElement('div');
         div.className = 'item-card';
         div.style.borderLeft = '5px solid var(--offbs)';
@@ -1027,9 +1039,10 @@ function renderOffBsList() {
                 <div style="font-family:monospace; font-size:0.75rem; color:var(--secondary); margin-top:2px;">${item.docNo}</div>
                 <div style="font-size:0.75rem; color:var(--offbs); margin-top:4px;"><i class="fas fa-box"></i> ${item.box}</div>
             </div>
-            <div style="text-align:right;">
+            <div style="text-align:right; display:flex; flex-direction:column; align-items:flex-end; justify-content:space-between;">
                 <div style="font-size:0.65rem; color:#999;">${item.time}</div>
-                <button class="btn-trash" style="margin-top:5px; width:30px; height:30px; float:right;" onclick="deleteOffBsItem(${item.id})"><i class="fas fa-trash"></i></button>
+                <div style="margin-top:5px; margin-bottom:5px;">${cloudIcon}</div>
+                <button class="btn-trash" style="width:30px; height:30px;" onclick="deleteOffBsItem(${item.id})"><i class="fas fa-trash"></i></button>
             </div>
         `;
         container.appendChild(div);
@@ -1058,6 +1071,56 @@ function clearOffBsSession() {
         renderOffBsList();
     }
 }
+
+// ==========================================
+// FUNGSI BARU: Auto-Sync khusus OFF BS ke Cloud
+// ==========================================
+async function triggerOffBsSync() {
+    // Jangan sync jika internet mati atau proses sync lain sedang berjalan
+    if (!navigator.onLine || isSyncing) return;
+
+    // Filter hanya data yang belum ter-sync
+    const unsyncedData = offBsSession.filter(i => !i.synced);
+    if (unsyncedData.length === 0) return; // Tidak ada yang perlu di-sync
+
+    isSyncing = true;
+    updateSyncUI("🔄 Syncing OFF BS...");
+
+    try {
+        const payload = {
+            action: "sync_off_bs",
+            data: unsyncedData
+        };
+
+        const response = await fetch(API_URL, {
+            method: "POST",
+            redirect: "follow",
+            headers: { "Content-Type": "text/plain;charset=utf-8" },
+            body: JSON.stringify(payload)
+        });
+
+        const result = await response.json();
+
+        if (result.status === "success") {
+            // Jika berhasil, ubah bendera synced menjadi true
+            unsyncedData.forEach(u => u.synced = true);
+            // Simpan perubahan bendera ke memori lokal
+            localStorage.setItem('wms_off_bs', JSON.stringify(offBsSession));
+            
+            updateSyncUI("🟢 OFF BS Tersimpan");
+            if(currentTab === 'offbs') renderOffBsList(); // Segarkan ikon awan di layar
+        } else {
+            updateSyncUI("🔴 Gagal Sync OFF BS");
+        }
+    } catch (err) {
+        console.error("Gagal sync OFF BS:", err);
+        updateSyncUI("🔴 Offline");
+    } finally {
+        isSyncing = false;
+    }
+}
+
+
 
 // ==========================================
 // 8. LOGIKA NAVIGASI TAB

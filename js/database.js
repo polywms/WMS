@@ -109,4 +109,7 @@ async function processSyncQueue() {
         isSyncing = false;
     }
 }
-setInterval(processSyncQueue, 5000);
+setInterval(() => {
+    processSyncQueue(); // Sync data WMS biasa
+    triggerOffBsSync(); // Sync data OFF BS
+}, 5000);

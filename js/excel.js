@@ -233,13 +233,20 @@ function exportLabelReport() {
 }
 
 // ==========================================
-// 3. BACKUP & RESTORE JSON DATABSE LOKAL
+// UPDATE: BACKUP & RESTORE JSON (Hanya Lokasi)
 // ==========================================
 function backupJson() {
-    const b = new Blob([JSON.stringify(localItems)],{type:'application/json'});
+    // Hanya ambil Part Number dan Lokasi fisiknya saja
+    const minData = localItems.map(i => ({
+        partNo: i.partNo,
+        locations: i.locations
+    }));
+    
+    const b = new Blob([JSON.stringify(minData)], {type:'application/json'});
     const a = document.createElement('a'); 
     a.href = URL.createObjectURL(b); 
-    a.download = 'backup.json'; 
+    // Beri nama yang memperjelas bahwa ini file mapping lokasi
+    a.download = `Mapping_Lokasi_${new Date().toISOString().slice(0,10)}.json`; 
     a.click();
 }
 
@@ -247,14 +254,36 @@ function restoreJson(input) {
     const f = input.files[0]; 
     if(!f) return;
     
+    if(!confirm("Restore JSON akan menimpa LOKASI FISIK part saat ini dengan data dari file.\n(Data QTY Sistem & Deskripsi tidak akan berubah).\nLanjutkan?")) {
+        input.value = ''; // Reset input file
+        return;
+    }
+    
     const r = new FileReader(); 
     r.onload = e => {
-        const d = JSON.parse(e.target.result);
+        const backupData = JSON.parse(e.target.result);
         const tx = db.transaction('items','readwrite'); 
         const st = tx.objectStore('items'); 
-        st.clear();
-        d.forEach(i => st.add(i)); 
-        tx.oncomplete = () => location.reload();
+        
+        st.getAll().onsuccess = ev => {
+            const currentItems = ev.target.result || [];
+            let updateCount = 0;
+            
+            // Cocokkan data backup dengan database saat ini
+            backupData.forEach(backupItem => {
+                const existingItem = currentItems.find(i => i.partNo === backupItem.partNo);
+                if (existingItem) {
+                    existingItem.locations = backupItem.locations || {}; // Timpa lokasinya
+                    st.put(existingItem); // Simpan kembali ke IndexedDB
+                    updateCount++;
+                }
+            });
+            
+            tx.oncomplete = () => {
+                alert(`✅ Restore Selesai!\n${updateCount} part telah diperbarui lokasi fisiknya.`);
+                location.reload();
+            };
+        };
     }; 
     r.readAsText(f);
 }
