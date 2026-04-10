@@ -172,8 +172,11 @@
 <body>
 
 <header>
-    <h1>𝄃𝄃𝄂𝄂 WMS V6</h1>
-    <button class="header-btn" onclick="toggleMenu()"><i class="fas fa-bars"></i></button>
+    <h1>𝄃𝄃𝄂𝄂 WMS Magelang</h1>
+    <div style="display:flex; align-items:center; gap:10px;">
+        <span id="syncStatus" style="font-size:0.75rem; background:rgba(0,0,0,0.2); padding:3px 8px; border-radius:10px;">🟢 Online</span>
+        <button class="header-btn" onclick="toggleMenu()"><i class="fas fa-bars"></i></button>
+    </div>
 </header>
 
 <div class="nav-tabs">
@@ -512,6 +515,10 @@ const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     const DB_NAME = 'WMS_Stock_v10';
     let db = null;
     let localItems = [];
+    const API_URL = "https://script.google.com/macros/s/AKfycbxDQBLQEyIaNwQsA2Ubs4KDhFI5v7aNs4pfrs_e8MDmVGwj1zuwHWoCMiGuB27flOsS/exec";
+    let syncQueue = [];
+    let syncLogs = [];
+    let isSyncing = false;
     let filteredItems = [];
     let currentTab = 'simpan';
     let opnameFilter = 'all'; 
@@ -545,26 +552,66 @@ const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         setupScroll('tab-simpan', () => { renderLimit += 50; renderSimpanList(false); });
         setupScroll('tab-data', () => { renderLimit += 50; renderDataList(false); });
     };
+    function updateSyncUI(text) {
+        const el = document.getElementById('syncStatus');
+        if(el) el.innerText = text;
+    }
     function scrollToTop() {
         const activeEl = document.querySelector('.tab-content.active');
         if(activeEl) activeEl.scrollTo({ top: 0, behavior: 'smooth' });
     }
     function initDB() {
-        return new Promise(resolve => {
-            const req = indexedDB.open(DB_NAME, 1);
-            req.onupgradeneeded = e => e.target.result.createObjectStore('items', { keyPath: 'id' });
-            req.onsuccess = e => { db = e.target.result; loadData().then(resolve); };
-        });
+    return new Promise(resolve => {
+        const req = indexedDB.open(DB_NAME, 1);
+        req.onupgradeneeded = e => e.target.result.createObjectStore('items', { keyPath: 'id' });
+        req.onsuccess = e => { db = e.target.result; fetchInitialDataFromCloud().then(resolve); };
+    });
+}
+    function loadDataFromLocal() {
+    const tx = db.transaction('items', 'readonly');
+    tx.objectStore('items').getAll().onsuccess = e => {
+        localItems = e.target.result || [];
+        localItems.forEach(i => { if(!i.locations) i.locations = {}; });
+        localItems.sort((a,b) => a.partNo.localeCompare(b.partNo));
+        populateFilters();
+        // Refresh layar
+        if(currentTab === 'opname') handleOpnameRender();
+        if(currentTab === 'simpan') renderSimpanList(true);
+        if(currentTab === 'data') renderDataList(true);
+    };
+}
+    async function fetchInitialDataFromCloud() {
+    if (!navigator.onLine) {
+        updateSyncUI("🔴 Offline Mode");
+        loadDataFromLocal();
+        return;
     }
-    async function loadData() {
-        const tx = db.transaction('items', 'readonly');
-        tx.objectStore('items').getAll().onsuccess = e => {
-            localItems = e.target.result || [];
-            localItems.forEach(i => { if(!i.locations) i.locations = {}; });
-            localItems.sort((a,b) => a.partNo.localeCompare(b.partNo));
-            populateFilters();
-        };
+
+    updateSyncUI("🔄 Menarik Data...");
+    try {
+        const response = await fetch(API_URL);
+        const result = await response.json();
+
+        if (result.status === "success" && result.data.length > 0) {
+            const tx = db.transaction('items', 'readwrite');
+            const store = tx.objectStore('items');
+            store.clear(); // Bersihkan lokal
+            result.data.forEach(item => store.add(item)); // Masukkan dari Cloud
+            
+            tx.oncomplete = () => {
+                updateSyncUI("🟢 Online");
+                loadDataFromLocal(); // Tampilkan ke layar
+            };
+        } else {
+            // Jika kosong, langsung load lokal
+            loadDataFromLocal();
+        }
+    } catch (error) {
+        console.log("Gagal narik data, fallback ke lokal", error);
+        updateSyncUI("🟡 Lokal Mode");
+        loadDataFromLocal();
     }
+}
     function populateFilters() {
         const locs = [...new Set(localItems.map(i => i.locType))].filter(Boolean).sort();
         const selLoc = document.getElementById('filterLoc');
@@ -1284,10 +1331,69 @@ if (item.desc === 'PART BARU') {
         handleOpnameRender(); renderDataList(false);
         document.getElementById('mainInput').focus();
     }
-    function saveDB(item) {
-        const tx = db.transaction('items', 'readwrite');
-        tx.objectStore('items').put(item);
+function saveDB(item, actionName = "UPDATE", actionDetail = "") {
+    // 1. Simpan ke lokal (Cepat/Tanpa Loading)
+    const tx = db.transaction('items', 'readwrite');
+    tx.objectStore('items').put(item);
+
+    // 2. Masukkan ke Antrean Sinkronisasi Cloud
+    syncQueue.push(item);
+    syncLogs.push({
+        partNo: item.partNo,
+        action: actionName,
+        detail: actionDetail || "Update Qty/Lokasi"
+    });
+    
+    updateSyncUI("🟡 Menunggu Sync...");
+}
+
+// 3. Pekerja Latar Belakang (Jalan otomatis setiap 5 detik)
+async function processSyncQueue() {
+    // Jangan jalan jika sedang sync, antrean kosong, atau internet mati
+    if (isSyncing || (syncQueue.length === 0 && syncLogs.length === 0) || !navigator.onLine) return;
+
+    isSyncing = true;
+    updateSyncUI("🔄 Syncing...");
+
+    try {
+        // Hapus duplikat di antrean (jika 1 barang di-scan 5x, cukup kirim data terakhirnya saja)
+        const uniqueItemsMap = {};
+        syncQueue.forEach(item => uniqueItemsMap[item.id] = item);
+        const itemsToSync = Object.values(uniqueItemsMap);
+
+        const payload = {
+            action: "sync",
+            data: itemsToSync,
+            logs: syncLogs
+        };
+
+        // Kirim ke Google Apps Script
+        const response = await fetch(API_URL, {
+            method: "POST",
+            redirect: "follow",
+            headers: { "Content-Type": "text/plain;charset=utf-8" }, // Wajib text/plain agar tidak kena error CORS Google
+            body: JSON.stringify(payload)
+        });
+
+        const result = await response.json();
+
+        if (result.status === "success") {
+            syncQueue = []; // Kosongkan antrean jika sukses
+            syncLogs = [];
+            updateSyncUI("🟢 Tersimpan");
+        } else {
+            updateSyncUI("🔴 Gagal Sync");
+        }
+    } catch (error) {
+        console.error("Sync error:", error);
+        updateSyncUI("🔴 Offline");
+    } finally {
+        isSyncing = false;
     }
+}
+
+// Jalankan processSyncQueue setiap 5 detik (5000 ms)
+setInterval(processSyncQueue, 5000);
     function switchTab(id) {
         currentTab = id;
         document.querySelectorAll('.tab-content').forEach(e=>e.classList.remove('active'));
