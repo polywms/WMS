@@ -1,28 +1,61 @@
-const CACHE_NAME = 'wms-cache-v1';
+const CACHE_NAME = 'wms-cache-v2'; // Ubah versi cache agar browser memuat ulang yang baru
 const urlsToCache = [
   './',
   './index.html',
   './manifest.json',
-  './icon.png'
+  // Pastikan nama file icon ini sesuai dengan yang kamu punya (misal: icon-192.png)
+  './icon-192.png' 
 ];
 
-// Install Service Worker dan simpan file ke cache
+// 1. Install Service Worker dan simpan file ke cache
 self.addEventListener('install', event => {
+  self.skipWaiting(); // LANGSUNG AKTIFKAN sw.js baru tanpa menunggu tab ditutup
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then(cache => {
-        console.log('Opened cache');
+        console.log('Opened cache v2');
         return cache.addAll(urlsToCache);
       })
   );
 });
 
-// Intercept request internet, gunakan Network-First strategy
+// 2. Hapus cache versi lama agar tidak nyangkut
+self.addEventListener('activate', event => {
+  event.waitUntil(
+    caches.keys().then(cacheNames => {
+      return Promise.all(
+        cacheNames.map(cacheName => {
+          if (cacheName !== CACHE_NAME) {
+            console.log('Menghapus cache lama:', cacheName);
+            return caches.delete(cacheName);
+          }
+        })
+      );
+    })
+  );
+  self.clients.claim(); // Ambil alih kontrol browser secepatnya
+});
+
+// 3. Intercept request internet
 self.addEventListener('fetch', event => {
+  // PENGECUALIAN 1: Jangan pernah sentuh URL API Google!
+  if (event.request.url.includes('script.google.com')) {
+    event.respondWith(fetch(event.request));
+    return;
+  }
+
+  // PENGECUALIAN 2: Service Worker (Cache) HANYA mendukung metode GET. 
+  // Biarkan POST (Kirim Data) lewat begitu saja.
+  if (event.request.method !== 'GET') {
+    event.respondWith(fetch(event.request));
+    return;
+  }
+
+  // STRATEGI UTAMA: Network-First untuk HTML/CSS/JS
   event.respondWith(
     fetch(event.request)
       .then(response => {
-        // Kalau berhasil ditarik dari file asli/internet, update cachenya
+        // Kalau berhasil ditarik dari internet, update cachenya
         const responseClone = response.clone();
         caches.open(CACHE_NAME).then(cache => {
           cache.put(event.request, responseClone);
@@ -30,7 +63,7 @@ self.addEventListener('fetch', event => {
         return response;
       })
       .catch(() => {
-        // Kalau offline atau gagal fetch, baru panggil file lama dari cache
+        // Kalau offline (tidak ada internet), pakai file dari cache
         return caches.match(event.request);
       })
   );
