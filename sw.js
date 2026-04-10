@@ -1,4 +1,4 @@
-const CACHE_NAME = 'wms-v6-cache-v9';
+const CACHE_NAME = 'wms-cache-v1';
 const urlsToCache = [
   './',
   './index.html',
