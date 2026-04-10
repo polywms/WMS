@@ -1,4 +1,4 @@
-const CACHE_NAME = 'wms-cache-v2'; // Ubah versi cache agar browser memuat ulang yang baru
+const CACHE_NAME = 'wms-cache-v3'; // Ubah versi cache agar browser memuat ulang yang baru
 const urlsToCache = [
   './',
   './index.html',
