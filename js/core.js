@@ -167,7 +167,7 @@ function processScan(code) {
             box: activeOffBsBox,
             qty: scanQty, // Simpan angka qty-nya
             qr: rawCode,
-            time: new Date().toLocaleTimeString()
+            time: new Date().toLocaleTimeString(),
             synced: false
         });
 
