@@ -228,9 +228,14 @@
                 
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
                     <b style="color:var(--secondary);">Sesi Ini: <span id="offBsCount">0</span> Item</b>
-                    <div style="display:flex; gap:5px;">
-                        <button class="btn-sm btn-danger" onclick="clearOffBsSession()"><i class="fas fa-trash"></i> Reset</button>
-                        <button class="btn-sm btn-success" onclick="exportOffBsData()"><i class="fas fa-file-excel"></i> Export</button>
+                    <div style="display:flex; gap:8px;">
+                        <button onclick="clearOffBsSession()" style="background: #fff0f0; color: #e11d48; border: 1px solid #fecdd3; padding: 8px 14px; border-radius: 8px; font-weight: bold; font-size: 0.85rem; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+                            <i class="fas fa-trash-alt"></i> Reset
+                        </button>
+                        
+                        <button onclick="exportOffBsData()" style="background: #10b981; color: white; border: none; padding: 8px 16px; border-radius: 8px; font-weight: bold; font-size: 0.85rem; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 4px 6px rgba(16, 185, 129, 0.25);">
+                            <i class="fas fa-file-excel"></i> Export
+                        </button>
                     </div>
                 </div>
                 
