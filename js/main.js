@@ -16,8 +16,15 @@ document.addEventListener('visibilitychange', async () => {
 document.addEventListener('click', (e) => {
     const t = e.target;
     const interactive = ['INPUT','BUTTON','SELECT','TEXTAREA','A','LABEL'];
+    
     if (!interactive.includes(t.tagName) && !t.closest('button') && !t.closest('.modal')) {
-        document.getElementById('mainInput').focus();
+        // Cek sedang di tab mana
+        if (typeof currentTab !== 'undefined' && currentTab === 'data') {
+            document.getElementById('cariInput').focus();
+        } else {
+            const mainInput = document.getElementById('mainInput');
+            if(mainInput) mainInput.focus();
+        }
     }
 });
 
