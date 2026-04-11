@@ -34,33 +34,47 @@ async function fetchInitialDataFromCloud() {
         loadDataFromLocal();
         return;
     }
+    
     updateSyncUI("🟡 Menghubungkan ke Database...");
+    
     try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 10000); 
+        const timeoutId = setTimeout(() => controller.abort(), 30000); 
+        
         const response = await fetch(API_URL, { redirect: "follow", signal: controller.signal });
         clearTimeout(timeoutId); 
+        
         updateSyncUI("🔄 Menerima Data...");
         const result = await response.json();
         
         if (result.status === "success") {
-            const dataCount = result.data.length;
-            if (dataCount > 0) {
-                updateSyncUI(`🔄 Memproses ${dataCount} Item...`);
-                const tx = db.transaction('items', 'readwrite');
-                const store = tx.objectStore('items');
-                store.clear(); 
-                result.data.forEach(item => store.add(item)); 
-                tx.oncomplete = () => {
-                    updateSyncUI("🟢 Tersambung & Update");
-                    loadDataFromLocal(); 
-                    setTimeout(() => updateSyncUI("🟢 Online"), 3000); 
-                };
+            if (result.data && Array.isArray(result.data)) {
+                const dataCount = result.data.length;
+                
+                if (dataCount > 0) {
+                    updateSyncUI(`🔄 Memproses ${dataCount} Item...`);
+                    const tx = db.transaction('items', 'readwrite');
+                    const store = tx.objectStore('items');
+                    
+                    store.clear(); 
+                    result.data.forEach(item => store.add(item)); 
+                    
+                    tx.oncomplete = () => {
+                        updateSyncUI("🟢 Tersambung & Update");
+                        loadDataFromLocal(); 
+                        setTimeout(() => updateSyncUI("🟢 Online"), 3000); 
+                    };
+                } else {
+                    updateSyncUI("🟢 Database Kosong");
+                    loadDataFromLocal();
+                    setTimeout(() => updateSyncUI("🟢 Online"), 3000);
+                }
             } else {
-                updateSyncUI("🟢 Database Kosong");
+                console.error("Format data dari server tidak valid", result);
+                updateSyncUI("🔴 Gagal (Data Rusak)");
                 loadDataFromLocal();
-                setTimeout(() => updateSyncUI("🟢 Online"), 3000);
             }
+            
         } else {
             console.error("Error dari Apps Script:", result.message);
             updateSyncUI("🔴 Gagal (Error Script)");
@@ -68,8 +82,11 @@ async function fetchInitialDataFromCloud() {
         }
     } catch (error) {
         console.error("Gagal narik data:", error);
-        if (error.name === 'AbortError') updateSyncUI("🔴 Timeout (Server Lama)");
-        else updateSyncUI("🔴 Gagal Terhubung (Cek API)");
+        if (error.name === 'AbortError') {
+            updateSyncUI("🔴 Timeout (Server Lambat)");
+        } else {
+            updateSyncUI("🔴 Gagal Terhubung (Cek API)");
+        }
         loadDataFromLocal(); 
     }
 }
@@ -114,6 +131,60 @@ async function processSyncQueue() {
 }
 
 // ==========================================
+// FUNGSI SINKRONISASI OFF BS (KE CLOUD)
+// ==========================================
+async function triggerOffBsSync() {
+    // Jangan sync jika internet mati, proses lain berjalan, atau tidak ada data sesi
+    if (!navigator.onLine || isSyncing || typeof offBsSession === 'undefined') return;
+
+    // Filter hanya data yang belum ter-sync
+    const unsyncedData = offBsSession.filter(i => !i.synced);
+    if (unsyncedData.length === 0) return; 
+
+    isSyncing = true;
+    updateSyncUI("🔄 Syncing OFF BS...");
+
+    try {
+        const payload = {
+            action: "sync_off_bs",
+            data: unsyncedData
+        };
+
+        const response = await fetch(API_URL, {
+            method: "POST", redirect: "follow",
+            headers: { "Content-Type": "text/plain;charset=utf-8" },
+            body: JSON.stringify(payload)
+        });
+
+        const result = await response.json();
+
+        if (result.status === "success") {
+            // Ubah bendera synced menjadi true
+            unsyncedData.forEach(u => u.synced = true);
+            localStorage.setItem('wms_off_bs', JSON.stringify(offBsSession));
+            
+            updateSyncUI("🟢 OFF BS Tersimpan");
+            if(typeof currentTab !== 'undefined' && currentTab === 'offbs' && typeof renderOffBsList === 'function') {
+                renderOffBsList(); // Segarkan ikon awan di layar
+            }
+            
+            // POPUP PERINGATAN DUPLIKAT DARI CLOUD
+            if (result.duplicates && result.duplicates > 0) {
+                alert(`⚠️ PERINGATAN SINKRONISASI!\n\nSebanyak ${result.duplicates} data ditolak oleh Cloud karena part dan dokumen (SJOB) ini sudah pernah masuk ke Database sebelumnya.\n\nPart yang ditolak (Duplikat):\n${result.duplicateParts.join(', ')}`);
+            }
+            
+        } else {
+            updateSyncUI("🔴 Gagal Sync OFF BS");
+        }
+    } catch (err) {
+        console.error("Gagal sync OFF BS:", err);
+        updateSyncUI("🔴 Offline");
+    } finally {
+        isSyncing = false;
+    }
+}
+
+// ==========================================
 // FUNGSI TARIK DATA LIVE OFF BS DARI CLOUD
 // ==========================================
 async function fetchCloudOffBs() {
@@ -141,10 +212,9 @@ async function fetchCloudOffBs() {
 
         const result = await response.json();
 
-        // Validasi ekstra agar aman jika API Google masih pakai versi lama
         if (result.status === "success") {
             if (result.data && Array.isArray(result.data)) {
-                lastFetchedCloudOffBs = result.data; // Simpan memori sementara
+                lastFetchedCloudOffBs = result.data; 
                 renderCloudAccordion(result.data);
             } else {
                 content.innerHTML = `<div style="color:var(--danger); text-align:center; padding:20px;">
@@ -164,7 +234,6 @@ async function fetchCloudOffBs() {
 function renderCloudAccordion(data) {
     const container = document.getElementById('cloudOffBsContent');
 
-    // Filter data kosong
     const validData = data.filter(item => item.box && item.partNo);
 
     if (validData.length === 0) {
@@ -176,7 +245,6 @@ function renderCloudAccordion(data) {
         return;
     }
 
-    // 1. KELOMPOKKAN DATA BERDASARKAN BOX
     const groupedData = {};
     let totalAllPcs = 0;
 
@@ -191,7 +259,6 @@ function renderCloudAccordion(data) {
         totalAllPcs += qty;
     });
 
-    // 2. RENDER HTML (DENGAN TOMBOL IMPORT)
     let html = `
     <div style="margin-bottom:15px; display:flex; justify-content:space-between; align-items:center; background:#f1f5f9; padding:10px; border-radius:8px;">
         <div style="font-size:0.85rem; color:#64748b; font-weight:bold;">TOTAL CLOUD: ${totalAllPcs} PCS</div>
@@ -200,12 +267,10 @@ function renderCloudAccordion(data) {
         </button>
     </div>`;
 
-    // Sort nama box secara alfabet (misal RTF-01 di atas RTF-02)
     const sortedBoxes = Object.keys(groupedData).sort();
 
     sortedBoxes.forEach(box => {
         const boxData = groupedData[box];
-        // Buat ID unik tanpa spasi/simbol untuk target Accordion HTML
         const targetId = 'acc-' + box.replace(/[^a-zA-Z0-9]/g, '');
 
         html += `
@@ -224,11 +289,9 @@ function renderCloudAccordion(data) {
             <div id="${targetId}" style="display: none; padding: 0 15px; background: white; border-top: 1px solid #fed7aa;">
         `;
 
-        // Urutkan part berdasarkan waktu scan (terbaru di atas)
         boxData.items.sort((a,b) => new Date(b.time) - new Date(a.time));
 
         boxData.items.forEach(item => {
-            // Rapikan format jam
             let timeStr = item.time;
             try {
                 const dateObj = new Date(item.time);
@@ -258,7 +321,6 @@ function renderCloudAccordion(data) {
     container.innerHTML = html;
 }
 
-// Fungsi kecil untuk animasi buka/tutup Accordion
 window.toggleAccordion = function(id) {
     const content = document.getElementById(id);
     const icon = document.getElementById('icon-' + id);
@@ -281,36 +343,30 @@ window.importCloudToLocal = function() {
 
     let importCount = 0;
 
-    // Loop data dari cloud
     lastFetchedCloudOffBs.forEach(cloudItem => {
-        // Cek apakah data ini sudah ada di sesi lokal (berdasarkan Teks QR)
         const isDuplicate = offBsSession.some(localItem => localItem.qr === cloudItem.qr);
         
         if (!isDuplicate) {
-            // Jika belum ada, masukkan ke array sesi lokal
             offBsSession.push({
-                id: Date.now() + Math.random(), // Buat ID unik
+                id: Date.now() + Math.random(), 
                 partNo: cloudItem.partNo,
                 docNo: cloudItem.docNo,
                 box: cloudItem.box,
                 qty: parseInt(cloudItem.qty) || 1,
                 qr: cloudItem.qr,
                 time: cloudItem.time,
-                synced: true // Set otomatis true karena asalnya dari Cloud
+                synced: true 
             });
             importCount++;
         }
     });
 
-    // Simpan ke localStorage & Segarkan UI
     localStorage.setItem('wms_off_bs', JSON.stringify(offBsSession));
     
-    // Sortir agar yang terbaru di atas
     offBsSession.sort((a, b) => new Date(b.time) - new Date(a.time));
     
     if(typeof renderOffBsList === 'function') renderOffBsList();
 
-    // Tutup modal
     document.getElementById('cloudOffBsModal').style.display = 'none';
     
     if(typeof showToast === 'function') {

@@ -1073,59 +1073,6 @@ function clearOffBsSession() {
 }
 
 // ==========================================
-// FUNGSI BARU: Auto-Sync khusus OFF BS ke Cloud
-// ==========================================
-async function triggerOffBsSync() {
-    // Jangan sync jika internet mati atau proses sync lain sedang berjalan
-    if (!navigator.onLine || isSyncing) return;
-
-    // Filter hanya data yang belum ter-sync
-    const unsyncedData = offBsSession.filter(i => !i.synced);
-    if (unsyncedData.length === 0) return; // Tidak ada yang perlu di-sync
-
-    isSyncing = true;
-    updateSyncUI("🔄 Syncing OFF BS...");
-
-    try {
-        const payload = {
-            action: "sync_off_bs",
-            data: unsyncedData
-        };
-
-        const response = await fetch(API_URL, {
-            method: "POST",
-            redirect: "follow",
-            headers: { "Content-Type": "text/plain;charset=utf-8" },
-            body: JSON.stringify(payload)
-        });
-
-        const result = await response.json();
-
-        if (result.status === "success") {
-            // Jika berhasil, ubah bendera synced menjadi true
-            unsyncedData.forEach(u => u.synced = true);
-            // Simpan perubahan bendera ke memori lokal
-            localStorage.setItem('wms_off_bs', JSON.stringify(offBsSession));
-            
-            updateSyncUI("🟢 OFF BS Tersimpan");
-            if(currentTab === 'offbs') renderOffBsList(); // Segarkan ikon awan di layar
-        } else {
-            updateSyncUI("🔴 Gagal Sync OFF BS");
-        }
-    } catch (err) {
-        console.error("Gagal sync OFF BS:", err);
-        updateSyncUI("🔴 Offline");
-    } finally {
-        isSyncing = false;
-    }
-}
-
-
-
-// ==========================================
-// 8. LOGIKA NAVIGASI TAB
-// ==========================================
-// ==========================================
 // 8. LOGIKA NAVIGASI TAB
 // ==========================================
 function switchTab(id) {
