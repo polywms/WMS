@@ -1,15 +1,14 @@
-const CACHE_NAME = 'wms-cache-v6'; // Ubah versi cache agar browser memuat ulang yang baru
+const CACHE_NAME = 'wms-cache-v7';
 const urlsToCache = [
   './',
   './index.html',
   './manifest.json',
-  // Pastikan nama file icon ini sesuai dengan yang kamu punya (misal: icon-192.png)
   './icon-192.png' 
 ];
 
-// 1. Install Service Worker dan simpan file ke cache
+
 self.addEventListener('install', event => {
-  self.skipWaiting(); // LANGSUNG AKTIFKAN sw.js baru tanpa menunggu tab ditutup
+  self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then(cache => {
