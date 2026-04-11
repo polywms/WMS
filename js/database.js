@@ -1,4 +1,7 @@
 // js/database.js
+
+let lastFetchedCloudOffBs = [];
+
 function updateSyncUI(text) {
     const el = document.getElementById('syncStatus');
     if(el) el.innerText = text;
@@ -18,10 +21,10 @@ function loadDataFromLocal() {
         localItems = e.target.result || [];
         localItems.forEach(i => { if(!i.locations) i.locations = {}; });
         localItems.sort((a,b) => a.partNo.localeCompare(b.partNo));
-        populateFilters();
-        if(currentTab === 'opname') handleOpnameRender();
-        if(currentTab === 'simpan') renderSimpanList(true);
-        if(currentTab === 'data') renderDataList(true);
+        if(typeof populateFilters === 'function') populateFilters();
+        if(currentTab === 'opname' && typeof handleOpnameRender === 'function') handleOpnameRender();
+        if(currentTab === 'simpan' && typeof renderSimpanList === 'function') renderSimpanList(true);
+        if(currentTab === 'data' && typeof renderDataList === 'function') renderDataList(true);
     };
 }
 
@@ -115,14 +118,13 @@ async function processSyncQueue() {
 // ==========================================
 async function fetchCloudOffBs() {
     if (!navigator.onLine) {
-        showToast("Gagal: Koneksi internet terputus!");
+        if(typeof showToast === 'function') showToast("Gagal: Koneksi internet terputus!");
         return;
     }
 
     const modal = document.getElementById('cloudOffBsModal');
     const content = document.getElementById('cloudOffBsContent');
     
-    // Munculkan Modal & animasi Loading
     modal.style.display = 'flex';
     content.innerHTML = `
         <div style="text-align:center; padding:40px; color:#64748b;">
@@ -132,16 +134,23 @@ async function fetchCloudOffBs() {
 
     try {
         const response = await fetch(API_URL, {
-            method: "POST",
-            redirect: "follow",
+            method: "POST", redirect: "follow",
             headers: { "Content-Type": "text/plain;charset=utf-8" },
             body: JSON.stringify({ action: "get_cloud_off_bs" })
         });
 
         const result = await response.json();
 
+        // Validasi ekstra agar aman jika API Google masih pakai versi lama
         if (result.status === "success") {
-            renderCloudAccordion(result.data);
+            if (result.data && Array.isArray(result.data)) {
+                lastFetchedCloudOffBs = result.data; // Simpan memori sementara
+                renderCloudAccordion(result.data);
+            } else {
+                content.innerHTML = `<div style="color:var(--danger); text-align:center; padding:20px;">
+                    <b>Data Tidak Valid!</b><br><br>Google Script versi lama terdeteksi.<br>Pastikan kamu sudah melakukan "Deploy -> New Version" di Code.gs!
+                </div>`;
+            }
         } else {
             content.innerHTML = `<div style="color:var(--danger); text-align:center; padding:20px;">Gagal: ${result.message}</div>`;
         }
@@ -182,8 +191,14 @@ function renderCloudAccordion(data) {
         totalAllPcs += qty;
     });
 
-    // 2. RENDER HTML
-    let html = `<div style="margin-bottom:15px; text-align:center; font-size:0.85rem; color:#64748b; font-weight:bold;">TOTAL GLOBAL: ${totalAllPcs} PCS</div>`;
+    // 2. RENDER HTML (DENGAN TOMBOL IMPORT)
+    let html = `
+    <div style="margin-bottom:15px; display:flex; justify-content:space-between; align-items:center; background:#f1f5f9; padding:10px; border-radius:8px;">
+        <div style="font-size:0.85rem; color:#64748b; font-weight:bold;">TOTAL CLOUD: ${totalAllPcs} PCS</div>
+        <button onclick="importCloudToLocal()" style="background:var(--offbs); color:white; border:none; padding:8px 12px; border-radius:6px; cursor:pointer; font-size:0.8rem; font-weight:bold;">
+            <i class="fas fa-download"></i> Tarik ke Sesi
+        </button>
+    </div>`;
 
     // Sort nama box secara alfabet (misal RTF-01 di atas RTF-02)
     const sortedBoxes = Object.keys(groupedData).sort();
@@ -235,7 +250,9 @@ function renderCloudAccordion(data) {
         });
 
         html += `
-            </div> </div> `;
+            </div> 
+        </div> 
+        `;
     });
 
     container.innerHTML = html;
@@ -254,7 +271,59 @@ window.toggleAccordion = function(id) {
     }
 };
 
+// ==========================================
+// FUNGSI IMPORT CLOUD KE LOKAL SESI OFF BS
+// ==========================================
+window.importCloudToLocal = function() {
+    if (!lastFetchedCloudOffBs || lastFetchedCloudOffBs.length === 0) return;
+
+    if (!confirm("Tarik data dari Cloud ke daftar 'Sesi Ini'?\n\nCatatan: Data yang ditarik tidak akan duplikat dengan yang sudah ada di layar.")) return;
+
+    let importCount = 0;
+
+    // Loop data dari cloud
+    lastFetchedCloudOffBs.forEach(cloudItem => {
+        // Cek apakah data ini sudah ada di sesi lokal (berdasarkan Teks QR)
+        const isDuplicate = offBsSession.some(localItem => localItem.qr === cloudItem.qr);
+        
+        if (!isDuplicate) {
+            // Jika belum ada, masukkan ke array sesi lokal
+            offBsSession.push({
+                id: Date.now() + Math.random(), // Buat ID unik
+                partNo: cloudItem.partNo,
+                docNo: cloudItem.docNo,
+                box: cloudItem.box,
+                qty: parseInt(cloudItem.qty) || 1,
+                qr: cloudItem.qr,
+                time: cloudItem.time,
+                synced: true // Set otomatis true karena asalnya dari Cloud
+            });
+            importCount++;
+        }
+    });
+
+    // Simpan ke localStorage & Segarkan UI
+    localStorage.setItem('wms_off_bs', JSON.stringify(offBsSession));
+    
+    // Sortir agar yang terbaru di atas
+    offBsSession.sort((a, b) => new Date(b.time) - new Date(a.time));
+    
+    if(typeof renderOffBsList === 'function') renderOffBsList();
+
+    // Tutup modal
+    document.getElementById('cloudOffBsModal').style.display = 'none';
+    
+    if(typeof showToast === 'function') {
+        if (importCount > 0) {
+            showToast(`✅ ${importCount} data Cloud ditarik ke lokal!`);
+        } else {
+            showToast("ℹ️ Semua data sudah ada di lokal (Tidak ada data baru).");
+        }
+    }
+};
+
+// Interval Utama Aplikasi
 setInterval(() => {
     processSyncQueue(); // Sync data WMS biasa
-    triggerOffBsSync(); // Sync data OFF BS
+    if(typeof triggerOffBsSync === 'function') triggerOffBsSync(); // Sync data OFF BS
 }, 5000);
