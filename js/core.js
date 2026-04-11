@@ -1125,6 +1125,9 @@ async function triggerOffBsSync() {
 // ==========================================
 // 8. LOGIKA NAVIGASI TAB
 // ==========================================
+// ==========================================
+// 8. LOGIKA NAVIGASI TAB
+// ==========================================
 function switchTab(id) {
     currentTab = id;
     document.querySelectorAll('.tab-content').forEach(e=>e.classList.remove('active'));
@@ -1138,23 +1141,29 @@ function switchTab(id) {
     const chkFilter = document.getElementById('chkFilterNoBox'); 
     const isMulti = document.getElementById('chkMultiScan') ? document.getElementById('chkMultiScan').checked : false;
     
-    // Ambil elemen Global Filter
+    // Ambil elemen UI global
     const globalFilter = document.querySelector('.global-filter');
+    const scannerBar = document.querySelector('.scanner-bar'); // <--- 1. Targetkan Scanner Bar
     
     // Atur visibilitas fitur berdasarkan Tab
     if (id === 'simpan') {
         multiToggle.style.display = 'flex';
         filterToggle.style.display = isMulti ? 'flex' : 'none'; 
-        globalFilter.style.display = 'flex'; // Munculkan filter
+        if(globalFilter) globalFilter.style.display = 'flex'; 
     } else if (id === 'offbs') {
         multiToggle.style.display = 'none';
         filterToggle.style.display = 'none';
-        globalFilter.style.display = 'none'; // Sembunyikan filter khusus di OFF BS
+        if(globalFilter) globalFilter.style.display = 'none'; 
     } else {
         multiToggle.style.display = 'none';
         filterToggle.style.display = 'none';
-        globalFilter.style.display = 'flex'; // Munculkan filter
+        if(globalFilter) globalFilter.style.display = 'flex'; 
         if(chkFilter && chkFilter.checked) chkFilter.checked = false;
+    }
+    
+    // <--- 2. LOGIKA BARU: Sembunyikan Scanner Bar KHUSUS di tab 'data'
+    if (scannerBar) {
+        scannerBar.style.display = (id === 'data') ? 'none' : 'block';
     }
     
     const root = document.documentElement;
@@ -1180,7 +1189,12 @@ function switchTab(id) {
     if(id === 'simpan') renderSimpanList(true); 
     if(id === 'data') renderDataList(true);
     
-    document.getElementById('mainInput').focus();
+    // <--- 3. LOGIKA BARU: Auto-focus ke input yang tepat
+    if (id === 'data') {
+        document.getElementById('cariInput').focus();
+    } else {
+        document.getElementById('mainInput').focus();
+    }
 }
 
 function clearData() { 
