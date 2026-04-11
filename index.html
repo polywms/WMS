@@ -46,32 +46,65 @@
                 </select>
             </div>
             
-            <div class="scanner-bar">
-                <div class="input-wrapper">
-                    <input type="text" id="mainInput" class="main-input" placeholder="Scan Part / Box..." inputmode="none" autocomplete="off" onkeydown="handleInputKeyDown(event)">
+            <div class="scanner-bar" style="display: block;">
+                <div class="input-wrapper" style="position: relative;">
+                    <input type="text" id="mainInput" class="main-input" placeholder="Scan Part / Box..." inputmode="none" autocomplete="off" onkeydown="handleInputKeyDown(event)" style="padding-right: 125px; width: 100%; box-sizing: border-box;">
+                    
                     <div style="position: absolute; right: 5px; top: 50%; transform: translateY(-50%); display:flex; gap:5px; z-index:10;">
-                        <button onclick="openCameraScanner()" style="background:var(--active-color); color:white; border:none; padding:8px 12px; border-radius:6px; cursor:pointer;"><i class="fas fa-camera"></i></button>
+                        
+                        <button onclick="openCameraScanner()" style="width:35px; height:35px; background:var(--active-color); color:white; border:none; border-radius:6px; display:flex; justify-content:center; align-items:center; cursor:pointer; padding:0;" title="Scan Kamera">
+                            <i class="fas fa-camera"></i>
+                        </button>
+                        
+                        <label style="cursor: pointer; margin: 0;" title="Mode Ketik Manual">
+                            <input type="checkbox" id="chkManualType" style="display:none;" onchange="
+                            toggleKeyboardMode(); 
+                            const icon = document.getElementById('kbdIcon');
+                            if(this.checked) {
+                            icon.style.background = 'var(--active-color)';
+                            icon.style.color = 'white';
+                            icon.style.borderColor = 'var(--active-color)';
+                            } else {
+                            icon.style.background = 'white';
+                            icon.style.color = 'var(--secondary)';
+                            icon.style.borderColor = '#cbd5e1';
+                            }
+                            ">
+                            <div id="kbdIcon" style="width:35px; height:35px; background:white; color:var(--secondary); border:1px solid #cbd5e1; border-radius:6px; display:flex; justify-content:center; align-items:center; transition:0.2s;">
+                                <i class="fas fa-keyboard"></i>
+                            </div>
+                        </label>
+                        
+                        
+                        <label id="multiScanToggle" style="cursor: pointer; margin: 0; display: none;" title="Mode Multi Scan">
+                            <input type="checkbox" id="chkMultiScan" style="display:none;" onchange="
+                            toggleMultiMode(); 
+                            const icon = document.getElementById('multiIcon');
+                            if(this.checked) {
+                            icon.style.background = 'var(--purple)';
+                            icon.style.color = 'white';
+                            icon.style.borderColor = 'var(--purple)';
+                            } else {
+                            icon.style.background = 'white';
+                            icon.style.color = 'var(--secondary)';
+                            icon.style.borderColor = '#cbd5e1';
+                            }
+                            ">
+                            <div id="multiIcon" style="width:35px; height:35px; background:white; color:var(--secondary); border:1px solid #cbd5e1; border-radius:6px; display:flex; justify-content:center; align-items:center; transition:0.2s;">
+                                <i class="fas fa-layer-group"></i>
+                            </div>
+                        </label>
+                        
                     </div>
                 </div>
                 
                 <div id="historyLog"></div>
                 
-                <div style="display:flex; justify-content:space-between; margin-top:10px; align-items:center;">
-                    <small style="color:var(--secondary); font-weight:600;" id="scanStatusText">Siap Scan...</small>
-                    <div style="display:flex; align-items:center;">
-                        <label id="multiScanToggle" class="chip-toggle">
-                            <input type="checkbox" id="chkMultiScan" onchange="toggleMultiMode()">
-                            <span><i class="fas fa-layer-group"></i> Multi</span>
-                        </label>
-                        <label id="filterNoBoxToggle" class="chip-toggle danger" style="display:none;">
-                            <input type="checkbox" id="chkFilterNoBox" onchange="renderSimpanList(true)">
-                            <span><i class="fas fa-box-open"></i> Non-Box</span>
-                        </label>
-                        <label class="chip-toggle">
-                            <input type="checkbox" id="chkManualType" onchange="toggleKeyboardMode()">
-                            <span><i class="fas fa-keyboard"></i> Ketik</span>
-                        </label>
-                    </div>
+                <div style="display:flex; justify-content:flex-end; margin-top:10px; align-items:center;">
+                    <label id="filterNoBoxToggle" class="chip-toggle danger" style="display:none;">
+                        <input type="checkbox" id="chkFilterNoBox" onchange="renderSimpanList(true)">
+                        <span><i class="fas fa-box-open"></i> Non-Box</span>
+                    </label>
                 </div>
             </div>
             
@@ -168,16 +201,30 @@
             </div>
             
             <div id="tab-offbs" class="tab-content">
-                <div class="status-panel" style="display:block; background:#fff7ed; border-color:#fdba74; padding:15px;">
-                    <div style="font-size:0.8rem; color:#c2410c; font-weight:bold; text-transform:uppercase;"><i class="fas fa-box"></i> Box Tujuan Bekas</div>
+                <div class="status-panel" style="display:block; background:#fff7ed; border:1px solid #fdba74; border-radius:8px; padding:10px 12px; margin-bottom:10px;">
                     <div style="display:flex; justify-content:space-between; align-items:center;">
-                        <b id="activeOffBsBoxName" style="font-size:1.8rem; color:#9a3412;">Belum Diset</b>
-                        <button class="btn-sm btn-warning" onclick="clearOffBsBox()" style="background:#ea580c;"><i class="fas fa-times"></i></button>
-                    </div>
-                    <div style="margin-top:10px; font-size:0.85rem; color:#c2410c; border-top:1px dashed #fdba74; padding-top:10px;">
-                        <i class="fas fa-info-circle"></i> Scan Box dulu, lalu scan QR Part Bekas
+                        
+                        <div style="display:flex; align-items:center; gap:10px;">
+                            <i class="fas fa-box" style="color:#ea580c; font-size:1.2rem;"></i>
+                            <div style="display:flex; flex-direction:column;">
+                                <span style="font-size:0.65rem; color:#c2410c; font-weight:bold; text-transform:uppercase;">Box Tujuan Bekas</span>
+                                <b id="activeOffBsBoxName" style="font-size:1.1rem; color:#9a3412; line-height:1.2;">Belum Diset</b>
+                            </div>
+                        </div>
+                        
+                        <div style="display:flex; gap:6px;">
+                            <button onclick="fetchCloudOffBs()" style="width:32px; height:32px; background:white; border:1px solid var(--offbs); color:var(--offbs); border-radius:6px; display:flex; justify-content:center; align-items:center; cursor:pointer;" title="Lihat Database di Cloud">
+                                <i class="fas fa-cloud-download-alt"></i>
+                            </button>
+                            
+                            <button onclick="clearOffBsBox()" style="width:32px; height:32px; background:#ea580c; color:white; border:none; border-radius:6px; display:flex; justify-content:center; align-items:center; cursor:pointer;" title="Hapus Box">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                        
                     </div>
                 </div>
+                
                 
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
                     <b style="color:var(--secondary);">Sesi Ini: <span id="offBsCount">0</span> Item</b>
@@ -312,11 +359,33 @@
             </div>
         </div>
         
+        <div id="cloudOffBsModal" class="modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); z-index:9999; justify-content:center; align-items:center; padding: 20px; box-sizing: border-box;">
+            <div class="modal-content" style="background:#f8fafc; width:100%; max-width:500px; max-height:85vh; border-radius:12px; display:flex; flex-direction:column; overflow:hidden; box-shadow: 0 10px 25px rgba(0,0,0,0.2);">
+                
+                <div style="padding:15px 20px; background:var(--offbs); color:white; display:flex; justify-content:space-between; align-items:center;">
+                    <h3 style="margin:0; font-size:1.1rem; display:flex; align-items:center; gap:8px;">
+                        <i class="fas fa-cloud"></i> Live Database OFF BS
+                    </h3>
+                    <button onclick="document.getElementById('cloudOffBsModal').style.display='none'" style="background:none; border:none; color:white; font-size:1.4rem; cursor:pointer;">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                
+                <div id="cloudOffBsContent" style="padding:15px; overflow-y:auto; flex:1;">
+                    <div style="text-align:center; padding:30px; color:#64748b;">
+                        <i class="fas fa-circle-notch fa-spin fa-2x"></i>
+                        <div style="margin-top:10px;">Menarik data dari Cloud...</div>
+                    </div>
+                </div>
+                
+            </div>
+        </div>
+        
         <div id="toast">Notifikasi</div>
         
-<script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+        <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
         <script src="https://unpkg.com/html5-qrcode"></script>
-
+        
         <script src="js/config.js"></script>
         <script src="js/utils.js"></script>
         <script src="js/database.js"></script>
