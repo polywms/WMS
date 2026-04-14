@@ -1032,43 +1032,43 @@ function renderRakSummary() {
 // ==========================================
 // 7. LOGIKA TAB OFF BS
 // ==========================================
-function renderOffBsList() {
-    const container = document.getElementById('offBsList');
-    const totalPcs = offBsSession.reduce((sum, item) => sum + item.qty, 0);
-    const unsyncedCount = offBsSession.filter(i => !i.synced).length;
+function exportOffBsData() {
+    if (offBsSession.length === 0) { 
+        alert("Belum ada data di sesi ini!"); 
+        return; 
+    }
     
-    // Beri peringatan di jumlah scan jika ada yang belum sync
-    const syncWarning = unsyncedCount > 0 ? `<span style="color:var(--danger); font-size:0.8rem; margin-left:10px;">(${unsyncedCount} blm sync)</span>` : '';
-    document.getElementById('offBsCount').innerHTML = `${offBsSession.length} Scan (${totalPcs} pcs) ${syncWarning}`;
-    
-    container.innerHTML = '';
-    
-    offBsSession.forEach((item, index) => {
-        // Ikon Awan: Hijau jika sudah masuk G-Sheet, Oranye berkedip jika belum
-        const cloudIcon = item.synced 
-            ? `<i class="fas fa-cloud-check" style="color:#16a34a; font-size:1.1rem;"></i>` 
-            : `<i class="fas fa-cloud-upload-alt" style="color:#f59e0b; font-size:1.1rem;" title="Menunggu Sync..."></i>`;
+    // HANYA EXPORT YANG DITAMPILKAN DI LAYAR (TIDAK DI-UNCHECK DI MODAL FILTER)
+    // Jika array hiddenOffBsBoxes belum didefinisikan (error), fallback ke array kosong
+    const hiddenBoxes = typeof hiddenOffBsBoxes !== 'undefined' ? hiddenOffBsBoxes : [];
+    const visibleData = offBsSession.filter(item => !hiddenBoxes.includes(item.box));
 
-        const div = document.createElement('div');
-        div.className = 'item-card';
-        div.style.borderLeft = '5px solid var(--offbs)';
-        div.innerHTML = `
-            <div style="flex:1;">
-                <div style="font-weight:bold; font-size:1rem;">
-                    ${item.partNo} 
-                    <span style="color:var(--danger); font-size:0.85rem; margin-left:5px;">(${item.qty} pcs)</span>
-                </div>
-                <div style="font-family:monospace; font-size:0.75rem; color:var(--secondary); margin-top:2px;">${item.docNo}</div>
-                <div style="font-size:0.75rem; color:var(--offbs); margin-top:4px;"><i class="fas fa-box"></i> ${item.box}</div>
-            </div>
-            <div style="text-align:right; display:flex; flex-direction:column; align-items:flex-end; justify-content:space-between;">
-                <div style="font-size:0.65rem; color:#999;">${item.time}</div>
-                <div style="margin-top:5px; margin-bottom:5px;">${cloudIcon}</div>
-                <button class="btn-trash" style="width:30px; height:30px;" onclick="deleteOffBsItem(${item.id})"><i class="fas fa-trash"></i></button>
-            </div>
-        `;
-        container.appendChild(div);
-    });
+    if (visibleData.length === 0) {
+        alert("Tidak ada data yang ditampilkan untuk di-export.\nPastikan kamu sudah mencentang Box di tombol Filter!");
+        return;
+    }
+    
+    const dataToExport = visibleData.map((item, index) => ({
+        "No": visibleData.length - index,
+        "Waktu Scan": item.time,
+        "Kode Box/Colly": item.box,
+        "Part Number": item.partNo,
+        "QTY Fisik": item.qty,
+        "Doc Number (SJOB)": item.docNo,
+        "QR Text Raw": item.qr
+    }));
+    
+    const ws = XLSX.utils.json_to_sheet(dataToExport);
+    // Sesuaikan lebar kolom agar rapi
+    ws['!cols'] = [{wch: 5}, {wch: 15}, {wch: 25}, {wch: 25}, {wch: 10}, {wch: 35}, {wch: 60}];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Temp OFF BS");
+    
+    // Nama file sekarang menunjukkan jam agar kalau export berkali-kali tidak bentrok
+    const timeSuffix = new Date().toLocaleTimeString('id-ID', {hour: '2-digit', minute:'2-digit'}).replace(/:/g, '');
+    const dateSuffix = new Date().toISOString().slice(0,10).replace(/-/g, '');
+    
+    XLSX.writeFile(wb, `Packing_OFFBS_${dateSuffix}_${timeSuffix}.xlsx`);
 }
 
 function clearOffBsBox() {
