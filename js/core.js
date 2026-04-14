@@ -117,20 +117,43 @@ function processScan(code) {
             return;
         }
 
-        // Parser QR Bekas
-        if (!rawCode.includes('|')) {
+        // =====================================================
+        // PENERJEMAH QR (FORMAT 2025 vs 2026)
+        // =====================================================
+        let partNo = "";
+        let scanQty = 1;
+        let docNo = "";
+
+        // 1. DETEKSI FORMAT 2025 (Berawalan SCL/ dan dipisah spasi)
+        if (rawCode.startsWith("SCL/")) {
+            const parts = rawCode.split(" ");
+            if (parts.length >= 3) {
+                docNo = parts[0].trim(); // SCL/MGL/...
+                scanQty = parseInt(parts[1]) || 1; // QTY (Elemen kedua)
+                partNo = parts[parts.length - 1].trim(); // PART NUMBER (Selalu ambil elemen paling ujung)
+            } else {
+                feedback('error');
+                showToast("TOLAKAN: Format SCL (2025) tidak terbaca/rusak!");
+                return;
+            }
+        } 
+        // 2. DETEKSI FORMAT 2026 (Ada pembatas | atau SJOB)
+        else if (rawCode.includes('|')) {
+            const parts = rawCode.split('|');
+            partNo = parts[0].trim();
+            scanQty = parseInt(parts[1]) || 1; 
+            docNo = parts[3] ? parts[3].trim() : "TIDAK ADA DOC"; 
+        } 
+        // 3. FORMAT TIDAK DIKENALI
+        else {
             feedback('error');
-            showToast("TOLAKAN: Format QR bukan bekas/SJOB!");
+            showToast("TOLAKAN: Format QR tidak dikenali (Bukan SCL/SJOB)!");
             return;
         }
 
-        const parts = rawCode.split('|');
-        const partNo = parts[0].trim();
-        // BACA QTY DARI QR (Ambil elemen ke-2 setelah | pertama. Default 1 jika kosong/huruf)
-        const scanQty = parseInt(parts[1]) || 1; 
-        const docNo = parts[3] ? parts[3].trim() : "TIDAK ADA DOC"; 
-
+        // =====================================================
         // Validasi DB Master: Harus ada di DB dan tipenya OFF BS
+        // =====================================================
         const masterItem = localItems.find(i => i.partNo === partNo && (i.locType || '').toUpperCase().includes('OFF BS'));
         
         if (!masterItem) {
@@ -139,7 +162,7 @@ function processScan(code) {
             return;
         }
 
-        // Hitung total QTY yang sudah di-scan (Bukan jumlah baris, tapi jumlah QTY-nya)
+        // Hitung total QTY yang sudah di-scan
         const currentTotalQty = offBsSession
             .filter(i => i.partNo === partNo)
             .reduce((sum, item) => sum + item.qty, 0);
@@ -151,7 +174,7 @@ function processScan(code) {
             return;
         }
 
-        // Cegah scan QR fisik yang persis sama 2x
+        // Cegah scan QR fisik yang persis sama 2x (Mencegah double scan)
         const isDuplicateQR = offBsSession.some(i => i.qr === rawCode);
         if (isDuplicateQR) {
             feedback('error');
@@ -159,21 +182,21 @@ function processScan(code) {
             return;
         }
 
-        // Simpan ke sesi dengan menyertakan QTY
+        // Simpan ke sesi dengan menyertakan QTY & Doc
         offBsSession.unshift({
             id: Date.now(),
             partNo: partNo,
             docNo: docNo,
             box: activeOffBsBox,
-            qty: scanQty, // Simpan angka qty-nya
+            qty: scanQty, 
             qr: rawCode,
             time: new Date().toLocaleTimeString(),
             synced: false
         });
 
         localStorage.setItem('wms_off_bs', JSON.stringify(offBsSession));
-        renderOffBsList();
-        triggerOffBsSync();
+        if(typeof renderOffBsList === 'function') renderOffBsList();
+        if(typeof triggerOffBsSync === 'function') triggerOffBsSync();
         
         feedback('success');
         showToast(`${partNo} (${scanQty} pcs) tersimpan!`);
@@ -1009,7 +1032,6 @@ function renderRakSummary() {
 // ==========================================
 // 7. LOGIKA TAB OFF BS
 // ==========================================
-// UPDATE: Tampilan List OFF BS (Menampilkan status Cloud)
 function renderOffBsList() {
     const container = document.getElementById('offBsList');
     const totalPcs = offBsSession.reduce((sum, item) => sum + item.qty, 0);
@@ -1090,7 +1112,7 @@ function switchTab(id) {
     
     // Ambil elemen UI global
     const globalFilter = document.querySelector('.global-filter');
-    const scannerBar = document.querySelector('.scanner-bar'); // <--- 1. Targetkan Scanner Bar
+    const scannerBar = document.querySelector('.scanner-bar');
     
     // Atur visibilitas fitur berdasarkan Tab
     if (id === 'simpan') {
@@ -1108,7 +1130,6 @@ function switchTab(id) {
         if(chkFilter && chkFilter.checked) chkFilter.checked = false;
     }
     
-    // <--- 2. LOGIKA BARU: Sembunyikan Scanner Bar KHUSUS di tab 'data'
     if (scannerBar) {
         scannerBar.style.display = (id === 'data') ? 'none' : 'block';
     }
@@ -1136,7 +1157,6 @@ function switchTab(id) {
     if(id === 'simpan') renderSimpanList(true); 
     if(id === 'data') renderDataList(true);
     
-    // <--- 3. LOGIKA BARU: Auto-focus ke input yang tepat
     if (id === 'data') {
         document.getElementById('cariInput').focus();
     } else {
