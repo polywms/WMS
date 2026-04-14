@@ -187,22 +187,37 @@ function exportOffBsData() {
         return; 
     }
     
-    const dataToExport = offBsSession.map((item, index) => ({
-        "No": offBsSession.length - index,
+    // HANYA EXPORT YANG DITAMPILKAN DI LAYAR (TIDAK DI-UNCHECK DI MODAL FILTER)
+    // Jika array hiddenOffBsBoxes belum didefinisikan (error), fallback ke array kosong
+    const hiddenBoxes = typeof hiddenOffBsBoxes !== 'undefined' ? hiddenOffBsBoxes : [];
+    const visibleData = offBsSession.filter(item => !hiddenBoxes.includes(item.box));
+
+    if (visibleData.length === 0) {
+        alert("Tidak ada data yang ditampilkan untuk di-export.\nPastikan kamu sudah mencentang Box di tombol Filter!");
+        return;
+    }
+    
+    const dataToExport = visibleData.map((item, index) => ({
+        "No": visibleData.length - index,
         "Waktu Scan": item.time,
         "Kode Box/Colly": item.box,
         "Part Number": item.partNo,
-        "QTY Fisik": item.qty, // <--- Tambahan Kolom QTY
+        "QTY Fisik": item.qty,
         "Doc Number (SJOB)": item.docNo,
         "QR Text Raw": item.qr
     }));
     
     const ws = XLSX.utils.json_to_sheet(dataToExport);
-    // Sesuaikan lebar kolom agar rapi (Kolom QTY di index 4)
-    ws['!cols'] = [{wch: 5}, {wch: 15}, {wch: 15}, {wch: 25}, {wch: 10}, {wch: 35}, {wch: 60}];
+    // Sesuaikan lebar kolom agar rapi
+    ws['!cols'] = [{wch: 5}, {wch: 15}, {wch: 25}, {wch: 25}, {wch: 10}, {wch: 35}, {wch: 60}];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Temp OFF BS");
-    XLSX.writeFile(wb, `Packing_OFFBS_${new Date().toISOString().slice(0,10).replace(/-/g, '')}.xlsx`);
+    
+    // Nama file sekarang menunjukkan jam agar kalau export berkali-kali tidak bentrok
+    const timeSuffix = new Date().toLocaleTimeString('id-ID', {hour: '2-digit', minute:'2-digit'}).replace(/:/g, '');
+    const dateSuffix = new Date().toISOString().slice(0,10).replace(/-/g, '');
+    
+    XLSX.writeFile(wb, `Packing_OFFBS_${dateSuffix}_${timeSuffix}.xlsx`);
 }
 
 function downloadNewParts() {
