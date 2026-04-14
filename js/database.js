@@ -230,10 +230,9 @@ async function fetchCloudOffBs() {
     }
 }
 
-// Fungsi untuk merender UI Accordion
+// Fungsi untuk merender UI Accordion (+ Fitur Filter Box)
 function renderCloudAccordion(data) {
     const container = document.getElementById('cloudOffBsContent');
-
     const validData = data.filter(item => item.box && item.partNo);
 
     if (validData.length === 0) {
@@ -250,32 +249,41 @@ function renderCloudAccordion(data) {
 
     validData.forEach(item => {
         const boxName = item.box.trim().toUpperCase();
-        if (!groupedData[boxName]) {
-            groupedData[boxName] = { totalQty: 0, items: [] };
-        }
+        if (!groupedData[boxName]) groupedData[boxName] = { totalQty: 0, items: [] };
         const qty = parseInt(item.qty) || 0;
         groupedData[boxName].totalQty += qty;
         groupedData[boxName].items.push(item);
         totalAllPcs += qty;
     });
 
+    const sortedBoxes = Object.keys(groupedData).sort();
+
+    // 1. TAMBAHAN: Buat Dropdown Filter Box
     let html = `
+    <div style="margin-bottom: 15px;">
+        <select id="cloudBoxFilter" onchange="filterCloudBoxes(this.value)" style="width:100%; padding:10px 12px; border-radius:8px; border:1px solid #cbd5e1; font-weight:bold; color:var(--text); background:white; font-size:0.9rem; outline:none; box-shadow:0 1px 2px rgba(0,0,0,0.05);">
+            <option value="ALL">📦 -- Tampilkan Semua Box --</option>
+            ${sortedBoxes.map(boxName => `<option value="${boxName}">Box: ${boxName}</option>`).join('')}
+        </select>
+    </div>
+
     <div style="margin-bottom:15px; display:flex; justify-content:space-between; align-items:center; background:#f1f5f9; padding:10px; border-radius:8px;">
         <div style="font-size:0.85rem; color:#64748b; font-weight:bold;">TOTAL CLOUD: ${totalAllPcs} PCS</div>
         <button onclick="importCloudToLocal()" style="background:var(--offbs); color:white; border:none; padding:8px 12px; border-radius:6px; cursor:pointer; font-size:0.8rem; font-weight:bold;">
             <i class="fas fa-download"></i> Tarik ke Sesi
         </button>
-    </div>`;
-
-    const sortedBoxes = Object.keys(groupedData).sort();
+    </div>
+    
+    <div id="cloudBoxListContainer">
+    `;
 
     sortedBoxes.forEach(box => {
         const boxData = groupedData[box];
         const targetId = 'acc-' + box.replace(/[^a-zA-Z0-9]/g, '');
 
+        // TAMBAHAN: Masukkan class 'cloud-box-item' dan data-boxname agar bisa difilter oleh Javascript
         html += `
-        <div style="margin-bottom: 10px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: white; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
-            
+        <div class="cloud-box-item" data-boxname="${box}" style="margin-bottom: 10px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: white; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
             <div onclick="toggleAccordion('${targetId}')" style="background: #fff7ed; padding: 12px 15px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; border-left: 5px solid var(--offbs);">
                 <div style="font-weight: 800; color: #9a3412; font-size: 1rem;">
                     <i class="fas fa-box" style="margin-right: 8px; color:var(--offbs);"></i>${box}
@@ -300,11 +308,14 @@ function renderCloudAccordion(data) {
 
             html += `
                 <div style="padding: 10px 0; border-bottom: 1px dashed #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
-                    <div style="flex:1; padding-right:10px;">
-                        <div style="font-weight: bold; color: var(--text); font-size: 0.95rem;">${item.partNo}</div>
-                        <div style="font-size: 0.7rem; color: #64748b; font-family: monospace; margin-top:2px;">${item.docNo}</div>
+                    <div style="display:flex; align-items:center; flex:1; overflow:hidden;">
+                        <input type="checkbox" class="chk-checkout-${targetId}" data-box="${item.box}" data-part="${item.partNo}" data-doc="${item.docNo}" style="width:18px; height:18px; cursor:pointer; margin-right:12px;">
+                        <div style="flex:1;">
+                            <div style="font-weight: bold; color: var(--text); font-size: 0.95rem;">${item.partNo}</div>
+                            <div style="font-size: 0.7rem; color: #64748b; font-family: monospace; margin-top:2px;">${item.docNo}</div>
+                        </div>
                     </div>
-                    <div style="text-align: right;">
+                    <div style="text-align: right; margin-left:10px;">
                         <div style="font-weight: 900; color: var(--danger); font-size: 0.95rem;">${item.qty}</div>
                         <div style="font-size: 0.65rem; color: #94a3b8; margin-top:2px;">${timeStr}</div>
                     </div>
@@ -313,23 +324,93 @@ function renderCloudAccordion(data) {
         });
 
         html += `
+                <div style="padding: 12px 0; display:flex; justify-content:space-between; align-items:center; background: #fafaf9; margin: 0 -15px; padding: 10px 15px;">
+                    <label style="font-size:0.85rem; font-weight:bold; cursor:pointer; color:var(--secondary); display:flex; align-items:center; gap:8px;">
+                        <input type="checkbox" onchange="toggleAllCheckboxes('${targetId}', this.checked)" style="width:16px; height:16px;"> Pilih Semua
+                    </label>
+                    <button onclick="checkoutBox(event, '${targetId}')" style="background:#10b981; color:white; border:none; padding:8px 16px; border-radius:6px; font-weight:bold; cursor:pointer; font-size:0.85rem; box-shadow:0 2px 4px rgba(16,185,129,0.3); display:flex; align-items:center; gap:6px;">
+                        <i class="fas fa-truck"></i> Kirim ke Pusat
+                    </button>
+                </div>
             </div> 
         </div> 
         `;
     });
 
+    html += `</div>`; // Tutup container list
     container.innerHTML = html;
 }
 
-window.toggleAccordion = function(id) {
-    const content = document.getElementById(id);
-    const icon = document.getElementById('icon-' + id);
-    if (content.style.display === 'none' || content.style.display === '') {
-        content.style.display = 'block';
-        icon.style.transform = 'rotate(180deg)';
-    } else {
-        content.style.display = 'none';
-        icon.style.transform = 'rotate(0deg)';
+// 2. TAMBAHAN BARU: Fungsi untuk menyembunyikan/menampilkan Box sesuai pilihan Dropdown
+window.filterCloudBoxes = function(selectedBox) {
+    const allBoxes = document.querySelectorAll('.cloud-box-item');
+    allBoxes.forEach(boxEl => {
+        if (selectedBox === 'ALL' || boxEl.dataset.boxname === selectedBox) {
+            boxEl.style.display = 'block';
+        } else {
+            boxEl.style.display = 'none';
+        }
+    });
+};
+
+// Pastikan fungsi ini dan fungsi checkoutBox(...) yang lama tetap ada di bawahnya ya!
+// Fungsi Bantuan Checkbox "Pilih Semua"
+window.toggleAllCheckboxes = function(targetId, isChecked) {
+    document.querySelectorAll(`.chk-checkout-${targetId}`).forEach(chk => {
+        chk.checked = isChecked;
+    });
+};
+
+// ==========================================
+// FUNGSI CHECKOUT / KIRIM KE PUSAT
+// ==========================================
+window.checkoutBox = async function(event, targetId) {
+    const checkboxes = document.querySelectorAll(`.chk-checkout-${targetId}:checked`);
+    
+    if (checkboxes.length === 0) {
+        alert("Pilih minimal 1 part dengan mencentang kotaknya untuk dikirim ke Pusat!");
+        return;
+    }
+
+    if (!confirm(`Truk siap berangkat! 🚚\n\nKamu akan mengirim ${checkboxes.length} part ke Pusat.\nPart ini akan dipindah ke arsip (HISTORY) dan dihapus dari layar ini.\n\nLanjutkan?`)) return;
+
+    // Ambil data dari attribute HTML checkbox yang dicentang
+    const itemsToCheckout = Array.from(checkboxes).map(chk => ({
+        box: chk.dataset.box,
+        partNo: chk.dataset.part,
+        docNo: chk.dataset.doc
+    }));
+
+    // Ubah tombol jadi loading
+    const btn = event.currentTarget;
+    const originalHTML = btn.innerHTML;
+    btn.innerHTML = `<i class="fas fa-spinner fa-spin"></i> Mengirim...`;
+    btn.disabled = true;
+    btn.style.opacity = '0.7';
+
+    try {
+        const response = await fetch(API_URL, {
+            method: "POST", redirect: "follow",
+            headers: { "Content-Type": "text/plain;charset=utf-8" },
+            body: JSON.stringify({ action: "checkout_off_bs", data: itemsToCheckout })
+        });
+        const result = await response.json();
+
+        if (result.status === "success") {
+            alert(`✅ SUKSES!\n${result.message}`);
+            fetchCloudOffBs(); // Refresh modal otomatis biar part yang dikirim hilang dari layar
+        } else {
+            alert(`❌ Gagal: ${result.message}`);
+            btn.innerHTML = originalHTML;
+            btn.disabled = false;
+            btn.style.opacity = '1';
+        }
+    } catch (err) {
+        console.error(err);
+        alert("Gagal terhubung ke server. Pastikan internet stabil.");
+        btn.innerHTML = originalHTML;
+        btn.disabled = false;
+        btn.style.opacity = '1';
     }
 };
 
