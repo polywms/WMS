@@ -32,12 +32,24 @@ function handleImport(input) {
         });
         
         const consolidatedExcel = {};
+        let fgSkippedCount = 0; // <--- Variabel Penghitung Baris FG yang dibuang
+
         json.forEach(row => {
             const rawPartNo = String(row['Part']||row['Nomor Gudang']||'').trim();
             const pNo = rawPartNo.toUpperCase();
             if (!pNo) return; 
             
             const locType = (row['Tipe Lokasi']||'UMUM').trim();
+
+            // =======================================================
+            // FITUR BARU: TOLAK BARIS BERAWALAN "FG" (Finished Goods)
+            // =======================================================
+            if (locType.toUpperCase().startsWith('FG')) {
+                fgSkippedCount++; // Tambah hitungan sampah
+                return; // Berhenti memproses baris ini, lanjut ke baris berikutnya
+            }
+            // =======================================================
+
             const techName = (row['Nama']||'').trim();
             const qty = parseInt(row['Available QTY']||0) || 0;
             const compositeKey = `${pNo}_${locType.toUpperCase()}_${techName.toUpperCase()}`;
@@ -122,7 +134,8 @@ function handleImport(input) {
                         logs: [{ partNo: "SEMUA", action: "IMPORT EXCEL", detail: `Import ${bulkDataToUpload.length} Baris Data` }]
                     })
                 });
-                alert(`Import & Sync Selesai!\n✅ Data berhasil masuk ke Google Sheets.\n🛡️ ${rescuedCount} Part Temuan dipertahankan.`);
+                // Alert diupdate agar memunculkan laporan FG yang dibuang
+                alert(`Import & Sync Selesai!\n✅ Data berhasil masuk ke Google Sheets.\n🛡️ ${rescuedCount} Part Temuan dipertahankan.\n🚫 ${fgSkippedCount} Baris berawalan 'FG' otomatis dihapus.`);
             } catch (err) {
                 console.error(err);
                 alert(`Import Lokal Selesai, tapi GAGAL tersambung ke Google Sheets. Pastikan internet menyala!`);
