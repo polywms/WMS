@@ -1,6 +1,7 @@
 // js/database.js
 
 let lastFetchedCloudOffBs = [];
+let hiddenOffBsBoxes = [];
 
 function updateSyncUI(text) {
     const el = document.getElementById('syncStatus');
@@ -459,6 +460,56 @@ window.importCloudToLocal = function() {
     }
 };
 
+
+// ==========================================
+// FUNGSI MODAL FILTER BOX (SESI LOKAL)
+// ==========================================
+window.openOffBsFilterModal = function() {
+    // Ambil daftar nama box unik dari sesi
+    const uniqueBoxes = [...new Set(offBsSession.map(item => item.box))].sort();
+    
+    if (uniqueBoxes.length === 0) {
+        if(typeof showToast === 'function') showToast("Belum ada box di sesi ini.");
+        return;
+    }
+
+    const listContainer = document.getElementById('offBsFilterCheckboxList');
+    let html = '';
+    
+    uniqueBoxes.forEach(box => {
+        // Centang by default, KECUALI box ini ada di dalam hiddenOffBsBoxes
+        const isChecked = !hiddenOffBsBoxes.includes(box) ? 'checked' : '';
+        html += `
+            <label style="display:flex; align-items:center; gap:10px; background:#f8fafc; padding:12px; border-radius:6px; border:1px solid #cbd5e1; cursor:pointer;">
+                <input type="checkbox" class="filter-box-chk" value="${box}" ${isChecked} style="width:20px; height:20px;">
+                <span style="font-weight:bold; color:#334155; font-size:0.95rem;">${box}</span>
+            </label>
+        `;
+    });
+    
+    listContainer.innerHTML = html;
+    document.getElementById('offBsFilterModal').style.display = 'flex';
+};
+
+window.toggleAllOffBsFilter = function(check) {
+    document.querySelectorAll('.filter-box-chk').forEach(chkBox => {
+        chkBox.checked = check;
+    });
+};
+
+window.applyOffBsFilter = function() {
+    hiddenOffBsBoxes = []; // Kosongkan dulu
+    
+    // Cari mana saja checkbox yang TIDAK dicentang, lalu masukkan ke daftar sembunyi
+    document.querySelectorAll('.filter-box-chk').forEach(chkBox => {
+        if (!chkBox.checked) {
+            hiddenOffBsBoxes.push(chkBox.value);
+        }
+    });
+    
+    document.getElementById('offBsFilterModal').style.display = 'none';
+    renderOffBsList(); // Refresh UI
+};
 // Interval Utama Aplikasi
 setInterval(() => {
     processSyncQueue(); // Sync data WMS biasa
