@@ -201,7 +201,8 @@
             </div>
             
             <div id="tab-offbs" class="tab-content">
-                <div class="status-panel" style="display:block; background:#fff7ed; border:1px solid #fdba74; border-radius:8px; padding:10px 12px; margin-bottom:10px;">
+                
+                <div class="status-panel" style="display:block; background:#fff7ed; border:1px solid #fdba74; border-radius:8px; padding:10px 12px; margin-bottom:15px;">
                     <div style="display:flex; justify-content:space-between; align-items:center;">
                         
                         <div style="display:flex; align-items:center; gap:10px;">
@@ -225,10 +226,14 @@
                     </div>
                 </div>
                 
-                
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
                     <b style="color:var(--secondary);">Sesi Ini: <span id="offBsCount">0</span> Item</b>
+                    
                     <div style="display:flex; gap:8px;">
+                        <button onclick="openOffBsFilterModal()" style="background: #f8fafc; color: #475569; border: 1px solid #cbd5e1; padding: 8px 14px; border-radius: 8px; font-weight: bold; font-size: 0.85rem; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+                            <i class="fas fa-filter"></i> Filter
+                        </button>
+                        
                         <button onclick="clearOffBsSession()" style="background: #fff0f0; color: #e11d48; border: 1px solid #fecdd3; padding: 8px 14px; border-radius: 8px; font-weight: bold; font-size: 0.85rem; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
                             <i class="fas fa-trash-alt"></i> Reset
                         </button>
@@ -240,8 +245,8 @@
                 </div>
                 
                 <div id="offBsList" class="list-container"></div>
+                
             </div>
-        </div>
         
         <button id="scrollTopBtn" class="scroll-btn" onclick="scrollToTop()">
             <i class="fas fa-arrow-up"></i>
@@ -385,7 +390,26 @@
                 
             </div>
         </div>
-        
+
+
+        <div class="overlay" id="offBsFilterModal">
+            <div class="modal">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                    <h3 style="margin:0;"><i class="fas fa-filter"></i> Tampilkan Box</h3>
+                    <button onclick="document.getElementById('offBsFilterModal').style.display='none'" style="border:none; background:none; font-size:1.5rem; color:var(--secondary); cursor:pointer;"><i class="fas fa-times"></i></button>
+                </div>
+                
+                <div style="margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; padding-bottom: 10px; border-bottom: 1px solid var(--border);">
+                    <button onclick="toggleAllOffBsFilter(true)" class="btn-sm btn-outline" style="margin:0; flex:1; margin-right:5px;"><i class="fas fa-check-square"></i> Check All</button>
+                    <button onclick="toggleAllOffBsFilter(false)" class="btn-sm btn-outline" style="margin:0; flex:1; margin-left:5px;"><i class="far fa-square"></i> Uncheck</button>
+                </div>
+
+                <div id="offBsFilterCheckboxList" style="max-height: 50vh; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; margin-bottom: 15px;">
+                    </div>
+
+                <button class="btn btn-success" style="width: 100%;" onclick="applyOffBsFilter()"><i class="fas fa-eye"></i> Terapkan Filter</button>
+            </div>
+        </div>
         <div id="toast">Notifikasi</div>
         
         <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
