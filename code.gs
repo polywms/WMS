@@ -258,7 +258,80 @@ function doPost(e) {
     }
 
     // =====================================
-    // 6. SYNC NORMAL
+    // 6. IMPORT OFF BS (NEW - Master OFF BS data)
+    // =====================================
+    else if (action === "import_off_bs") {
+      let sheetMasterOffBs = ss.getSheetByName("Master_Off_BS");
+      
+      // Create sheet if not exists
+      if (!sheetMasterOffBs) {
+        sheetMasterOffBs = ss.insertSheet("Master_Off_BS", 0); // Insert at beginning
+      }
+      
+      // Define header columns
+      const headers = [
+        "Nomor", "Kode Perusahaan", "Site", "Departemen", "Nomor Reservasi", 
+        "Kode Transaksi", "Tipe Transaksi", "Catatan", "Baris", "Part", 
+        "Lot", "Attribute", "Qty Reservasi", "Qty Transaksi", "Qty Close", 
+        "UoM", "Serial Number", "Status Reservasi", "Status Pengiriman", 
+        "Dibuat Oleh", "Dibuat Pada", "Diubah Oleh", "Diubah Pada", 
+        "Ditetapkan Oleh", "Disetujui Pada", "Return To Factory", 
+        "Claim To Factory", "Teknisi Perbaikan", "Analisa", "Keterangan", 
+        "Import Timestamp"
+      ];
+      
+      // Clear and rebuild sheet
+      sheetMasterOffBs.clearContents();
+      sheetMasterOffBs.appendRow(headers);
+      
+      // Insert data rows
+      const dataToInsert = items.map(item => [
+        item.nomor || "",
+        item.kodePerusahaan || "",
+        item.site || "",
+        item.departemen || "",
+        item.nomorReservasi || "",
+        item.kodeTranaksi || "",
+        item.tipeTranaksi || "",
+        item.catatan || "",
+        item.baris || "",
+        item.part || "",
+        item.lot || "",
+        item.attribute || "",
+        item.qtyReservasi || 0,
+        item.qtyTransaksi || 0,
+        item.qtyClose || 0,
+        item.uom || "",
+        item.serialNumber || "",
+        item.statusReservasi || "",
+        item.statusPengiriman || "",
+        item.dibuatOleh || "",
+        item.dibuatPada || "",
+        item.diubahOleh || "",
+        item.diubahPada || "",
+        item.ditetapkanOleh || "",
+        item.disetujuiPada || "",
+        item.returnToFactory || "",
+        item.claimToFactory || "",
+        item.teknisiPerbaikan || "",
+        item.analisa || "",
+        item.keterangan || "",
+        new Date() // Import timestamp
+      ]);
+      
+      if (dataToInsert.length > 0) {
+        sheetMasterOffBs.getRange(2, 1, dataToInsert.length, headers.length).setValues(dataToInsert);
+      }
+      
+      return ContentService.createTextOutput(JSON.stringify({ 
+        status: "success", 
+        message: `${dataToInsert.length} data OFF BS berhasil diimpor ke Master_Off_BS`,
+        count: dataToInsert.length
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // =====================================
+    // 7. SYNC NORMAL
     // =====================================
     else if (action === "sync" || action === "bulk_import") {
       const dbSheet = ss.getSheetByName(SHEET_DB); 

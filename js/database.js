@@ -25,7 +25,10 @@ function loadDataFromLocal() {
     const tx = db.transaction('items', 'readonly');
     tx.objectStore('items').getAll().onsuccess = e => {
         localItems = e.target.result || [];
-        localItems.forEach(i => { if(!i.locations) i.locations = {}; });
+        localItems.forEach(i => { 
+            if(!i.locations) i.locations = {}; 
+            if(!i.lastOpnameDate) i.lastOpnameDate = '';
+        });
         localItems.sort((a,b) => a.partNo.localeCompare(b.partNo));
         if(typeof populateFilters === 'function') populateFilters();
         if(currentTab === 'opname' && typeof handleOpnameRender === 'function') handleOpnameRender();

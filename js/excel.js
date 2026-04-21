@@ -3,8 +3,10 @@
 function handleImport(input) {
     const f = input.files[0]; 
     if(!f) return;
+    showLoading("📥 Import Stock", `Membaca file: ${f.name}`);
     const r = new FileReader();
     r.onload = async e => {
+        showLoading("📥 Import Stock", "Memproses data...");
         updateSyncUI("🔄 Membaca Excel...");
         const wb = XLSX.read(e.target.result, {type:'array'});
         const json = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {defval:''});
@@ -50,7 +52,7 @@ function handleImport(input) {
         for (const key in consolidatedExcel) {
             const data = consolidatedExcel[key]; const isTeknisi = data.locType.toUpperCase().includes('TEKNISI'); let finalLocs = {};
             if (!isTeknisi && locationPool[data.basePartNo]) { finalLocs = { ...locationPool[data.basePartNo] }; delete locationPool[data.basePartNo]; }
-            const newItem = { id: idMap[data.compositeKey] || (Date.now() + newIdCounter), locType: data.locType, techName: data.techName, partNo: data.partNo, desc: data.desc, sysQty: data.sysQty, locations: finalLocs, raw: data.raw };
+            const newItem = { id: idMap[data.compositeKey] || (Date.now() + newIdCounter), locType: data.locType, techName: data.techName, partNo: data.partNo, desc: data.desc, sysQty: data.sysQty, locations: finalLocs, raw: data.raw, lastOpnameDate: '' };
             st.add(newItem); bulkDataToUpload.push(newItem); newIdCounter++;
         }
         
@@ -61,11 +63,13 @@ function handleImport(input) {
         });
         
         tx.oncomplete = async () => {
+            showLoading("📥 Import Stock", "Mengirim ke cloud...");
             updateSyncUI("🚀 Mengirim ke Cloud (Mohon Tunggu)...");
             try {
                 await fetch(API_URL, { method: "POST", redirect: "follow", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ action: "bulk_import", data: bulkDataToUpload, logs: [{ partNo: "SEMUA", action: "IMPORT EXCEL", detail: `Import ${bulkDataToUpload.length} Baris Data` }] }) });
+                hideLoading();
                 alert(`Import & Sync Selesai!\n✅ Data berhasil masuk Google Sheets.\n🛡️ ${rescuedCount} Part Temuan dipertahankan.\n🚫 ${fgSkippedCount} Baris 'FG' dibuang.`);
-            } catch (err) { alert(`Import Lokal Selesai, tapi GAGAL tersambung ke Cloud.`); }
+            } catch (err) { hideLoading(); alert(`Import Lokal Selesai, tapi GAGAL tersambung ke Cloud.`); }
             location.reload(); 
         };
     }; 
@@ -73,14 +77,26 @@ function handleImport(input) {
 }
 
 function exportData() {
+    showLoading("📤 Export Data", "Mempersiapkan file...");
     const dataUtama = localItems.filter(i => i.desc !== 'PART BARU').map(i => {
         let r = {...i.raw}; const p = Object.values(i.locations).reduce((a,b) => a+b, 0); r['QTY Fisik'] = p; r['Lokasi'] = Object.entries(i.locations).map(([k,v]) => `${k}(${v})`).join(', ');
-        r['Tanpa Label (Qty)'] = (i.labelIssues && i.labelIssues.NO_LABEL) ? i.labelIssues.NO_LABEL : 0; r['Label Rusak (Qty)'] = (i.labelIssues && i.labelIssues.DAMAGED) ? i.labelIssues.DAMAGED : 0; return r;
+        r['Tanpa Label (Qty)'] = (i.labelIssues && i.labelIssues.NO_LABEL) ? i.labelIssues.NO_LABEL : 0; 
+        r['Label Rusak (Qty)'] = (i.labelIssues && i.labelIssues.DAMAGED) ? i.labelIssues.DAMAGED : 0; 
+        r['Tanggal Opname Terakhir'] = i.lastOpnameDate || '-';
+        return r;
     });
-    const dataBaru = localItems.filter(i => i.desc === 'PART BARU').map(i => { return { 'Part Number': i.partNo, 'QTY Fisik': Object.values(i.locations).reduce((a,b) => a+b, 0), 'Lokasi Ditemukan': Object.entries(i.locations).map(([k,v]) => `${k}(${v})`).join(', ') }; });
+    const dataBaru = localItems.filter(i => i.desc === 'PART BARU').map(i => { 
+        return { 
+            'Part Number': i.partNo, 
+            'QTY Fisik': Object.values(i.locations).reduce((a,b) => a+b, 0), 
+            'Lokasi Ditemukan': Object.entries(i.locations).map(([k,v]) => `${k}(${v})`).join(', '),
+            'Tanggal Ditemukan': i.lastOpnameDate || '-'
+        }; 
+    });
     const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(dataUtama), "Data Master");
     if (dataBaru.length > 0) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(dataBaru), "Part Temuan (Baru)");
     XLSX.writeFile(wb, "WMS_Result.xlsx");
+    hideLoading();
 }
 
 // Helper perbaikan Tahun 1899 untuk waktu (Supaya Excel baca YYYY-MM-DD HH:MM:SS)
@@ -145,15 +161,19 @@ function exportLabelReport() {
 }
 
 function backupJson() {
+    showLoading("💾 Backup JSON", "Mempersiapkan file...");
     const b = new Blob([JSON.stringify(localItems.map(i => ({ partNo: i.partNo, locations: i.locations })))], {type:'application/json'});
     const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = `Mapping_Lokasi_${new Date().toISOString().slice(0,10)}.json`; a.click();
+    setTimeout(hideLoading, 500);
 }
 
 function restoreJson(input) {
     const f = input.files[0]; if(!f) return;
     if(!confirm("Restore JSON akan menimpa LOKASI FISIK part.\nLanjutkan?")) { input.value = ''; return; }
+    showLoading("📂 Restore JSON", `Membaca file: ${f.name}`);
     const r = new FileReader(); 
     r.onload = e => {
+        showLoading("📂 Restore JSON", "Memproses data...");
         const backupData = JSON.parse(e.target.result); const tx = db.transaction('items','readwrite'); const st = tx.objectStore('items'); 
         st.getAll().onsuccess = ev => {
             const currentItems = ev.target.result || []; let updateCount = 0;
@@ -161,7 +181,112 @@ function restoreJson(input) {
                 const existingItem = currentItems.find(i => i.partNo === backupItem.partNo);
                 if (existingItem) { existingItem.locations = backupItem.locations || {}; st.put(existingItem); updateCount++; }
             });
-            tx.oncomplete = () => { alert(`✅ Restore Selesai!\n${updateCount} part di-update.`); location.reload(); };
+            tx.oncomplete = () => { hideLoading(); alert(`✅ Restore Selesai!\n${updateCount} part di-update.`); location.reload(); };
         };
     }; r.readAsText(f);
+}
+
+// ===== IMPORT OFF BS FILE =====
+function handleImportOffBS(input) {
+    const f = input.files[0]; 
+    if(!f) return;
+    
+    if(!confirm("Import OFF BS akan mengirim semua data ke sheet Master_Off_BS di Google Sheets (timpa).\n\nLanjutkan?")) {
+        input.value = '';
+        return;
+    }
+    
+    showLoading("📥 Import OFF BS", `Membaca file: ${f.name}`);
+    const r = new FileReader();
+    r.onload = async e => {
+        updateSyncUI("🔄 Membaca File OFF BS...");
+        
+        try {
+            const wb = XLSX.read(e.target.result, {type:'array'});
+            const json = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {defval:''});
+            
+            // Filter hanya RECEIPT transactions
+            const offBsData = json
+                .filter(row => {
+                    const tipeTransaksi = String(row['Tipe Transaksi'] || '').trim().toUpperCase();
+                    return tipeTransaksi === 'RECEIPT';
+                })
+                .map(row => ({
+                    nomor: row['Nomor'] || '',
+                    kodePerusahaan: row['Kode Perusahaan'] || '',
+                    site: row['Site'] || '',
+                    departemen: row['Departemen'] || '',
+                    nomorReservasi: row['Nomor Reservasi'] || '',
+                    kodeTranaksi: row['Kode Transaksi'] || '',
+                    tipeTranaksi: row['Tipe Transaksi'] || '',
+                    catatan: row['Catatan'] || '',
+                    baris: row['Baris'] || '',
+                    part: row['Part'] || '',
+                    lot: row['Lot'] || '',
+                    attribute: row['Attribute'] || '',
+                    qtyReservasi: parseInt(row['Qty Reservasi']) || 0,
+                    qtyTransaksi: parseInt(row['Qty Transaksi']) || 0,
+                    qtyClose: parseInt(row['Qty Close']) || 0,
+                    uom: row['UoM'] || '',
+                    serialNumber: row['Serial Number'] || '',
+                    statusReservasi: row['Status Reservasi'] || '',
+                    statusPengiriman: row['Status Pengiriman'] || '',
+                    dibuatOleh: row['Dibuat Oleh'] || '',
+                    dibuatPada: row['Dibuat Pada'] || '',
+                    diubahOleh: row['Diubah Oleh'] || '',
+                    diubahPada: row['Diubah Pada'] || '',
+                    ditetapkanOleh: row['Disetujui Oleh'] || '',
+                    disetujuiPada: row['Disetujui Pada'] || '',
+                    returnToFactory: row['Return To Factory'] || '',
+                    claimToFactory: row['Claim To Factory'] || '',
+                    teknisiPerbaikan: row['Teknisi Perbaikan'] || '',
+                    analisa: row['Analisa SA'] || '',
+                    keterangan: row['Keterangan Sjob'] || ''
+                }));
+            
+            if (offBsData.length === 0) {
+                hideLoading();
+                alert("❌ Tidak ada data RECEIPT yang ditemukan di file!");
+                input.value = '';
+                updateSyncUI("🟢 Siap");
+                return;
+            }
+            
+            showLoading("📥 Import OFF BS", `Mengirim ${offBsData.length} baris ke cloud...`);
+            updateSyncUI(`🚀 Mengirim ${offBsData.length} Data OFF BS ke Cloud...`);
+            
+            const response = await fetch(API_URL, {
+                method: "POST",
+                redirect: "follow",
+                headers: { "Content-Type": "text/plain;charset=utf-8" },
+                body: JSON.stringify({ 
+                    action: "import_off_bs", 
+                    data: offBsData,
+                    timestamp: Date.now()
+                })
+            });
+            
+            const result = await response.json();
+            
+            if (result.status === "success") {
+                hideLoading();
+                alert(`✅ Import OFF BS Selesai!\n\n📊 Data yang diimpor: ${offBsData.length} baris\n💾 Sheet Master_Off_BS sudah diperbarui di Google Sheets`);
+                input.value = '';
+                updateSyncUI("🟢 Siap");
+            } else {
+                hideLoading();
+                alert(`❌ Error: ${result.message}`);
+                input.value = '';
+                updateSyncUI("🔴 Error");
+            }
+        } catch (err) {
+            hideLoading();
+            console.error('Import OFF BS Error:', err);
+            alert(`❌ Gagal membaca file atau mengirim ke cloud: ${err.message}`);
+            input.value = '';
+            updateSyncUI("🔴 Error");
+        }
+    };
+    
+    r.readAsArrayBuffer(f);
 }

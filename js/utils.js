@@ -61,11 +61,31 @@ function showToast(m) {
 }
 
 function toggleMenu() { 
-    const e = document.getElementById('menuModal'); 
-    e.style.display = e.style.display === 'flex' ? 'none' : 'flex'; 
+    const drawer = document.getElementById('sidebarDrawer');
+    const overlay = document.getElementById('sidebarOverlay');
+    
+    if(drawer && overlay) {
+        drawer.classList.toggle('active');
+        overlay.classList.toggle('active');
+    }
 }
 
 function toggleDarkMode() { 
     document.body.classList.toggle('dark-mode'); 
     localStorage.setItem('darkMode', document.body.classList.contains('dark-mode')); 
+}
+
+// ===== LOADING MODAL FUNCTIONS =====
+function showLoading(text = "Memproses...", subtext = "") {
+    const modal = document.getElementById('loadingModal');
+    if(!modal) return;
+    document.getElementById('loadingText').innerText = text;
+    document.getElementById('loadingSubtext').innerText = subtext;
+    modal.style.display = 'flex';
+}
+
+function hideLoading() {
+    const modal = document.getElementById('loadingModal');
+    if(!modal) return;
+    modal.style.display = 'none';
 }

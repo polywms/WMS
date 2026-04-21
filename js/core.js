@@ -433,7 +433,7 @@ function processMultiBatchMove(box, actionType = 'move') {
 }
 
 function createNewItem(code) {
-    const item = { id: Date.now(), partNo: code, desc: "PART BARU", locType: document.getElementById('filterLoc').value, techName: document.getElementById('filterTech').value, locations: {}, sysQty: 0, raw: {} };
+    const item = { id: Date.now(), partNo: code, desc: "PART BARU", locType: document.getElementById('filterLoc').value, techName: document.getElementById('filterTech').value, locations: {}, sysQty: 0, raw: {}, lastOpnameDate: '' };
     localItems.push(item); filteredItems.push(item); return item;
 }
 
@@ -513,14 +513,16 @@ function renderDataList(reset = false) {
     if(reset) renderLimit = 50; const q = document.getElementById('cariInput').value.toLowerCase(); const container = document.getElementById('dataList');
     if(reset || container.innerHTML === '') container.innerHTML = '';
     let dataset = filteredItems; if(filterNewOnly) dataset = dataset.filter(i => i.desc === 'PART BARU'); 
-    if(q) dataset = dataset.filter(i => i.partNo.toLowerCase().includes(q) || i.desc.toLowerCase().includes(q));
+    if(q) dataset = dataset.filter(i => i.partNo.toLowerCase().includes(q) || i.desc.toLowerCase().includes(q) || (i.locType && i.locType.toLowerCase().includes(q)));
     const show = dataset.slice(0, renderLimit); if(show.length===0) { container.innerHTML='<div style="text-align:center; padding:20px; color:#999">Tidak ditemukan</div>'; return; }
     let html = '';
     show.forEach(i => {
-        const total = Object.values(i.locations).reduce((a,b)=>a+b,0); const locs = Object.entries(i.locations).map(([k,v])=>`${k}(${v})`).join(', ');
+        const total = Object.values(i.locations).reduce((a,b)=>a+b,0); 
+        const locs = Object.entries(i.locations).map(([k,v])=>`${k}(${v})`).join(', ');
+        const opnameDate = i.lastOpnameDate ? new Date(i.lastOpnameDate).toLocaleDateString('id-ID', {year:'numeric', month:'short', day:'numeric'}) : '-';
         let color = total!==i.sysQty ? 'var(--danger)' : (total>0 ? 'var(--opname)' : 'var(--text)');
         let cardStyle = i.desc === 'PART BARU' ? 'border-left: 5px solid #ca8a04; background:#fffbeb;' : '';
-        html += `<div class="item-card" id="data-row-${i.id}" onclick="openEditModal(${i.id})" style="${cardStyle}"><div style="flex:1;"><div style="display:flex; justify-content:space-between;"><b style="font-size:1rem;">${i.partNo}</b> <span style="font-weight:bold; color:${color}">${total} / ${i.sysQty}</span></div><div style="font-size:0.8rem; color:var(--secondary);">${i.desc}</div><div style="font-size:0.8rem; color:var(--data); margin-top:4px;"><i class="fas fa-map-marker-alt"></i> ${locs || '-'}</div></div></div>`;
+        html += `<div class="item-card" id="data-row-${i.id}" onclick="openEditModal(${i.id})" style="${cardStyle}"><div style="flex:1;"><div style="display:flex; justify-content:space-between; align-items:baseline;"><b style="font-size:1rem;">${i.partNo}</b> <span style="font-weight:bold; color:${color}; font-size:0.9rem;">${total}/${i.sysQty}</span></div><div style="font-size:0.75rem; color:var(--secondary); margin-top:2px;">${i.desc}</div><div style="font-size:0.75rem; color:var(--data); margin-top:4px;"><i class="fas fa-map-marker-alt"></i> ${locs || '-'}</div><div style="font-size:0.75rem; color:#666; margin-top:3px;"><i class="fas fa-calendar-alt"></i> Opname: ${opnameDate}</div></div></div>`;
     });
     container.innerHTML = html; document.getElementById('dataLoading').style.display = (renderLimit < dataset.length) ? 'block' : 'none';
 }
@@ -534,6 +536,10 @@ function jumpToItem(partNo) {
 
 function openEditModal(id) {
     editId = id; const item = localItems.find(i=>i.id===id); if(!item) return; document.getElementById('editModal').style.display='flex'; document.getElementById('editPartTitle').innerText = item.partNo;
+    
+    // Populate lastOpnameDate
+    document.getElementById('editLastOpnameDate').value = item.lastOpnameDate ? item.lastOpnameDate.split('T')[0] : '';
+    
     const list = document.getElementById('editLocsList'); list.innerHTML='';
     Object.keys(item.locations).forEach(box => { const r = document.createElement('div'); r.style.cssText="display:flex; justify-content:space-between; margin-bottom:8px; align-items:center;"; r.innerHTML=`<b>${box}</b> <div style="display:flex; gap:5px;"><input type="number" class="edit-qty-input" data-box="${box}" value="${item.locations[box]}" style="width:60px; padding:5px;"><button class="btn-trash" style="width:30px; height:30px;" onclick="deleteLocation(${id}, '${box}')"><i class="fas fa-trash"></i></button></div>`; list.appendChild(r); });
     document.getElementById('editDeleteBtnContainer').innerHTML = item.desc === 'PART BARU' ? `<button class="btn btn-danger" style="margin-top:15px;" onclick="deletePartBaru(${item.id})"><i class="fas fa-trash-alt"></i> Hapus Part Ini Permanen</button>` : '';
@@ -541,7 +547,22 @@ function openEditModal(id) {
 
 function deleteLocation(id, box) { if(confirm(`Hapus part ini dari box ${box}?`)) { const item = localItems.find(i=>i.id===id); if (item) { delete item.locations[box]; saveDB(item); feedback('success'); if(document.getElementById('editModal').style.display === 'flex') openEditModal(id); if(currentTab === 'opname') handleOpnameRender(); if(currentTab === 'data') renderDataList(false); } } }
 function addManualLoc() { const box = document.getElementById('editNewBox').value.toUpperCase(); const qty = parseInt(document.getElementById('editNewQty').value); if (box && !isNaN(qty)) { const item = localItems.find(i => i.id === editId); item.locations[box] = qty || 0; saveDB(item); openEditModal(editId); } else { showToast("Box/Qty tak valid!"); } }
-function saveManualEdit() { const item = localItems.find(i=>i.id===editId); document.querySelectorAll('.edit-qty-input').forEach(inp => { const v = parseInt(inp.value); if(!isNaN(v)) item.locations[inp.dataset.box]=v; }); saveDB(item); document.getElementById('editModal').style.display='none'; handleOpnameRender(); renderDataList(false); document.getElementById('mainInput').focus(); }
+function saveManualEdit() { 
+    const item = localItems.find(i=>i.id===editId); 
+    document.querySelectorAll('.edit-qty-input').forEach(inp => { const v = parseInt(inp.value); if(!isNaN(v)) item.locations[inp.dataset.box]=v; }); 
+    
+    // Save lastOpnameDate
+    const opnameDate = document.getElementById('editLastOpnameDate').value;
+    if (opnameDate) {
+        item.lastOpnameDate = opnameDate;
+    }
+    
+    saveDB(item); 
+    document.getElementById('editModal').style.display='none'; 
+    handleOpnameRender(); 
+    renderDataList(false); 
+    document.getElementById('mainInput').focus(); 
+}
 function deletePartBaru(id) { if(confirm('Hapus Part Baru ini permanen?')) { const tx = db.transaction('items', 'readwrite'); tx.objectStore('items').delete(id); tx.oncomplete = () => { localItems = localItems.filter(i => i.id !== id); filteredItems = filteredItems.filter(i => i.id !== id); document.getElementById('editModal').style.display='none'; renderDataList(true); showToast('Dihapus.'); }; } }
 function addLabelIssue(type) { if (!tempPart) return; if (!tempPart.labelIssues) tempPart.labelIssues = { DAMAGED: 0, NO_LABEL: 0 }; let typeName = type === 'DAMAGED' ? 'Rusak' : 'Tanpa Label'; let input = prompt(`Berapa buah part ${tempPart.partNo} yang labelnya ${typeName}? \n(Ketik angka saja)`, "1"); let qty = parseInt(input); if (!isNaN(qty) && qty > 0) { tempPart.labelIssues[type] += qty; saveDB(tempPart); feedback('success'); showToast(`${qty} part ditandai`); selectPartSimpan(tempPart); } }
 function openLabelReport() { const container = document.getElementById('labelReportList'); let html = ''; let count = 0; localItems.forEach(i => { if (i.labelIssues && (i.labelIssues.DAMAGED > 0 || i.labelIssues.NO_LABEL > 0)) { count++; html += `<div style="padding:10px; border:1px solid var(--border); border-radius:6px; background:#fef2f2;"><b>${i.partNo}</b> <span style="font-size:0.8rem; color:var(--secondary)">${i.desc}</span><div style="display:flex; gap:15px; margin-top:8px; font-size:0.85rem; font-weight:bold;">${i.labelIssues.NO_LABEL > 0 ? `<span style="color:var(--danger);"><i class="fas fa-tag"></i> Hilang: ${i.labelIssues.NO_LABEL} pcs</span>` : ''}${i.labelIssues.DAMAGED > 0 ? `<span style="color:#d97706;"><i class="fas fa-tags"></i> Rusak: ${i.labelIssues.DAMAGED} pcs</span>` : ''}</div><div style="font-size:0.75rem; color:var(--secondary); margin-top:6px;">Lokasi: ${Object.keys(i.locations).join(', ') || 'Belum Box'}</div></div>`; } }); if (count === 0) html = '<div style="text-align:center; padding:30px; color:var(--opname);"><i class="fas fa-check-circle" style="font-size:2rem; margin-bottom:10px; display:block;"></i>Semua Label Aman!</div>'; container.innerHTML = html; document.getElementById('labelReportModal').style.display = 'flex'; }
@@ -627,11 +648,43 @@ function renderSmartSuggestion(item) {
 
 function switchTab(id) {
     currentTab = id;
+    
+    // Update tab content
     document.querySelectorAll('.tab-content').forEach(e=>e.classList.remove('active'));
     document.getElementById('tab-'+id).classList.add('active');
-    document.querySelectorAll('.nav-item').forEach(e=>e.classList.remove('active'));
-    event.currentTarget.classList.add('active');
+    
+    // Update sidebar items
+    document.querySelectorAll('.sidebar-item').forEach(e=>e.classList.remove('active'));
+    document.querySelector(`.sidebar-item[data-tab="${id}"]`)?.classList.add('active');
+    
+    // Update active tab title
+    const tabTitles = {
+        'simpan': { name: 'Penyimpanan', icon: 'fa-dolly' },
+        'opname': { name: 'Inventory Check', icon: 'fa-clipboard-check' },
+        'data': { name: 'Data', icon: 'fa-search' },
+        'offbs': { name: 'Off BS', icon: 'fa-recycle' },
+        'packing': { name: 'Packing', icon: 'fa-truck-loading' }
+    };
+    const tabInfo = tabTitles[id];
+    if(tabInfo) {
+        const titleEl = document.getElementById('activeTabTitle');
+        const nameEl = document.getElementById('activeTabName');
+        const iconEl = document.getElementById('activeTabIcon');
+        if(nameEl) nameEl.textContent = tabInfo.name;
+        if(iconEl) {
+            iconEl.className = 'fas ' + tabInfo.icon;
+        }
+    }
+    
     document.getElementById('scrollTopBtn').style.display = 'none';
+    
+    // Close sidebar drawer after selection
+    const drawer = document.getElementById('sidebarDrawer');
+    const overlay = document.getElementById('sidebarOverlay');
+    if(drawer && overlay) {
+        drawer.classList.remove('active');
+        overlay.classList.remove('active');
+    }
     
     const multiToggle = document.getElementById('multiScanToggle');
     const filterToggle = document.getElementById('filterNoBoxToggle');
@@ -647,11 +700,38 @@ function switchTab(id) {
     if (scannerBar) { scannerBar.style.display = (id === 'data') ? 'none' : 'block'; }
     
     const root = document.documentElement;
-    if(id === 'simpan') { root.style.setProperty('--active-color', isMulti ? 'var(--purple)' : 'var(--primary)'); document.querySelector('header').style.background = isMulti ? 'var(--purple)' : 'var(--primary)'; }
-    if(id === 'opname') { root.style.setProperty('--active-color', 'var(--opname)'); document.querySelector('header').style.background = 'var(--opname)'; handleOpnameRender(); }
-    if(id === 'data') { root.style.setProperty('--active-color', 'var(--data)'); document.querySelector('header').style.background = 'var(--data)'; renderDataList(true); }
-    if(id === 'offbs') { root.style.setProperty('--active-color', 'var(--offbs)'); document.querySelector('header').style.background = 'var(--offbs)'; if(typeof renderOffBsList==='function') renderOffBsList(); }
-    if(id === 'packing') { root.style.setProperty('--active-color', '#10b981'); document.querySelector('header').style.background = '#10b981'; if(typeof renderCollyUI==='function') renderCollyUI(); if(typeof renderPackingList==='function') renderPackingList(); }
+    if(id === 'simpan') { 
+        const color = isMulti ? 'var(--purple)' : 'var(--primary)';
+        const colorDark = isMulti ? 'var(--purple-dark)' : 'var(--primary-dark)';
+        root.style.setProperty('--active-color', color);
+        root.style.setProperty('--header-color-1', color);
+        root.style.setProperty('--header-color-2', colorDark);
+    }
+    if(id === 'opname') { 
+        root.style.setProperty('--active-color', 'var(--opname)');
+        root.style.setProperty('--header-color-1', 'var(--opname)');
+        root.style.setProperty('--header-color-2', 'var(--opname-dark)');
+        handleOpnameRender(); 
+    }
+    if(id === 'data') { 
+        root.style.setProperty('--active-color', 'var(--data)');
+        root.style.setProperty('--header-color-1', 'var(--data)');
+        root.style.setProperty('--header-color-2', 'var(--data-dark)');
+        renderDataList(true); 
+    }
+    if(id === 'offbs') { 
+        root.style.setProperty('--active-color', 'var(--offbs)');
+        root.style.setProperty('--header-color-1', 'var(--offbs)');
+        root.style.setProperty('--header-color-2', 'var(--offbs-dark)');
+        if(typeof renderOffBsList==='function') renderOffBsList(); 
+    }
+    if(id === 'packing') { 
+        root.style.setProperty('--active-color', 'var(--purple)');
+        root.style.setProperty('--header-color-1', 'var(--purple)');
+        root.style.setProperty('--header-color-2', 'var(--purple-dark)');
+        if(typeof renderCollyUI==='function') renderCollyUI(); 
+        if(typeof renderPackingList==='function') renderPackingList(); 
+    }
     
     if (id === 'data') document.getElementById('cariInput').focus(); else document.getElementById('mainInput').focus();
 }
