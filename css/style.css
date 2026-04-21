@@ -304,9 +304,9 @@
             }
             .scanner-bar { 
             background: #f0f7ff;
-            padding: 12px 15px; 
-            border-bottom: 2px solid #3b82f6;
+            padding: 12px; 
             border-top: 2px solid #dbeafe;
+            border-bottom: 2px solid #dbeafe;
             position: sticky; 
             top: 0; 
             z-index: 100; 
@@ -1034,7 +1034,6 @@
             border-radius: 10px;
             overflow: hidden;
             border: 1px solid var(--border);
-            box-shadow: var(--shadow-sm);
             }
             
             .list-item {
@@ -1129,12 +1128,9 @@
             }
             /* Smaller buttons on mobile */
             button[onclick="openCameraScanner()"] {
-                width: 32px !important;
-                height: 32px !important;
-                font-size: 0.9rem !important;
-            }
-            .input-wrapper {
-                gap: 4px;
+                width: 37px !important;
+                height: 37px !important;
+                font-size: 1rem !important;
             }
             }
 
