@@ -23,7 +23,7 @@ const QR_PARSERS = {
     },
     sclMGL: {
         name: 'sclMGL (format lama)',
-        pattern: /^([A-Z0-9\/\-]+)\s+(\d+)\s+([A-Z0-9\-]+)\s+([A-Z0-9\-]+)$/,
+        pattern: /^([A-Z0-9\/\-]+)\s+(\d+)\s+(\S+)\s+(\S+)$/,
         extract: (match) => ({
             docNo: match[1].trim(),      // Case number: SCL/MGL/25/12/17/010
             qty: parseInt(match[2]) || 1, // Qty: 1
