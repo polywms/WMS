@@ -5,6 +5,10 @@ const API_URL = "https://script.google.com/macros/s/AKfycbxDQBLQEyIaNwQsA2Ubs4KD
 // ===== QUEUE & SYNC CONFIG =====
 const MAX_SYNC_BATCH = 100;      // Max items per sync POST
 const MAX_QUEUE_SIZE = 500;      // Prevent queue overflow
+const AUTO_SYNC_INTERVAL = 30000; // Auto-sync every 30 seconds (milliseconds)
+let lastSyncTime = 0;
+let lastCloudSyncTime = localStorage.getItem('lastCloudSyncTime') ? parseInt(localStorage.getItem('lastCloudSyncTime')) : 0;
+let autoSyncTimer = null;
 
 // ===== QR PARSER CONFIG =====
 const QR_PARSERS = {

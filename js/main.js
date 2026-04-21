@@ -63,6 +63,9 @@ window.onload = async () => {
     requestWakeLock();
     document.getElementById('mainInput').focus();
     
+    // Initialize favicon
+    if(typeof updateFavicon === 'function') updateFavicon(false);
+    
     // Check for updates after 3 seconds
     setTimeout(checkForUpdates, 3000);
     

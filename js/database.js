@@ -59,6 +59,9 @@ async function fetchInitialDataFromCloud() {
 }
 
 function saveDB(item, actionName = "UPDATE", actionDetail = "") {
+    // Add timestamp for two-way sync
+    item.updated_at = item.updated_at || Date.now();
+    
     // Prevent queue overflow - critical safeguard
     if (syncQueue.length >= MAX_QUEUE_SIZE) {
         alert("⚠️ PERINGATAN SISTEM!\n\nQueue penyimpanan penuh (>500 items).\n\nTunggu koneksi stabil atau clear data manual.");
@@ -577,33 +580,136 @@ window.clearOffBsBox = function() {
 
 window.clearOffBsSession = function() {
     if(offBsSession.length === 0) { showToast("Session kosong!"); return; }
-    if(confirm("PERINGATAN!\n\nMereset sesi OFF BS akan menghapus semua scan dari layar DAN dari Google Sheets. Pastikan sudah di-Export Excel!\n\nLanjutkan?")) {
-        // Collect ALL items (baik synced atau belum) untuk dihapus dari cloud
-        const allItems = [...offBsSession];
-        
-        // Clear local
+    if(confirm("PERINGATAN!\n\nMereset sesi OFF BS akan menghapus semua scan dari LAYAR LOKAL SAJA.\n\nData di Google Sheets tetap aman (bisa di-sinkronisasi ulang).\n\nLanjutkan?")) {
+        // Clear local ONLY (jangan delete dari cloud)
         offBsSession = [];
         localStorage.removeItem('wms_off_bs');
         activeOffBsBox = null;
         document.getElementById('activeOffBsBoxName').innerText = 'Belum Diset';
         renderOffBsList();
         
-        // Delete ALL items dari Google Sheets (jangan check navigator.onLine)
-        // Jika offline, error akan di-catch dan ignored
-        if (allItems.length > 0) {
-            fetch(API_URL, {
-                method: "POST", 
-                redirect: "follow",
-                headers: { "Content-Type": "text/plain;charset=utf-8" },
-                body: JSON.stringify({ action: "delete_off_bs", data: allItems })
-            }).catch(e => console.error("Gagal hapus OFF BS di cloud (will retry next sync):", e));
-        }
-        
-        showToast("✅ Sesi OFF BS direset (local + cloud)");
+        showToast("✅ Sesi OFF BS direset (local saja)");
     }
 };
-setInterval(() => {
-    processSyncQueue();
-    if(typeof triggerOffBsSync === 'function') triggerOffBsSync();
-    if(typeof triggerPackingSync === 'function') triggerPackingSync();
-}, 5000);
+
+// ===== TWO-WAY SYNC FUNCTIONS =====
+
+// Update favicon to show sync status
+function updateFavicon(syncing) {
+    const favicon = document.getElementById('favicon') || 
+                    (() => { const f = document.createElement('link'); f.id = 'favicon'; f.rel = 'icon'; document.head.appendChild(f); return f; })();
+    
+    if (syncing) {
+        // Animated favicon showing upload (⬆️)
+        favicon.href = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle fill="%234f46e5" cx="50" cy="50" r="50"/><text x="50" y="60" font-size="60" text-anchor="middle" fill="white">⬆</text></svg>';
+    } else {
+        // Default favicon
+        favicon.href = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle fill="%2306b6d4" cx="50" cy="50" r="50"/><text x="50" y="65" font-size="50" text-anchor="middle" fill="white">W</text></svg>';
+    }
+}
+
+// Two-way sync: fetch cloud data and merge with local
+async function autoSyncWithCloud() {
+    if (!navigator.onLine || isSyncing || Date.now() - lastSyncTime < AUTO_SYNC_INTERVAL) return;
+    
+    lastSyncTime = Date.now();
+    updateFavicon(true); // Show upload indicator
+    
+    try {
+        // 1. Upload pending local changes
+        if (syncQueue.length > 0) {
+            await processSyncQueue();
+        }
+        
+        // 2. Download and merge OFF BS data
+        if (typeof offBsSession !== 'undefined') {
+            await autoSyncOffBsWithCloud();
+        }
+        
+        // 3. Download and merge PACKING data
+        if (typeof packingSession !== 'undefined') {
+            await autoSyncPackingWithCloud();
+        }
+        
+        updateFavicon(false); // Hide upload indicator
+    } catch (error) {
+        console.error('Auto-sync error:', error);
+        updateFavicon(false);
+    }
+}
+
+// Auto-sync OFF BS: fetch from cloud, merge locally, auto-delete if missing in cloud
+async function autoSyncOffBsWithCloud() {
+    try {
+        const response = await fetch(API_URL, {
+            method: "POST",
+            headers: { "Content-Type": "text/plain;charset=utf-8" },
+            body: JSON.stringify({ action: "get_cloud_off_bs" })
+        });
+        
+        const result = await response.json();
+        if (result.status !== "success" || !Array.isArray(result.data)) return;
+        
+        const cloudData = result.data;
+        const cloudSignatures = new Set(cloudData.map(item => (item.qr || "") + "_" + item.partNo));
+        
+        // Auto-delete local items that were deleted in cloud
+        const beforeCount = offBsSession.length;
+        offBsSession = offBsSession.filter(local => {
+            const sig = (local.qr || "") + "_" + local.partNo;
+            return cloudSignatures.has(sig);
+        });
+        
+        if (offBsSession.length < beforeCount) {
+            localStorage.setItem('wms_off_bs', JSON.stringify(offBsSession));
+            if (currentTab === 'offbs' && typeof renderOffBsList === 'function') {
+                renderOffBsList();
+            }
+            console.log(`✅ Auto-synced OFF BS: deleted ${beforeCount - offBsSession.length} items from cloud`);
+        }
+        
+        lastCloudSyncTime = Date.now();
+        localStorage.setItem('lastCloudSyncTime', lastCloudSyncTime);
+    } catch (error) {
+        console.error('Auto-sync OFF BS error:', error);
+    }
+}
+
+// Auto-sync PACKING: pull from cloud and merge
+async function autoSyncPackingWithCloud() {
+    try {
+        const response = await fetch(API_URL, {
+            method: "POST",
+            headers: { "Content-Type": "text/plain;charset=utf-8" },
+            body: JSON.stringify({ action: "get_cloud_packing" })
+        });
+        
+        const result = await response.json();
+        if (result.status !== "success" || !Array.isArray(result.data)) return;
+        
+        const cloudData = result.data;
+        const cloudSignatures = new Set(cloudData.map(item => (item.qr || "") + "_" + item.partNo));
+        
+        // Auto-delete local packing items that were deleted in cloud
+        const beforeCount = packingSession.length;
+        packingSession = packingSession.filter(local => {
+            const sig = (local.qr || "") + "_" + local.partNo;
+            return cloudSignatures.has(sig);
+        });
+        
+        if (packingSession.length < beforeCount) {
+            localStorage.setItem('wms_packing', JSON.stringify(packingSession));
+            if (currentTab === 'packing' && typeof renderPackingList === 'function') {
+                renderPackingList();
+            }
+            console.log(`✅ Auto-synced PACKING: deleted ${beforeCount - packingSession.length} items from cloud`);
+        }
+    } catch (error) {
+        console.error('Auto-sync PACKING error:', error);
+    }
+}
+
+// Start auto-sync interval
+autoSyncTimer = setInterval(() => {
+    autoSyncWithCloud();
+}, AUTO_SYNC_INTERVAL);

@@ -138,7 +138,15 @@ if (currentTab === 'packing') {
 
         // Tambah ke PACKING (paste)
         packingSession.unshift({
-            id: Date.now(), partNo: partNo, docNo: docNo, qty: scanQty, qr: rawCode, colly: activeColly, time: new Date().toLocaleTimeString(), synced: false
+            id: Date.now(), 
+            partNo: partNo, 
+            docNo: docNo, 
+            qty: scanQty, 
+            qr: rawCode, 
+            colly: activeColly, 
+            time: new Date().toLocaleTimeString(), 
+            updated_at: Date.now(),  // Timestamp for two-way sync
+            synced: false
         });
 
         localStorage.setItem('wms_packing', JSON.stringify(packingSession));
@@ -190,8 +198,14 @@ if (currentTab === 'packing') {
         if (isDuplicateQR) { feedback('error'); showToast("Duplikat! Label fisik ini sudah pernah discan."); return; }
 
         offBsSession.unshift({
-            id: Date.now(), partNo: partNo, docNo: docNo, box: activeOffBsBox, qty: scanQty, qr: rawCode, 
-            time: new Date().toLocaleTimeString(), // KEMBALI MENGGUNAKAN JAM SAJA
+            id: Date.now(), 
+            partNo: partNo, 
+            docNo: docNo, 
+            box: activeOffBsBox, 
+            qty: scanQty, 
+            qr: rawCode, 
+            time: new Date().toLocaleTimeString(),
+            updated_at: Date.now(),  // Timestamp for two-way sync
             synced: false
         });
 
