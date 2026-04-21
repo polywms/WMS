@@ -13,11 +13,14 @@ self.addEventListener('message', event => {
         self.skipWaiting();
     }
 });
+
+// 1. Install event - cache assets
+self.addEventListener('install', event => {
   self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then(cache => {
-        console.log('Opened cache v2');
+        console.log('Opened cache v16');
         return cache.addAll(urlsToCache);
       })
   );
