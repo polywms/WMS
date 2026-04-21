@@ -1,0 +1,6 @@
+{
+  "version": "1.0.0",
+  "updated": "2026-04-21T00:00:00Z",
+  "features": ["batch-sync", "cache-versioning", "qr-parser-refactor"],
+  "notes": "Batch processing untuk queue, auto update cache, QR parser modular"
+}

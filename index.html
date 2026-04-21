@@ -81,15 +81,26 @@
                     <div style="margin-top:10px; font-size:0.9rem; font-weight:bold; color:var(--purple); animation: pulse 2s infinite; text-align:center;"><i class="fas fa-arrow-right"></i> SCAN BOX UNTUK SET LOKASI</div>
                 </div>
                 <div id="simpanStatusPanel" class="status-panel">
-                    <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;">
                         <b style="font-size:1.1rem; color:var(--primary);" id="activePartNo">-</b>
-                        <button class="btn-sm btn-danger" onclick="clearActivePart()"><i class="fas fa-times"></i></button>
+                        <div style="display:flex; gap:6px;">
+                            <button class="btn-sm" style="width:35px; height:35px; padding:0; background:#fef2f2; color:#dc2626; border:1px solid #fca5a5; border-radius:6px; display:flex; justify-content:center; align-items:center; cursor:pointer;" onclick="addLabelIssue('NO_LABEL')" title="Tanpa Label"><i class="fas fa-tag"></i></button>
+                            <button class="btn-sm" style="width:35px; height:35px; padding:0; background:#fffbeb; color:#d97706; border:1px solid #fcd34d; border-radius:6px; display:flex; justify-content:center; align-items:center; cursor:pointer;" onclick="addLabelIssue('DAMAGED')" title="Label Rusak"><i class="fas fa-tags"></i></button>
+                            <button class="btn-sm btn-danger" style="width:35px; height:35px; padding:0; display:flex; justify-content:center; align-items:center;" onclick="clearActivePart()"><i class="fas fa-times"></i></button>
+                        </div>
                     </div>
                     <div id="activePartDesc" style="font-size:0.9rem; color:var(--secondary); margin-bottom:10px;">-</div>
-                    <div style="display:flex; gap:8px; margin-bottom:10px;">
-                        <button class="btn-sm btn-outline" style="flex:1; border-color:#fca5a5; color:#dc2626;" onclick="addLabelIssue('NO_LABEL')"><i class="fas fa-tag"></i> Tanpa Label</button>
-                        <button class="btn-sm btn-outline" style="flex:1; border-color:#fcd34d; color:#d97706;" onclick="addLabelIssue('DAMAGED')"><i class="fas fa-tags"></i> Label Rusak</button>
+                    <!-- Smart Suggestion Accordion -->
+                    <div id="smartSuggestionPanel" style="display:none; background:#fffbeb; padding:10px; margin-bottom:10px; border-radius:6px; border:1px solid #fcd34d;">
+                        <div id="smartSuggestionHeader" style="display:flex; justify-content:space-between; align-items:center; cursor:pointer; user-select:none;" onclick="toggleSmartSuggestion()">
+                            <div style="font-size:0.9rem; font-weight:bold; color:#92400e; display:flex; align-items:center; gap:6px;">
+                                <i class="fas fa-lightbulb"></i> <span id="smartSuggestionText">Ada X Part Seri Serupa</span>
+                            </div>
+                            <i id="smartSuggestionChevron" class="fas fa-chevron-down" style="color:#92400e; transition:transform 0.3s; transform: rotate(0deg);"></i>
+                        </div>
+                        <div id="smartSuggestionList" style="display:none; margin-top:10px; max-height:200px; overflow-y:auto; border-top:1px solid #fcd34d; padding-top:10px;"></div>
                     </div>
+                    <!-- End Smart Suggestion -->
                     <div style="background:#fff; padding:8px; margin-bottom:10px; border-radius:6px; border:1px solid #bfdbfe; font-size:0.9rem;">Lokasi Saat Ini: <b id="activePartLoc" style="color:var(--danger)">-</b></div>
                     <div style="background:var(--card); padding:10px; border-radius:6px; border:1px dashed var(--primary); text-align:center;">
                         <div style="font-size:0.9rem; font-weight:bold; color:var(--primary); margin-bottom:5px;">AKAN DISIMPAN (QTY 0 / BELUM DIHITUNG)</div>

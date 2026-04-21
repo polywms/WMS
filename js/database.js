@@ -59,21 +59,66 @@ async function fetchInitialDataFromCloud() {
 }
 
 function saveDB(item, actionName = "UPDATE", actionDetail = "") {
-    const tx = db.transaction('items', 'readwrite'); tx.objectStore('items').put(item);
-    syncQueue.push(item); syncLogs.push({ partNo: item.partNo, action: actionName, detail: actionDetail || "Update Qty/Lokasi" });
+    // Prevent queue overflow - critical safeguard
+    if (syncQueue.length >= MAX_QUEUE_SIZE) {
+        alert("⚠️ PERINGATAN SISTEM!\n\nQueue penyimpanan penuh (>500 items).\n\nTunggu koneksi stabil atau clear data manual.");
+        updateSyncUI("🔴 Queue PENUH!");
+        return;
+    }
+    
+    const tx = db.transaction('items', 'readwrite'); 
+    tx.objectStore('items').put(item);
+    syncQueue.push(item); 
+    syncLogs.push({ partNo: item.partNo, action: actionName, detail: actionDetail || "Update Qty/Lokasi", timestamp: Date.now() });
     updateSyncUI("🟡 Menunggu Sync...");
 }
 
 async function processSyncQueue() {
     if (isSyncing || (syncQueue.length === 0 && syncLogs.length === 0) || !navigator.onLine) return;
-    isSyncing = true; updateSyncUI("🔄 Syncing...");
+    isSyncing = true; 
+    updateSyncUI("🔄 Syncing...");
+    
     try {
-        const uniqueItemsMap = {}; syncQueue.forEach(item => uniqueItemsMap[item.id] = item);
-        const payload = { action: "sync", data: Object.values(uniqueItemsMap), logs: syncLogs };
-        const response = await fetch(API_URL, { method: "POST", redirect: "follow", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(payload) });
-        const result = await response.json();
-        if (result.status === "success") { syncQueue = []; syncLogs = []; updateSyncUI("🟢 Tersimpan"); } else { updateSyncUI("🔴 Gagal Sync"); }
-    } catch (error) { updateSyncUI("🔴 Offline"); } finally { isSyncing = false; }
+        let successCount = 0;
+        let batchNum = 0;
+        
+        // Process in batches to prevent OOM crashes
+        while (syncQueue.length > 0) {
+            batchNum++;
+            const batch = syncQueue.splice(0, MAX_SYNC_BATCH);
+            const uniqueItemsMap = {};
+            batch.forEach(item => uniqueItemsMap[item.id] = item);
+            
+            const payload = { action: "sync", data: Object.values(uniqueItemsMap), logs: syncLogs, batch: batchNum };
+            updateSyncUI(`🔄 Syncing (Batch ${batchNum})...`);
+            
+            const response = await fetch(API_URL, { 
+                method: "POST", 
+                redirect: "follow", 
+                headers: { "Content-Type": "text/plain;charset=utf-8" }, 
+                body: JSON.stringify(payload) 
+            });
+            
+            const result = await response.json();
+            if (result.status === "success") { 
+                successCount += batch.length;
+            } else { 
+                // Revert batch if failed
+                syncQueue.unshift(...batch); 
+                updateSyncUI("🔴 Gagal Sync"); 
+                break;
+            }
+        }
+        
+        if (syncQueue.length === 0) {
+            syncLogs = syncLogs.slice(-100); // Keep only last 100 logs
+            updateSyncUI("🟢 Tersimpan"); 
+        }
+    } catch (error) { 
+        updateSyncUI("🔴 Offline"); 
+    } finally { 
+        isSyncing = false; 
+    }
 }
 
 async function triggerOffBsSync() {
@@ -522,7 +567,41 @@ window.triggerPackingSync = async function() {
         }
     } catch (err) { console.error(err); }
 };
+// ===== OFF BS FUNCTIONS - Fix Reset Button =====
+window.clearOffBsBox = function() {
+    activeOffBsBox = null;
+    document.getElementById('activeOffBsBoxName').innerText = 'Belum Diset';
+    feedback('success');
+    showToast('Box OFF BS dihapus');
+};
 
+window.clearOffBsSession = function() {
+    if(offBsSession.length === 0) { showToast("Session kosong!"); return; }
+    if(confirm("PERINGATAN!\n\nMereset sesi OFF BS akan menghapus semua scan dari layar DAN dari Google Sheets. Pastikan sudah di-Export Excel!\n\nLanjutkan?")) {
+        // Collect ALL items (baik synced atau belum) untuk dihapus dari cloud
+        const allItems = [...offBsSession];
+        
+        // Clear local
+        offBsSession = [];
+        localStorage.removeItem('wms_off_bs');
+        activeOffBsBox = null;
+        document.getElementById('activeOffBsBoxName').innerText = 'Belum Diset';
+        renderOffBsList();
+        
+        // Delete ALL items dari Google Sheets (jangan check navigator.onLine)
+        // Jika offline, error akan di-catch dan ignored
+        if (allItems.length > 0) {
+            fetch(API_URL, {
+                method: "POST", 
+                redirect: "follow",
+                headers: { "Content-Type": "text/plain;charset=utf-8" },
+                body: JSON.stringify({ action: "delete_off_bs", data: allItems })
+            }).catch(e => console.error("Gagal hapus OFF BS di cloud (will retry next sync):", e));
+        }
+        
+        showToast("✅ Sesi OFF BS direset (local + cloud)");
+    }
+};
 setInterval(() => {
     processSyncQueue();
     if(typeof triggerOffBsSync === 'function') triggerOffBsSync();

@@ -1,13 +1,18 @@
-const CACHE_NAME = 'wms-cache-v15';
+const CACHE_NAME = 'wms-cache-v16';
 const urlsToCache = [
   './',
   './index.html',
   './manifest.json',
-  './icon-192.png' 
+  './icon-192.png',
+  './version.json'
 ];
 
-
-self.addEventListener('install', event => {
+// Handle version update messages from client
+self.addEventListener('message', event => {
+    if (event.data && event.data.type === 'SKIP_WAITING') {
+        self.skipWaiting();
+    }
+});
   self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME)
@@ -47,6 +52,23 @@ self.addEventListener('fetch', event => {
   // Biarkan POST (Kirim Data) lewat begitu saja.
   if (event.request.method !== 'GET') {
     event.respondWith(fetch(event.request));
+    return;
+  }
+
+  // Special handling: version.json always checks network first
+  if (event.request.url.endsWith('version.json')) {
+    event.respondWith(
+      fetch(event.request).then(response => {
+        if (response.ok) {
+          caches.open(CACHE_NAME).then(cache => {
+            cache.put(event.request, response.clone());
+          });
+        }
+        return response;
+      }).catch(() => {
+        return caches.match(event.request);
+      })
+    );
     return;
   }
 

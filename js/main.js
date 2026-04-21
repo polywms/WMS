@@ -1,6 +1,35 @@
 // js/main.js
 let wakeLock = null;
 
+// ===== VERSION CHECK & AUTO UPDATE =====
+async function checkForUpdates() {
+    try {
+        const response = await fetch('./version.json?t=' + Date.now());
+        if (!response.ok) return;
+        
+        const data = await response.json();
+        const savedVersion = localStorage.getItem('appVersion');
+        
+        if (savedVersion && data.version !== savedVersion) {
+            if (confirm('🔄 Update tersedia!\n\nReload aplikasi untuk versi terbaru?')) {
+                localStorage.setItem('appVersion', data.version);
+                
+                // Notify SW to skip waiting
+                if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+                    navigator.serviceWorker.controller.postMessage({ type: 'SKIP_WAITING' });
+                    setTimeout(() => window.location.reload(), 500);
+                } else {
+                    window.location.reload();
+                }
+            }
+        } else if (!savedVersion) {
+            localStorage.setItem('appVersion', data.version);
+        }
+    } catch (e) { 
+        console.log('Version check skipped (offline)'); 
+    }
+}
+
 async function requestWakeLock() {
     try {
         wakeLock = await navigator.wakeLock.request('screen');
@@ -33,6 +62,9 @@ window.onload = async () => {
     if(localStorage.getItem('darkMode') === 'true') document.body.classList.add('dark-mode');
     requestWakeLock();
     document.getElementById('mainInput').focus();
+    
+    // Check for updates after 3 seconds
+    setTimeout(checkForUpdates, 3000);
     
     const scrollBtn = document.getElementById('scrollTopBtn');
     const setupScroll = (id, callback) => {

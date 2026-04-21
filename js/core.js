@@ -1,4 +1,23 @@
 // js/core.js
+
+// ===== QR CODE PARSER =====
+function parseQRCode(rawCode) {
+    /**
+     * Try parsing QR code against configured formats
+     * Returns: { partNo, qty, docNo, parser: parserName } or null
+     */
+    for (const [parserKey, config] of Object.entries(QR_PARSERS)) {
+        const match = rawCode.match(config.pattern);
+        if (match) {
+            return { 
+                ...config.extract(match), 
+                parser: config.name 
+            };
+        }
+    }
+    return null; // No match found
+}
+
 function populateFilters() {
     const locs = [...new Set(localItems.map(i => i.locType))].filter(Boolean).sort();
     const selLoc = document.getElementById('filterLoc');
@@ -94,20 +113,30 @@ if (currentTab === 'packing') {
             return;
         }
 
-        let partNo = ""; let scanQty = 1; let docNo = "";
-        if (rawCode.startsWith("SCL/")) {
-            const parts = rawCode.split(" ");
-            if (parts.length >= 3) {
-                docNo = parts[0].trim(); scanQty = parseInt(parts[1]) || 1; partNo = parts[parts.length - 1].trim();
-            } else { feedback('error'); return; }
-        } else if (rawCode.includes('|')) {
-            const parts = rawCode.split('|');
-            partNo = parts[0].trim(); scanQty = parseInt(parts[1]) || 1; docNo = parts[3] ? parts[3].trim() : "TIDAK ADA DOC"; 
-        } else { feedback('error'); return; }
+        // Use configurable QR parser
+        const parsed = parseQRCode(rawCode);
+        if (!parsed) {
+            feedback('error');
+            showToast("Format QR tidak dikenali. Periksa format atau konfigurasi.");
+            return;
+        }
+
+        let { partNo, qty: scanQty, docNo } = parsed;
 
         const isDup = packingSession.some(i => i.qr === rawCode);
         if (isDup) { feedback('error'); showToast("Sudah discan di Colly ini!"); return; }
 
+        // ===== CUT & PASTE dari OFF BS =====
+        // Cari part yang sama di OFF BS session
+        const offBsItem = offBsSession.find(i => i.partNo === partNo && i.qr === rawCode);
+        if (offBsItem) {
+            // Part ini ada di OFF BS, hapus dari OFF BS (cut)
+            offBsSession = offBsSession.filter(i => i.id !== offBsItem.id);
+            localStorage.setItem('wms_off_bs', JSON.stringify(offBsSession));
+            if(typeof renderOffBsList === 'function') renderOffBsList();
+        }
+
+        // Tambah ke PACKING (paste)
         packingSession.unshift({
             id: Date.now(), partNo: partNo, docNo: docNo, qty: scanQty, qr: rawCode, colly: activeColly, time: new Date().toLocaleTimeString(), synced: false
         });
@@ -115,8 +144,13 @@ if (currentTab === 'packing') {
         localStorage.setItem('wms_packing', JSON.stringify(packingSession));
         renderPackingList();
         triggerPackingSync();
+        
         feedback('success');
-        showToast(`${partNo} Masuk Colly!`);
+        if (offBsItem) {
+            showToast(`✅ ${partNo} dipindah dari OFF BS → Colly!`);
+        } else {
+            showToast(`${partNo} Masuk Colly!`);
+        }
         return;
     }
 
@@ -134,16 +168,15 @@ if (currentTab === 'packing') {
         if (!activeOffBsBox) { feedback('error'); showToast("TOLAKAN: Scan Box Tujuan (RTF) dulu!"); return; }
         if (isBox && !rawCode.startsWith('RTF')) { feedback('error'); alert(`TOLAKAN!\n\nIni box reguler (${rawCode}).`); return; }
 
-        let partNo = ""; let scanQty = 1; let docNo = "";
-        if (rawCode.startsWith("SCL/")) {
-            const parts = rawCode.split(" ");
-            if (parts.length >= 3) {
-                docNo = parts[0].trim(); scanQty = parseInt(parts[1]) || 1; partNo = parts[parts.length - 1].trim();
-            } else { feedback('error'); showToast("TOLAKAN: Format SCL (2025) rusak!"); return; }
-        } else if (rawCode.includes('|')) {
-            const parts = rawCode.split('|');
-            partNo = parts[0].trim(); scanQty = parseInt(parts[1]) || 1; docNo = parts[3] ? parts[3].trim() : "TIDAK ADA DOC"; 
-        } else { feedback('error'); showToast("TOLAKAN: Format QR tidak dikenali!"); return; }
+        // Use configurable QR parser
+        const parsed = parseQRCode(rawCode);
+        if (!parsed) {
+            feedback('error');
+            showToast("TOLAKAN: Format QR tidak dikenali!");
+            return;
+        }
+
+        let { partNo, qty: scanQty, docNo } = parsed;
 
         const masterItem = localItems.find(i => i.partNo === partNo && (i.locType || '').toUpperCase().includes('OFF BS'));
         if (!masterItem) { feedback('error'); alert(`TOLAKAN:\nPart ${partNo} tidak terdaftar OFF BS!`); return; }
@@ -325,11 +358,21 @@ function selectPartSimpan(item) {
     document.querySelectorAll('.item-card').forEach(el => { el.classList.remove('selected'); el.classList.remove('row-flash'); });
     const row = document.getElementById(`simpan-row-${item.id}`);
     if(row) { row.classList.add('selected'); row.classList.add('row-flash'); row.scrollIntoView({behavior:'smooth', block:'center'}); }
+    
+    // Render Smart Suggestion
+    renderSmartSuggestion(item);
 }
 
 function clearActivePart() {
     tempPart = null; document.getElementById('simpanStatusPanel').style.display = 'none';
     document.querySelectorAll('.item-card').forEach(el => el.classList.remove('selected'));
+    // Reset Smart Suggestion Panel
+    const panelEl = document.getElementById('smartSuggestionPanel');
+    const listEl = document.getElementById('smartSuggestionList');
+    const chevron = document.getElementById('smartSuggestionChevron');
+    if (panelEl) panelEl.style.display = 'none';
+    if (listEl) listEl.innerHTML = '';
+    if (chevron) chevron.style.transform = 'rotate(0deg)';
 }
 
 function checkSimpanConflict(item, newBox) {
@@ -490,6 +533,83 @@ function addLabelIssue(type) { if (!tempPart) return; if (!tempPart.labelIssues)
 function openLabelReport() { const container = document.getElementById('labelReportList'); let html = ''; let count = 0; localItems.forEach(i => { if (i.labelIssues && (i.labelIssues.DAMAGED > 0 || i.labelIssues.NO_LABEL > 0)) { count++; html += `<div style="padding:10px; border:1px solid var(--border); border-radius:6px; background:#fef2f2;"><b>${i.partNo}</b> <span style="font-size:0.8rem; color:var(--secondary)">${i.desc}</span><div style="display:flex; gap:15px; margin-top:8px; font-size:0.85rem; font-weight:bold;">${i.labelIssues.NO_LABEL > 0 ? `<span style="color:var(--danger);"><i class="fas fa-tag"></i> Hilang: ${i.labelIssues.NO_LABEL} pcs</span>` : ''}${i.labelIssues.DAMAGED > 0 ? `<span style="color:#d97706;"><i class="fas fa-tags"></i> Rusak: ${i.labelIssues.DAMAGED} pcs</span>` : ''}</div><div style="font-size:0.75rem; color:var(--secondary); margin-top:6px;">Lokasi: ${Object.keys(i.locations).join(', ') || 'Belum Box'}</div></div>`; } }); if (count === 0) html = '<div style="text-align:center; padding:30px; color:var(--opname);"><i class="fas fa-check-circle" style="font-size:2rem; margin-bottom:10px; display:block;"></i>Semua Label Aman!</div>'; container.innerHTML = html; document.getElementById('labelReportModal').style.display = 'flex'; }
 function openRakModal() { const raks = new Set(); localItems.forEach(i => Object.keys(i.locations).forEach(box => raks.add(box.charAt(0).toUpperCase()))); const sel = document.getElementById('rakSelect'); sel.innerHTML = '<option value="">-- Pilih Rak --</option>'; [...raks].sort().forEach(r => sel.innerHTML += `<option value="${r}">Rak ${r}</option>`); document.getElementById('rakSummaryList').innerHTML = '<div style="text-align:center; color:#999; padding:20px;">Pilih rak di atas</div>'; document.getElementById('rakModal').style.display = 'flex'; }
 function renderRakSummary() { const rak = document.getElementById('rakSelect').value; const container = document.getElementById('rakSummaryList'); if (!rak) { container.innerHTML = ''; return; } let html = ''; let missingCount = 0; localItems.forEach(i => { const boxesInRak = Object.keys(i.locations).filter(b => b.startsWith(rak)); if (boxesInRak.length > 0) { const totalFisik = Object.values(i.locations).reduce((a,b)=>a+b,0); if (totalFisik < i.sysQty) { missingCount++; html += `<div style="padding:10px; border-left:4px solid var(--danger); background:#fef2f2; border-radius:4px;"><div style="display:flex; justify-content:space-between;"><b style="color:var(--danger)">${i.partNo}</b><span style="font-size:0.8rem; font-weight:bold; color:var(--danger)">${totalFisik} / ${i.sysQty}</span></div><div style="font-size:0.8rem; color:#666; margin-top:4px;">Harusnya di: ${boxesInRak.map(b => `${b}(${i.locations[b]})`).join(', ')}</div></div>`; } } }); if (missingCount === 0) html = '<div style="text-align:center; padding:30px; color:#16a34a; font-weight:bold;"><i class="fas fa-check-circle" style="font-size:3rem; margin-bottom:10px; display:block;"></i>Aman & Komplit!</div>'; container.innerHTML = html; }
+
+// ============================================
+// SMART SUGGESTION FUNCTIONS
+// ============================================
+
+function getBasePart(partNo) {
+    if (!partNo) return '';
+    const parts = partNo.split('-');
+    if (parts.length >= 2) {
+        return parts[0] + '-' + parts[1];
+    }
+    return partNo;
+}
+
+function toggleSmartSuggestion() {
+    const listEl = document.getElementById('smartSuggestionList');
+    const chevron = document.getElementById('smartSuggestionChevron');
+    const isOpen = listEl.style.display !== 'none';
+    listEl.style.display = isOpen ? 'none' : 'block';
+    chevron.style.transform = isOpen ? 'rotate(0deg)' : 'rotate(180deg)';
+}
+
+function renderSmartSuggestion(item) {
+    if (!item) return;
+    
+    const panelEl = document.getElementById('smartSuggestionPanel');
+    const headerEl = document.getElementById('smartSuggestionHeader');
+    const textEl = document.getElementById('smartSuggestionText');
+    const listEl = document.getElementById('smartSuggestionList');
+    const chevron = document.getElementById('smartSuggestionChevron');
+    
+    // Get base part for this item
+    const basePart = getBasePart(item.partNo);
+    
+    // Find sibling parts with same base but different ID and with locations
+    const siblings = localItems.filter(sibling => {
+        return sibling.id !== item.id && 
+               getBasePart(sibling.partNo) === basePart && 
+               Object.keys(sibling.locations).length > 0;
+    });
+    
+    if (siblings.length === 0) {
+        // Hide panel if no siblings found
+        panelEl.style.display = 'none';
+        listEl.innerHTML = '';
+        chevron.style.transform = 'rotate(0deg)';
+        return;
+    }
+    
+    // Show panel with siblings
+    panelEl.style.display = 'block';
+    
+    // Update header text
+    textEl.innerText = `💡 Ada ${siblings.length} Part Seri Serupa`;
+    
+    // Render siblings list
+    let html = '';
+    siblings.forEach(sibling => {
+        const boxes = Object.keys(sibling.locations).map(box => `${box}`).join(', ');
+        const boxDisplay = boxes ? boxes : 'Belum ada box';
+        html += `
+            <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid #fce7ba; font-size:0.85rem;">
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <div style="font-weight:bold; color:#92400e;">${sibling.partNo}</div>
+                    <div style="font-size:0.75rem; color:#b45309;">➔ ${boxDisplay}</div>
+                </div>
+                <button onclick="selectPartSimpan(localItems.find(i=>i.id===${sibling.id}))" style="padding:4px 8px; background:#f59e0b; color:white; border:none; border-radius:4px; cursor:pointer; font-size:0.75rem; font-weight:bold;">Lihat</button>
+            </div>
+        `;
+    });
+    
+    listEl.innerHTML = html;
+    
+    // Close accordion by default (chevron down, list hidden)
+    listEl.style.display = 'none';
+    chevron.style.transform = 'rotate(0deg)';
+}
 
 function switchTab(id) {
     currentTab = id;
