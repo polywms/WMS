@@ -21,6 +21,16 @@ const QR_PARSERS = {
             docNo: match[4].trim() 
         })
     },
+    sclMGL: {
+        name: 'sclMGL (format lama)',
+        pattern: /^([A-Z0-9\/\-]+)\s+(\d+)\s+([A-Z0-9\-]+)\s+([A-Z0-9\-]+)$/,
+        extract: (match) => ({
+            docNo: match[1].trim(),      // Case number: SCL/MGL/25/12/17/010
+            qty: parseInt(match[2]) || 1, // Qty: 1
+            // match[3] = Unit type (PS-PLD43BUG5959) - diabaikan
+            partNo: match[4].trim()      // Part number: XV-033284-00A
+        })
+    },
     scl2025: {
         name: 'scl2025',
         pattern: /^SCL\/\s+(\d+)\s+(.+)$/,

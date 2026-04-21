@@ -53,10 +53,22 @@ Google Sheets API returns:
 ```
 
 ### QR Format Parsing
-- **Standard**: `PART_NO|QTY|???|DOC_NO` (pipe-separated)
-- **SCL Format**: `SCL/ QTY PART_NO` (space-separated)
+- **Standard (Baru)**: `PART_NO|QTY|SERIAL|DOC_NO` (pipe-separated)
+  - Example: `KE-010015-00A|1| |SJOB/SKM-MGL/26/03/28/008`
+  - Extracted: partNo=`KE-010015-00A`, qty=`1`, docNo=`SJOB/SKM-MGL/26/03/28/008`
+- **SCL/MGL (Lama)**: `DOC_NO QTY UNIT_TYPE PART_NO` (space-separated)
+  - Example: `SCL/MGL/25/12/17/010 1 PS-PLD43BUG5959 XV-033284-00A`
+  - Extracted: docNo=`SCL/MGL/25/12/17/010`, qty=`1`, partNo=`XV-033284-00A`
+- **SCL Legacy**: `SCL/ QTY PART_NO` (space-separated)
+- **Simple Fallback**: Any text as partNo, qty=1, docNo='AUTO'
 - **Box Pattern**: `/^[A-Z][0-9]{0,2}-[0-9]{2,3}$/` regex
 - **OFF BS Box**: Must start with `RTF`
+
+### QR Parser Priority Order (First Match Wins)
+1. standard (pipe-separated baru)
+2. sclMGL (space-separated lama)
+3. scl2025 (SCL legacy)
+4. simple (fallback untuk semua format)
 
 ### Session Data Locations
 - **Active part**: `tempPart` variable (not persisted)
@@ -92,16 +104,33 @@ HTML event → function in core.js → saveDB() in database.js → loadDataFromL
 5. In `processScan()`, add `if (currentTab === '{id}')` block with logic
 
 ### Add New QR Format (Easy Now!)
-1. Add entry to `QR_PARSERS` in config.js:
+1. Add entry to `QR_PARSERS` in config.js **BEFORE simple** (order matters!):
 ```javascript
-newFormat: {
-    name: 'newFormat',
+yourFormat: {
+    name: 'yourFormat',
     pattern: /your-regex-here/,
-    extract: (match) => ({ partNo, qty, docNo })
+    extract: (match) => ({ 
+        partNo: match[X].trim(),
+        qty: parseInt(match[Y]) || 1,
+        docNo: match[Z].trim()
+    })
 }
 ```
-2. `parseQRCode()` in core.js automatically tries all patterns
+2. `parseQRCode()` in core.js tries patterns in order, first match wins
 3. No core.js changes needed!
+
+**Example: SCL/MGL Format (implemented 2026-04-21)**
+```javascript
+sclMGL: {
+    name: 'sclMGL (format lama)',
+    pattern: /^([A-Z0-9\/\-]+)\s+(\d+)\s+([A-Z0-9\-]+)\s+([A-Z0-9\-]+)$/,
+    extract: (match) => ({
+        docNo: match[1].trim(),      // SCL/MGL/25/12/17/010
+        qty: parseInt(match[2]) || 1, // 1
+        partNo: match[4].trim()      // XV-033284-00A
+    })
+}
+```
 
 ### Add New Field to Item Schema
 1. Define in `config.js` comment
