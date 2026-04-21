@@ -49,6 +49,12 @@
                     <i class="fas fa-truck-loading"></i>
                     <span class="sidebar-label">Packing</span>
                 </button>
+                
+                <!-- Settings Button at Bottom -->
+                <button class="sidebar-item sidebar-settings-btn" data-tab="settings" onclick="switchTab('settings'); toggleMenu()">
+                    <i class="fas fa-cog"></i>
+                    <span class="sidebar-label">Pengaturan</span>
+                </button>
             </nav>
         </div>
         
@@ -91,9 +97,20 @@
                             ">
                             <div id="multiIcon" style="width:35px; height:35px; background:white; color:var(--secondary); border:1px solid #cbd5e1; border-radius:6px; display:flex; justify-content:center; align-items:center; transition:0.2s;"><i class="fas fa-layer-group"></i></div>
                         </label>
+                        <button id="historyToggleBtn" onclick="toggleHistoryAccordion()" style="width:35px; height:35px; background:white; color:var(--secondary); border:1px solid #cbd5e1; border-radius:6px; display:flex; justify-content:center; align-items:center; cursor:pointer; padding:0; transition:0.2s;" title="Riwayat Scan"><i class="fas fa-history"></i></button>
                     </div>
                 </div>
-                <div id="historyLog"></div>
+                
+                <!-- History Accordion -->
+                <div id="historyAccordion" class="history-accordion" style="display:none;">
+                    <div class="history-header">
+                        <i class="fas fa-history"></i>
+                        <span>Riwayat Scan</span>
+                        <span id="historyCount" style="background:var(--primary); color:white; padding:2px 8px; border-radius:12px; font-size:0.75rem; font-weight:bold; margin-left:auto;">0</span>
+                    </div>
+                    <div id="historyLog" class="history-content"></div>
+                </div>
+                
                 <div style="display:flex; justify-content:flex-end; margin-top:10px; align-items:center;">
                     <label id="filterNoBoxToggle" class="chip-toggle danger" style="display:none;">
                         <input type="checkbox" id="chkFilterNoBox" onchange="renderSimpanList(true)">
@@ -252,6 +269,99 @@
                 </div>
                 
                 <div id="packingList" class="list-container"></div>
+            </div>
+            
+            <!-- Settings Tab -->
+            <div id="tab-settings" class="tab-content">
+                <div class="settings-container">
+                    <!-- Tema Section -->
+                    <div class="settings-section">
+                        <div class="settings-section-title">
+                            <i class="fas fa-palette"></i>
+                            <span>Tampilan</span>
+                        </div>
+                        <button class="settings-item" onclick="toggleDarkMode()">
+                            <div class="settings-item-content">
+                                <div class="settings-item-title">Ganti Tema</div>
+                                <div class="settings-item-desc">Beralih antara tema terang dan gelap</div>
+                            </div>
+                            <i class="fas fa-chevron-right"></i>
+                        </button>
+                    </div>
+                    
+                    <!-- Import Section -->
+                    <div class="settings-section">
+                        <div class="settings-section-title">
+                            <i class="fas fa-download"></i>
+                            <span>Impor Data</span>
+                        </div>
+                        <button class="settings-item" onclick="document.getElementById('fileInput').click()">
+                            <div class="settings-item-content">
+                                <div class="settings-item-title">Impor Stock</div>
+                                <div class="settings-item-desc">Impor data stok dari file Excel/CSV</div>
+                            </div>
+                            <i class="fas fa-chevron-right"></i>
+                        </button>
+                        <button class="settings-item" onclick="document.getElementById('offBsFileInput').click()">
+                            <div class="settings-item-content">
+                                <div class="settings-item-title">Impor OFF BS</div>
+                                <div class="settings-item-desc">Impor data OFF BS dari file Excel/CSV</div>
+                            </div>
+                            <i class="fas fa-chevron-right"></i>
+                        </button>
+                    </div>
+                    
+                    <!-- Export Section -->
+                    <div class="settings-section">
+                        <div class="settings-section-title">
+                            <i class="fas fa-upload"></i>
+                            <span>Ekspor Data</span>
+                        </div>
+                        <button class="settings-item" onclick="exportData()">
+                            <div class="settings-item-content">
+                                <div class="settings-item-title">Ekspor Excel</div>
+                                <div class="settings-item-desc">Unduh semua data ke file Excel</div>
+                            </div>
+                            <i class="fas fa-chevron-right"></i>
+                        </button>
+                        <button class="settings-item" onclick="backupJson()">
+                            <div class="settings-item-content">
+                                <div class="settings-item-title">Backup JSON</div>
+                                <div class="settings-item-desc">Cadangkan data ke file JSON</div>
+                            </div>
+                            <i class="fas fa-chevron-right"></i>
+                        </button>
+                        <button class="settings-item" onclick="document.getElementById('jsonInput').click()">
+                            <div class="settings-item-content">
+                                <div class="settings-item-title">Pulihkan JSON</div>
+                                <div class="settings-item-desc">Pulihkan data dari file JSON</div>
+                            </div>
+                            <i class="fas fa-chevron-right"></i>
+                        </button>
+                    </div>
+                    
+                    <!-- Reset Section -->
+                    <div class="settings-section">
+                        <div class="settings-section-title">
+                            <i class="fas fa-tools"></i>
+                            <span>Utilitas</span>
+                        </div>
+                        <button class="settings-item settings-item-warning" onclick="if(confirm('Reset data Opname? Tindakan ini tidak dapat dibatalkan.')) clearOpname()">
+                            <div class="settings-item-content">
+                                <div class="settings-item-title">Reset Opname</div>
+                                <div class="settings-item-desc">Hapus semua data opname</div>
+                            </div>
+                            <i class="fas fa-chevron-right"></i>
+                        </button>
+                        <button class="settings-item settings-item-danger" onclick="if(confirm('Reset SEMUA data? Tindakan ini tidak dapat dibatalkan!')) clearData()">
+                            <div class="settings-item-content">
+                                <div class="settings-item-title">Reset Database</div>
+                                <div class="settings-item-desc">Hapus semua data di aplikasi</div>
+                            </div>
+                            <i class="fas fa-chevron-right"></i>
+                        </button>
+                    </div>
+                </div>
             </div>
         
         <button id="scrollTopBtn" class="scroll-btn" onclick="scrollToTop()"><i class="fas fa-arrow-up"></i></button>

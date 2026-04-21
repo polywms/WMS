@@ -227,6 +227,149 @@
             flex: 1;
             }
             
+            .sidebar-settings-btn {
+            margin-top: auto;
+            border-top: 1px solid rgba(255, 255, 255, 0.15);
+            padding-top: 14px;
+            padding-bottom: 14px;
+            font-weight: 600;
+            color: rgba(255, 255, 255, 0.9);
+            }
+            
+            .sidebar-settings-btn:hover {
+            background: rgba(255, 255, 255, 0.15);
+            }
+            
+            .sidebar-settings-btn.active {
+            background: rgba(255, 255, 255, 0.25);
+            }
+            
+            /* Settings Tab Styles */
+            .settings-container {
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+            }
+            
+            .settings-section {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            }
+            
+            .settings-section-title {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 0;
+            font-size: 0.85rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            color: var(--primary);
+            border-bottom: 2px solid var(--border);
+            letter-spacing: 0.5px;
+            }
+            
+            .settings-section-title i {
+            font-size: 1rem;
+            }
+            
+            .settings-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 14px 12px;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-align: left;
+            }
+            
+            .settings-item:hover {
+            background: var(--bg-secondary);
+            border-color: var(--primary);
+            transform: translateX(4px);
+            }
+            
+            .settings-item-content {
+            flex: 1;
+            }
+            
+            .settings-item-title {
+            font-weight: 600;
+            color: var(--text);
+            font-size: 0.95rem;
+            }
+            
+            .settings-item-desc {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            margin-top: 4px;
+            }
+            
+            .settings-item i {
+            color: var(--text-secondary);
+            font-size: 1.1rem;
+            margin-left: 12px;
+            }
+            
+            .settings-item-warning {
+            border-color: #fbbf24;
+            background: #fffbeb;
+            }
+            
+            .settings-item-warning:hover {
+            background: #fef3c7;
+            border-color: #f59e0b;
+            }
+            
+            .settings-item-warning .settings-item-title {
+            color: #92400e;
+            }
+            
+            .settings-item-warning .settings-item-desc {
+            color: #b45309;
+            }
+            
+            .settings-item-danger {
+            border-color: #fca5a5;
+            background: #fef2f2;
+            }
+            
+            .settings-item-danger:hover {
+            background: #fee2e2;
+            border-color: #ef4444;
+            }
+            
+            .settings-item-danger .settings-item-title {
+            color: #7f1d1d;
+            }
+            
+            .settings-item-danger .settings-item-desc {
+            color: #991b1b;
+            }
+            
+            body.dark-mode .settings-item-warning {
+            border-color: #92400e;
+            background: rgba(217, 119, 6, 0.1);
+            }
+            
+            body.dark-mode .settings-item-warning:hover {
+            background: rgba(217, 119, 6, 0.2);
+            }
+            
+            body.dark-mode .settings-item-danger {
+            border-color: #7f1d1d;
+            background: rgba(239, 68, 68, 0.1);
+            }
+            
+            body.dark-mode .settings-item-danger:hover {
+            background: rgba(239, 68, 68, 0.2);
+            }
+            
             .sidebar-overlay {
             position: fixed;
             top: 0;
@@ -313,6 +456,70 @@
             box-shadow: 0 4px 8px rgba(59, 130, 246, 0.1);
             transition: all 0.3s ease;
             }
+            
+            /* History Accordion Styles */
+            .history-accordion {
+            background: #f8fafc;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            margin-bottom: 10px;
+            overflow: hidden;
+            animation: slideDown 0.3s ease;
+            }
+            
+            @keyframes slideDown {
+            from { opacity: 0; transform: translateY(-10px); max-height: 0; }
+            to { opacity: 1; transform: translateY(0); max-height: 500px; }
+            }
+            
+            .history-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            background: linear-gradient(135deg, rgba(6, 182, 212, 0.08), rgba(8, 145, 178, 0.08));
+            border-bottom: 1px solid var(--border);
+            font-weight: 600;
+            color: var(--text);
+            font-size: 0.85rem;
+            }
+            
+            .history-header i {
+            color: var(--primary);
+            font-size: 1.1rem;
+            }
+            
+            .history-content {
+            max-height: 120px;
+            overflow-y: auto;
+            padding: 0;
+            }
+            
+            .history-item {
+            display: none;
+            }
+            
+            .history-item-part {
+            display: none;
+            }
+            
+            .history-item-text {
+            display: none;
+            }
+            
+            .history-item-box {
+            display: none;
+            }
+            
+            body.dark-mode .history-accordion {
+            background: #1e293b;
+            }
+            
+            body.dark-mode .history-item {
+            background: #0f172a;
+            border-color: #334155;
+            }
+            
             .input-wrapper { 
             position: relative; 
             display: flex; 

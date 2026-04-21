@@ -94,6 +94,58 @@ function toggleMultiMode() {
     document.getElementById('mainInput').focus();
 }
 
+function toggleHistoryAccordion() {
+    const accordion = document.getElementById('historyAccordion');
+    const btn = document.getElementById('historyToggleBtn');
+    const isOpen = accordion.style.display !== 'none';
+    accordion.style.display = isOpen ? 'none' : 'block';
+    
+    if (!isOpen) {
+        btn.style.background = 'var(--primary)';
+        btn.style.color = 'white';
+        btn.style.borderColor = 'var(--primary)';
+    } else {
+        btn.style.background = 'white';
+        btn.style.color = 'var(--secondary)';
+        btn.style.borderColor = '#cbd5e1';
+    }
+}
+
+function addHistoryLog(partNo, boxNo) {
+    scanHistoryLog.unshift({ 
+        partNo: partNo, 
+        box: boxNo, 
+        time: new Date().toLocaleTimeString(),
+        timestamp: Date.now()
+    });
+    
+    // Limit history to 20 items
+    if (scanHistoryLog.length > 20) scanHistoryLog.pop();
+    
+    // Update count badge
+    const countEl = document.getElementById('historyCount');
+    if (countEl) countEl.textContent = scanHistoryLog.length;
+    
+    // Render history items
+    renderHistoryLog();
+}
+
+function renderHistoryLog() {
+    const container = document.getElementById('historyLog');
+    if (!container) return;
+    
+    if (scanHistoryLog.length === 0) {
+        container.innerHTML = '<div style="text-align:center; padding:8px; color:var(--text-secondary); font-size:0.8rem;">Belum ada riwayat scan</div>';
+        return;
+    }
+    
+    container.innerHTML = scanHistoryLog.map(item => `
+        <div style="padding:6px 8px; border-bottom:1px solid var(--border); font-size:0.85rem; line-height:1.3;">
+            <span style="color:var(--primary);">✓</span> <strong>${item.partNo}</strong> >> <strong>${item.box}</strong> <span style="color:var(--text-secondary); font-size:0.75rem;">${item.time}</span>
+        </div>
+    `).join('');
+}
+
 function processScan(code) {
     let rawCode = code.trim().toUpperCase();
     let parsedCode = rawCode.includes('|') ? rawCode.split('|')[0] : rawCode;
@@ -152,6 +204,7 @@ if (currentTab === 'packing') {
         localStorage.setItem('wms_packing', JSON.stringify(packingSession));
         renderPackingList();
         triggerPackingSync();
+        addHistoryLog(partNo, activeColly);
         
         feedback('success');
         if (offBsItem) {
@@ -212,6 +265,7 @@ if (currentTab === 'packing') {
         localStorage.setItem('wms_off_bs', JSON.stringify(offBsSession));
         if(typeof renderOffBsList === 'function') renderOffBsList();
         if(typeof triggerOffBsSync === 'function') triggerOffBsSync();
+        addHistoryLog(partNo, activeOffBsBox);
         
         feedback('success'); showToast(`${partNo} (${scanQty} pcs) tersimpan!`);
         return; 
@@ -303,10 +357,8 @@ if (currentTab === 'packing') {
 }
 
 function addToHistory(code) {
-    scanHistory.unshift({ code, time: new Date().toLocaleTimeString() });
-    if(scanHistory.length > 3) scanHistory.pop();
-    const div = document.getElementById('historyLog');
-    div.innerHTML = scanHistory.map(h => `<div class="hist-item"><span>${h.code}</span><small>${h.time}</small></div>`).join('');
+    // This function is kept for backward compatibility but deprecated
+    // Use addHistoryLog() instead for the new history accordion
 }
 
 function registerUndo(type, itemId, box, oldState = null) {
@@ -391,7 +443,7 @@ function clearActivePart() {
 
 function checkSimpanConflict(item, newBox) {
     const existingLocs = Object.keys(item.locations); const oldState = JSON.parse(JSON.stringify(item.locations)); 
-    if (existingLocs.length === 0) { item.locations[newBox] = 0; saveDB(item); feedback('success'); showToast(`Lokasi diset: ${newBox}`); registerUndo('simpan_set', item.id, newBox, oldState); clearActivePart(); return; }
+    if (existingLocs.length === 0) { item.locations[newBox] = 0; saveDB(item); addHistoryLog(item.partNo, newBox); feedback('success'); showToast(`Lokasi diset: ${newBox}`); registerUndo('simpan_set', item.id, newBox, oldState); clearActivePart(); return; }
     if (existingLocs.includes(newBox)) { showToast(`Part sudah ada di ${newBox}`); clearActivePart(); return; }
     feedback('error'); simpanConflictData = { item, newBox, oldState }; 
     document.getElementById('simpanConflictModal').style.display = 'flex';
@@ -402,7 +454,7 @@ function executeSimpanAction(action) {
     if (!simpanConflictData) return; const { item, newBox, oldState } = simpanConflictData; registerUndo('simpan_conflict', item.id, newBox, oldState);
     if (action === 'move') { item.locations = {}; item.locations[newBox] = 0; showToast(`Pindah Lokasi ke ${newBox}`); } 
     else if (action === 'split') { item.locations[newBox] = 0; showToast(`Tambah Lokasi: ${newBox}`); }
-    saveDB(item); feedback('success'); closeSimpanConflictModal(); clearActivePart(); renderSimpanList(false); 
+    saveDB(item); addHistoryLog(item.partNo, newBox); feedback('success'); closeSimpanConflictModal(); clearActivePart(); renderSimpanList(false); 
 }
 
 function closeSimpanConflictModal() { document.getElementById('simpanConflictModal').style.display = 'none'; simpanConflictData = null; document.getElementById('mainInput').focus(); }
@@ -663,7 +715,8 @@ function switchTab(id) {
         'opname': { name: 'Inventory Check', icon: 'fa-clipboard-check' },
         'data': { name: 'Data', icon: 'fa-search' },
         'offbs': { name: 'Off BS', icon: 'fa-recycle' },
-        'packing': { name: 'Packing', icon: 'fa-truck-loading' }
+        'packing': { name: 'Packing', icon: 'fa-truck-loading' },
+        'settings': { name: 'Pengaturan', icon: 'fa-cog' }
     };
     const tabInfo = tabTitles[id];
     if(tabInfo) {
@@ -695,9 +748,10 @@ function switchTab(id) {
     
     if (id === 'simpan') { multiToggle.style.display = 'flex'; filterToggle.style.display = isMulti ? 'flex' : 'none'; if(globalFilter) globalFilter.style.display = 'flex'; 
     } else if (id === 'offbs' || id === 'packing') { multiToggle.style.display = 'none'; filterToggle.style.display = 'none'; if(globalFilter) globalFilter.style.display = 'none'; 
+    } else if (id === 'settings') { multiToggle.style.display = 'none'; filterToggle.style.display = 'none'; if(globalFilter) globalFilter.style.display = 'none'; 
     } else { multiToggle.style.display = 'none'; filterToggle.style.display = 'none'; if(globalFilter) globalFilter.style.display = 'flex'; if(chkFilter && chkFilter.checked) chkFilter.checked = false; }
     
-    if (scannerBar) { scannerBar.style.display = (id === 'data') ? 'none' : 'block'; }
+    if (scannerBar) { scannerBar.style.display = (id === 'data' || id === 'settings') ? 'none' : 'block'; }
     
     const root = document.documentElement;
     if(id === 'simpan') { 
@@ -732,8 +786,13 @@ function switchTab(id) {
         if(typeof renderCollyUI==='function') renderCollyUI(); 
         if(typeof renderPackingList==='function') renderPackingList(); 
     }
+    if(id === 'settings') { 
+        root.style.setProperty('--active-color', 'var(--primary)');
+        root.style.setProperty('--header-color-1', 'var(--primary)');
+        root.style.setProperty('--header-color-2', 'var(--primary-dark)');
+    }
     
-    if (id === 'data') document.getElementById('cariInput').focus(); else document.getElementById('mainInput').focus();
+    if (id === 'data') document.getElementById('cariInput').focus(); else if(id !== 'settings') document.getElementById('mainInput').focus();
 }
 
 function clearData() { if(confirm('Hapus Semua?')) { const tx = db.transaction('items','readwrite'); tx.objectStore('items').clear(); tx.oncomplete = () => location.reload(); } }

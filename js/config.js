@@ -70,6 +70,7 @@ let editId = null;
 let filterNewOnly = false; 
 let lastAction = null; 
 let scanHistory = []; 
+let scanHistoryLog = []; // History log untuk display (Part >> Box)
 let lastOpnameScanId = null;
 let offBsSession = JSON.parse(localStorage.getItem('wms_off_bs') || '[]');
 let activeOffBsBox = null;
