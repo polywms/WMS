@@ -511,6 +511,34 @@
             display: none;
             }
             
+            /* Options Accordion Styles */
+            .options-accordion {
+            background: #f8fafc;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            margin-bottom: 10px;
+            overflow: hidden;
+            animation: slideDown 0.3s ease;
+            }
+            
+            .options-content {
+            display: flex;
+            gap: 8px;
+            padding: 12px;
+            justify-content: flex-start;
+            flex-wrap: wrap;
+            }
+            
+            .options-content button,
+            .options-content label {
+            margin: 0;
+            }
+            
+            body.dark-mode .options-accordion {
+            background: #1e293b;
+            border-color: #334155;
+            }
+            
             body.dark-mode .history-accordion {
             background: #1e293b;
             }

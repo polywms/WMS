@@ -111,6 +111,35 @@ function toggleHistoryAccordion() {
     }
 }
 
+function toggleOptionsAccordion() {
+    const accordion = document.getElementById('optionsAccordion');
+    const btn = document.getElementById('optionsToggleBtn');
+    const isOpen = accordion.style.display !== 'none';
+    accordion.style.display = isOpen ? 'none' : 'block';
+    
+    if (!isOpen) {
+        btn.style.background = 'var(--primary)';
+        btn.style.color = 'white';
+        btn.style.borderColor = 'var(--primary)';
+    } else {
+        btn.style.background = 'white';
+        btn.style.color = 'var(--secondary)';
+        btn.style.borderColor = '#cbd5e1';
+    }
+}
+
+function toggleOpnameMode() {
+    isOpnameMode = document.getElementById('chkOpnameMode').checked;
+    if (isOpnameMode) {
+        showToast("📊 Mode Opname Aktif - Input Qty setelah scan part");
+        feedback('success');
+    } else {
+        showToast("Mode Opname Non-aktif");
+        feedback('info');
+    }
+    document.getElementById('mainInput').focus();
+}
+
 function addHistoryLog(partNo, boxNo) {
     scanHistoryLog.unshift({ 
         partNo: partNo, 

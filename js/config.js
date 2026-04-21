@@ -65,6 +65,7 @@ let tempPart = null;
 let opnameConflictData = null; 
 let simpanConflictData = null;
 let isMultiScan = false;
+let isOpnameMode = false; // Toggle untuk input qty sekalian saat simpan
 let multiBuffer = []; 
 let editId = null;
 let filterNewOnly = false; 
