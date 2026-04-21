@@ -416,6 +416,32 @@
             </div>
         </div>
         
+        <div class="overlay" id="opnameCountModal">
+            <div class="modal">
+                <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); padding-bottom:10px; margin-bottom:15px;">
+                    <h3 style="margin:0; color:#f59e0b;">📊 Hitung Jumlah Part</h3>
+                    <button onclick="closeOpnameCountModal()" style="border:none; background:none; font-size:1.5rem; color:var(--secondary); cursor:pointer;"><i class="fas fa-times"></i></button>
+                </div>
+                <div style="text-align:center; margin-bottom:20px;">
+                    <h2 id="ocmPartNo" style="margin:0 0 10px 0; color:var(--primary); font-size:1.5rem;">PART-001</h2>
+                    <p id="ocmPartDesc" style="margin:0; color:var(--secondary); font-size:0.9rem;">Deskripsi Part</p>
+                </div>
+                <div style="background:#f0fdf4; padding:15px; text-align:center; border-radius:8px; margin-bottom:15px; border:1px solid #86efac;">
+                    <div style="font-size:0.85rem; color:#166534; font-weight:bold; margin-bottom:8px;"><i class="fas fa-chart-bar"></i> Target vs Database</div>
+                    <div style="font-size:2rem; font-weight:bold; color:#16a34a;">
+                        <span id="ocmQtyScanned" style="color:#f59e0b;">0</span> <span style="color:#999;">/ </span><span id="ocmQtyDb" style="color:#3b82f6;">0</span>
+                    </div>
+                    <div style="font-size:0.75rem; color:#166534; margin-top:8px;">Yang ditemukan / Database</div>
+                </div>
+                <label style="display:block; margin-bottom:10px; font-weight:bold; font-size:0.9rem; color:var(--text);">Jumlah yang ditemukan:</label>
+                <input type="number" id="ocmQtyInput" placeholder="Masukkan jumlah..." min="0" style="width:100%; padding:12px; border:2px solid #f59e0b; border-radius:8px; box-sizing:border-box; font-size:1.1rem; text-align:center; margin-bottom:15px;" inputmode="numeric">
+                <div style="display:flex; gap:8px; margin-top:15px;">
+                    <button class="btn btn-outline" onclick="closeOpnameCountModal()" style="flex:1; border-color:var(--secondary); color:var(--secondary);"><i class="fas fa-times"></i> Batal</button>
+                    <button class="btn btn-success" onclick="submitOpnameCount()" style="flex:1;"><i class="fas fa-check-circle"></i> Simpan</button>
+                </div>
+            </div>
+        </div>
+        
         <div class="overlay" id="editModal">
             <div class="modal">
                 <div style="display:flex; justify-content:space-between;">

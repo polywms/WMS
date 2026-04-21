@@ -64,6 +64,7 @@ let renderLimit = 50;
 let tempPart = null; 
 let opnameConflictData = null; 
 let simpanConflictData = null;
+let opnameCountData = null; // Data untuk opname count modal
 let isMultiScan = false;
 let isOpnameMode = false; // Toggle untuk input qty sekalian saat simpan
 let multiBuffer = []; 

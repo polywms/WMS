@@ -142,6 +142,69 @@ function toggleOpnameMode() {
     document.getElementById('mainInput').focus();
 }
 
+function openOpnameCountModal(item) {
+    opnameCountData = { item, scannedQty: 0 };
+    
+    // Set modal content
+    document.getElementById('ocmPartNo').innerText = item.partNo;
+    document.getElementById('ocmPartDesc').innerText = item.desc || '-';
+    document.getElementById('ocmQtyDb').innerText = item.sysQty || 0;
+    document.getElementById('ocmQtyScanned').innerText = '0';
+    document.getElementById('ocmQtyInput').value = '';
+    document.getElementById('ocmQtyInput').focus();
+    
+    // Show modal
+    document.getElementById('opnameCountModal').style.display = 'flex';
+    
+    // Auto scroll to part in list
+    setTimeout(() => {
+        const partRow = document.getElementById(`simpan-row-${item.id}`);
+        if (partRow) {
+            partRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            partRow.style.backgroundColor = '#fffbeb';
+            setTimeout(() => { partRow.style.backgroundColor = ''; }, 2000);
+        }
+    }, 100);
+}
+
+function closeOpnameCountModal() {
+    document.getElementById('opnameCountModal').style.display = 'none';
+    opnameCountData = null;
+    document.getElementById('mainInput').focus();
+}
+
+function submitOpnameCount() {
+    if (!opnameCountData) return;
+    
+    const qtyInput = document.getElementById('ocmQtyInput').value.trim();
+    if (!qtyInput || parseInt(qtyInput) < 0) {
+        showToast("Jumlah tidak valid!");
+        feedback('error');
+        return;
+    }
+    
+    const scannedQty = parseInt(qtyInput);
+    const { item } = opnameCountData;
+    
+    // Update history dengan qty info
+    addHistoryLog(item.partNo, `QTY: ${scannedQty}/${item.sysQty}`);
+    
+    // Show feedback
+    const variance = scannedQty - item.sysQty;
+    if (variance === 0) {
+        feedback('success');
+        showToast(`✅ ${item.partNo} Sesuai (${scannedQty}/${item.sysQty})`);
+    } else if (variance > 0) {
+        feedback('warning');
+        showToast(`⚠️ ${item.partNo} Lebih (+${variance}) (${scannedQty}/${item.sysQty})`);
+    } else {
+        feedback('error');
+        showToast(`❌ ${item.partNo} Kurang (${variance}) (${scannedQty}/${item.sysQty})`);
+    }
+    
+    closeOpnameCountModal();
+}
+
 function addHistoryLog(partNo, boxNo) {
     scanHistoryLog.unshift({ 
         partNo: partNo, 
@@ -309,7 +372,14 @@ if (currentTab === 'packing') {
         if (item) {
             feedback('scan');
             if (isMultiScan) addToMultiBuffer(item);
-            else { selectPartSimpan(item); setStatus(`Part: ${item.partNo}`); }
+            else {
+                if (isOpnameMode) {
+                    openOpnameCountModal(item);
+                } else {
+                    selectPartSimpan(item);
+                    showToast(`Part: ${item.partNo}`);
+                }
+            }
         } else {
             if (isBox) {
                 if (isMultiScan) {
