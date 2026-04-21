@@ -83,13 +83,15 @@ function toggleMultiMode() {
         clearActivePart();
         root.style.setProperty('--active-color', 'var(--purple)');
         document.querySelector('header').style.background = 'var(--purple)';
-        setStatus("Mode Multi Scan Aktif");
+        showToast("🟣 Mode Multi Scan Aktif");
+        feedback('success');
         renderMultiBuffer(); 
     } else {
         clearMultiBuffer();
         root.style.setProperty('--active-color', 'var(--primary)');
         document.querySelector('header').style.background = 'var(--primary)';
-        setStatus("Mode Single Scan");
+        showToast("Mode Single Scan");
+        feedback('info');
     }
     document.getElementById('mainInput').focus();
 }
