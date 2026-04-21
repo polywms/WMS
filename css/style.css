@@ -1071,11 +1071,70 @@
                 font-size: 0.65rem;
             }
             body {
-                padding-top: 96px;
+                padding-top: 48px;
             }
             .modal-content {
                 width: 95%;
                 margin: 20% auto;
+            }
+            /* Header wrapper dengan title & filter - responsive */
+            .main-content-wrapper > div:first-child {
+                flex-wrap: wrap;
+                gap: 6px;
+                padding: 8px 12px;
+            }
+            .active-tab-title {
+                flex: 0 0 auto;
+                padding: 0;
+                border: none;
+                font-size: 0.9rem;
+                gap: 6px;
+            }
+            .active-tab-title i {
+                font-size: 1.1rem;
+            }
+            .global-filter {
+                flex: 1 1 auto;
+                min-width: 120px;
+                padding: 0;
+                border: none;
+                gap: 4px;
+            }
+            .global-filter select {
+                padding: 8px 10px;
+                font-size: 0.85rem;
+                min-width: 100px !important;
+                flex: 1;
+            }
+            /* Reduce gap on mobile */
+            .scanner-bar {
+                padding: 5px 8px;
+                box-shadow: 0 1px 2px rgba(59, 130, 246, 0.06);
+            }
+            .tab-content {
+                padding: 4px 8px;
+            }
+            .main-input {
+                padding: 8px 10px;
+                font-size: 0.93rem;
+            }
+            #historyLog {
+                margin-top: 2px;
+            }
+            .list-container {
+                gap: 4px;
+            }
+            .item-card {
+                padding: 9px 11px;
+            }
+            /* Smaller buttons on mobile */
+            button[onclick="openCameraScanner()"] {
+                width: 32px !important;
+                height: 32px !important;
+                font-size: 0.9rem !important;
+            }
+            .input-wrapper {
+                gap: 4px;
             }
             }
 
