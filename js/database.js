@@ -74,8 +74,12 @@ function saveDB(item, actionName = "UPDATE", actionDetail = "") {
     
     const tx = db.transaction('items', 'readwrite'); 
     tx.objectStore('items').put(item);
-    syncQueue.push(item); 
+    syncQueue.push(item);
+    // Persist to localStorage to survive refresh
+    localStorage.setItem('wms_syncQueue', JSON.stringify(syncQueue));
     syncLogs.push({ partNo: item.partNo, action: actionName, detail: actionDetail || "Update Qty/Lokasi", timestamp: Date.now() });
+    // Persist logs to localStorage (keep only last 100 logs to avoid overflow)
+    localStorage.setItem('wms_syncLogs', JSON.stringify(syncLogs.slice(-100)));
     updateSyncUI("🟡 Menunggu Sync...");
 }
 
@@ -118,6 +122,9 @@ async function processSyncQueue() {
         
         if (syncQueue.length === 0) {
             syncLogs = syncLogs.slice(-100); // Keep only last 100 logs
+            // Clear persisted queues on success
+            localStorage.removeItem('wms_syncQueue');
+            localStorage.removeItem('wms_syncLogs');
             updateSyncUI("🟢 Tersimpan"); 
         }
     } catch (error) { 

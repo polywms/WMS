@@ -316,7 +316,14 @@ if (currentTab === 'packing') {
             
             // 2. JIKA SINGLE SCAN (NORMAL)
             if (simpanBuffer.length > 0 && tempPart) {
+                // PROTEKSI: Cek apakah qty yang di-scan akan over dari sysQty
                 const scannedQty = simpanBuffer[0].qty;
+                const totalPhysical = Object.values(tempPart.locations).reduce((a, b) => a + b, 0);
+                if ((totalPhysical + scannedQty) > tempPart.sysQty) {
+                    feedback('error');
+                    alert(`⚠️ OVER QTY!\n\nPart: ${tempPart.partNo}\nTarget Sistem: ${tempPart.sysQty}\nUdah Ada: ${totalPhysical}\nMau Tambah: ${scannedQty}\nTotal: ${totalPhysical + scannedQty}\n\nGunakan SPLIT jika perlu pindahkan ke box lain!`);
+                    return;
+                }
                 const boxCode = parsedCode;
                 const existingLocs = Object.keys(tempPart.locations);
                 
@@ -668,12 +675,38 @@ function createNewItem(code) {
 
 function handleOpnameRender() {
     const container = document.getElementById('opnameList'); container.innerHTML = ''; if(filteredItems.length === 0) return;
-    let dataset = filteredItems; if(activeBoxFilter) dataset = dataset.filter(i => i.locations[activeBoxFilter] !== undefined); 
-    dataset = dataset.filter(i => {
-        const total = Object.values(i.locations).reduce((a,b)=>a+b,0);
-        if(opnameFilter==='diff') return total !== i.sysQty;
-        if(opnameFilter==='zero') return total === 0; return true;
-    });
+    let dataset = filteredItems;
+    
+    // FIXED: Apply filter based on activeBoxFilter correctly
+    if(activeBoxFilter) {
+        // Step 1: Filter untuk hanya items yang ada di box ini
+        dataset = dataset.filter(i => i.locations[activeBoxFilter] !== undefined);
+        
+        // Step 2: Apply opnameFilter AFTER box filtering
+        dataset = dataset.filter(i => {
+            const qtyInBox = i.locations[activeBoxFilter] || 0;
+            const totalPhysical = Object.values(i.locations).reduce((a,b)=>a+b,0);
+            
+            if(opnameFilter==='diff') {
+                // SELISIH: Tampilkan yang belum sesuai sysQty (qty total < atau > dari expected)
+                return totalPhysical !== i.sysQty;
+            }
+            if(opnameFilter==='zero') {
+                // BELUM: Tampilkan yang qty di box ini = 0 (belum dihitung) 
+                return qtyInBox === 0;
+            }
+            // SEMUA: Tampilkan semua part yang ada di box ini
+            return true;
+        });
+    } else {
+        // Jika belum select box, tampilkan semua dengan filter global
+        dataset = dataset.filter(i => {
+            const total = Object.values(i.locations).reduce((a,b)=>a+b,0);
+            if(opnameFilter==='diff') return total !== i.sysQty;
+            if(opnameFilter==='zero') return total === 0;
+            return true;
+        });
+    }
     const show = dataset.slice(0, renderLimit);
     show.forEach(i => {
         const qtyInBox = activeBoxFilter ? i.locations[activeBoxFilter] : 0; const totalPhysical = Object.values(i.locations).reduce((a,b)=>a+b,0);

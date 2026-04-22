@@ -728,16 +728,25 @@ XLSX.writeFile(wb, "filename.xlsx");
 ## Risks / Blind Spots (Continuously Updated)
 
 **Latest Improvements** (2026-04-22):
+- ✅ **Data Persistence on Refresh**: syncQueue & syncLogs now persisted to localStorage, survive page refresh
+- ✅ **Qty Overflow Protection**: Added check in SIMPAN tab to prevent scanning more than sysQty (matches OFF BS logic)
+- ✅ **Opname Filter Logic Fixed**: Rewritten handleOpnameRender() for correct box filtering:
+  - SEMUA: Shows all parts in selected box
+  - SELISIH: Shows only parts with qty mismatch
+  - BELUM: Shows only parts with 0 qty in box
 - ✅ **Multi-Scan Logic Fixed**: isMultiScan check in processScan() now routes correctly to processMultiBatchMove
 - ✅ **Redundant Function Removed**: Obsolete processSimpanBuffer() deleted
 - ✅ **Buffer Validation Added**: All buffers (multiBuffer, simpanBuffer, opnameBuffer) now validated as arrays
 
-**Status**: 5 critical improvements implemented since 2026-04-21:
+**Status**: 8 critical improvements implemented since 2026-04-21:
 - ✅ Batch sync queue (MAX_SYNC_BATCH=100, MAX_QUEUE_SIZE=500)
 - ✅ Auto SW cache versioning with user prompt
 - ✅ Modular QR parser (configurable in config.js)
 - ✅ Multi-scan mode logic corrected
 - ✅ Buffer clearing edge-case fixed
+- ✅ syncQueue persistence across refresh
+- ✅ Qty overflow halt in SIMPAN
+- ✅ Opname filter rewritten for correct behavior
 
 ### Remaining Risks
 

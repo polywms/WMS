@@ -53,8 +53,9 @@ const QR_PARSERS = {
 
 let db = null;
 let localItems = [];
-let syncQueue = [];
-let syncLogs = [];
+// Persist syncQueue & syncLogs to localStorage to survive refresh
+let syncQueue = JSON.parse(localStorage.getItem('wms_syncQueue')) || [];
+let syncLogs = JSON.parse(localStorage.getItem('wms_syncLogs')) || [];
 let isSyncing = false;
 let filteredItems = [];
 let currentTab = 'simpan';
