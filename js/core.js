@@ -317,7 +317,9 @@ if (currentTab === 'packing') {
             // 2. JIKA SINGLE SCAN (NORMAL)
             if (simpanBuffer.length > 0 && tempPart) {
                 // PROTEKSI: Cek apakah qty yang di-scan akan over dari sysQty
-                const scannedQty = simpanBuffer[0].qty;
+                // Get qty dari item yang aktif di buffer
+                const bufferItem = simpanBuffer.find(b => b.item.id === tempPart.id);
+                const scannedQty = bufferItem ? bufferItem.qty : 0;
                 const totalPhysical = Object.values(tempPart.locations).reduce((a, b) => a + b, 0);
                 if ((totalPhysical + scannedQty) > tempPart.sysQty) {
                     feedback('error');
@@ -340,7 +342,8 @@ if (currentTab === 'packing') {
                     if (typeof playChime === 'function') playChime();
                     showToast(`✅ ${tempPart.partNo} (${scannedQty} pcs) masuk ke ${boxCode}!`);
                     
-                    clearSimpanBuffer();
+                    // Remove only this item from buffer, keep others
+                    removeItemFromSimpanBuffer(tempPart.id);
                     renderSimpanList(true);
                 } 
                 // SKENARIO 2: Beda Rak (Konflik / Pindah Lokasi)
@@ -619,9 +622,15 @@ function addToMultiBuffer(item) {
         console.warn('multiBuffer not initialized, initializing now');
         multiBuffer = [];
     }
-    const exists = multiBuffer.some(i => i.partNo === item.partNo); 
-    if (exists) { showToast("Part sudah ada di list!"); return; }
-    multiBuffer.push(item); 
+    // Cek apakah item sudah ada di buffer
+    const existing = multiBuffer.find(b => b.item.id === item.id);
+    if (existing) {
+        existing.qty++;
+        showToast(`${item.partNo} ➔ x ${existing.qty}`);
+    } else {
+        multiBuffer.push({ item: item, qty: 1 });
+        showToast(`${item.partNo} ➔ x 1`);
+    }
     renderMultiBuffer(); 
     const row = document.getElementById(`simpan-row-${item.id}`); 
     if(row) row.classList.add('selected');
@@ -644,17 +653,36 @@ function renderMultiBuffer() {
     container.innerHTML = ''; 
     let displayCount = 0;
     
-    multiBuffer.forEach(item => {
+    multiBuffer.forEach((bufferItem, idx) => {
+        const item = bufferItem.item;
+        const qty = bufferItem.qty;
         const locs = item.locations || {}; 
         const hasLoc = Object.keys(locs).length > 0; 
         const locInfo = hasLoc ? Object.keys(locs).join(',') : 'Baru';
         if (filterActive && hasLoc) return; 
         displayCount++;
-        const tag = document.createElement('span'); 
+        
+        // Format: PART-NO x2 / 10, lokasi1,lokasi2
+        const tag = document.createElement('div'); 
         tag.className = 'multi-tag'; 
-        tag.style.cssText = !hasLoc ? 'background:#fb923c; color:#fff;' : ''; 
-        tag.innerHTML = `${item.partNo} <small style="opacity:0.8">(${locInfo})</small>`; 
-        container.prepend(tag);
+        tag.style.cssText = `
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 10px;
+            background: ${!hasLoc ? 'var(--purple)' : '#f0f0f0'};
+            color: ${!hasLoc ? 'white' : '#333'};
+            border-radius: 6px;
+            font-size: 0.85rem;
+            white-space: nowrap;
+            min-width: 200px;
+        `;
+        tag.innerHTML = `
+            <span style="font-weight: bold; flex: 1; overflow: hidden; text-overflow: ellipsis;">${item.partNo}</span>
+            <span style="background: ${!hasLoc ? 'rgba(255,255,255,0.3)' : '#e0e0e0'}; padding: 2px 6px; border-radius: 4px; font-weight: bold;">x${qty}/${item.sysQty}</span>
+            <small style="opacity: 0.8;">${locInfo}</small>
+        `;
+        container.appendChild(tag);
     });
     
     const counterEl = document.getElementById('multiCount'); 
@@ -669,8 +697,32 @@ function clearMultiBuffer() {
 }
 
 function processMultiBatchMove(box, actionType = 'move') {
-    multiBuffer.forEach(item => { if (actionType === 'move') item.locations = {}; if (item.locations[box] === undefined) item.locations[box] = 0; saveDB(item); });
-    feedback('success'); showToast(`${multiBuffer.length} Item berhasil di-${actionType} ke ${box}`); clearMultiBuffer(); renderSimpanList(false); 
+    if (!Array.isArray(multiBuffer) || multiBuffer.length === 0) {
+        feedback('error');
+        showToast("Buffer kosong!");
+        return;
+    }
+    
+    let successCount = 0;
+    multiBuffer.forEach(bufferItem => {
+        const item = bufferItem.item;
+        const qty = bufferItem.qty;
+        
+        if (actionType === 'move') {
+            item.locations = {};  // Clear old locations
+        }
+        if (item.locations[box] === undefined) {
+            item.locations[box] = 0;
+        }
+        item.locations[box] += qty;  // Add accumulated qty
+        saveDB(item);
+        successCount++;
+    });
+    
+    feedback('success'); 
+    showToast(`✅ ${successCount} Item (${multiBuffer.reduce((a,b)=>a+b.qty, 0)} pcs) berhasil di-${actionType} ke ${box}`); 
+    clearMultiBuffer(); 
+    renderSimpanList(false); 
 }
 
 function createNewItem(code) {
@@ -1143,11 +1195,9 @@ function addToSimpanBuffer(item) {
     // Validate simpanBuffer is array
     if (!Array.isArray(simpanBuffer)) simpanBuffer = [];
     
-    // Jika part yang discan beda dengan yang aktif, reset buffer (mulai dari x1 lagi)
-    if (tempPart && tempPart.id !== item.id) {
-        simpanBuffer = [];
-    }
-
+    // Cek apakah item sudah ada di buffer
+    const existing = simpanBuffer.find(b => b.item.id === item.id);
+    
     tempPart = item;
     document.getElementById('activePartNo').innerText = item.partNo;
     
@@ -1162,14 +1212,15 @@ function addToSimpanBuffer(item) {
     document.getElementById('activePartDesc').innerHTML = item.desc + issueWarning;
     document.getElementById('activePartLoc').innerText = Object.keys(item.locations).join(', ') || 'Belum ada';
 
-    // Tambah atau Update Qty Buffer
-    if (simpanBuffer.length > 0) {
-        simpanBuffer[0].qty++;
+    // Tambah atau Update Qty Buffer - TERAKUMULASI untuk item yang sama
+    if (existing) {
+        existing.qty++;  // Increment qty jika item sudah ada di buffer
         feedback('warning'); // Nada berbeda untuk indikasi qty bertambah
-        showToast(`${item.partNo} ➔ x ${simpanBuffer[0].qty}`);
+        showToast(`${item.partNo} ➔ x ${existing.qty}`);
     } else {
-        simpanBuffer.push({ item: item, qty: 1 });
+        simpanBuffer.push({ item: item, qty: 1 });  // Tambah item baru dengan qty 1
         feedback('success');
+        showToast(`${item.partNo} ➔ x 1`);
     }
     
     // Highlight di List
@@ -1194,9 +1245,16 @@ function renderSimpanBuffer() {
 
     statusPanel.style.display = 'block';
     
-    // Ambil data aktif
-    let activeQty = simpanBuffer[0].qty;
-    let item = simpanBuffer[0].item;
+    // Tampilkan qty dari item yang sedang aktif (tempPart)
+    let activeQty = 1;
+    if (tempPart) {
+        const bufferItem = simpanBuffer.find(b => b.item.id === tempPart.id);
+        if (bufferItem) {
+            activeQty = bufferItem.qty;
+        }
+    }
+    
+    let item = tempPart || simpanBuffer[0].item;
     
     // Bersihkan dulu PartNo agar tidak dobel dengan badge saat diklik manual
     document.getElementById('activePartNo').innerText = item.partNo;
@@ -1212,6 +1270,22 @@ function removeFromSimpanBuffer(index) {
         const removed = simpanBuffer.splice(index, 1)[0];
         feedback('warning');
         showToast(`${removed.item.partNo} dihapus dari buffer`);
+        renderSimpanBuffer();
+    }
+}
+
+// Helper: Remove specific item (by id) from buffer
+function removeItemFromSimpanBuffer(itemId) {
+    const index = simpanBuffer.findIndex(b => b.item.id === itemId);
+    if (index >= 0) {
+        simpanBuffer.splice(index, 1);
+        // Jika buffer kosong, clear tempPart
+        if (simpanBuffer.length === 0) {
+            tempPart = null;
+        } else {
+            // Set tempPart ke item berikutnya di buffer
+            tempPart = simpanBuffer[0].item;
+        }
         renderSimpanBuffer();
     }
 }
