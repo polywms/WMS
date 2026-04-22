@@ -539,7 +539,10 @@ function selectPartSimpan(item) {
 }
 
 function clearActivePart() {
-    tempPart = null; document.getElementById('simpanStatusPanel').style.display = 'none';
+    tempPart = null; 
+    // Clear simpanBuffer when clearing active part
+    clearSimpanBuffer();
+    document.getElementById('simpanStatusPanel').style.display = 'none';
     document.querySelectorAll('.item-card').forEach(el => el.classList.remove('selected'));
     // Reset Smart Suggestion Panel
     const panelEl = document.getElementById('smartSuggestionPanel');
@@ -1178,16 +1181,8 @@ function renderSimpanBuffer() {
     // Bersihkan dulu PartNo agar tidak dobel dengan badge saat diklik manual
     document.getElementById('activePartNo').innerText = item.partNo;
     
-    // Hitung akumulasi qty (Di Rak + Di Tangan/Buffer)
-    const qtyTersimpan = Object.values(item.locations).reduce((a,b)=>a+b, 0);
-    const totalSekarang = qtyTersimpan + activeQty;
-    
-    // Logika warna otomatis
-    let progressColor = totalSekarang > item.sysQty ? '#dc2626' : (totalSekarang === item.sysQty ? '#16a34a' : '#ea580c');
-    let progressBadge = `<span style="font-size:0.85rem; color:${progressColor}; background:#f8fafc; padding:2px 8px; border-radius:6px; border:1px solid #cbd5e1; margin-left:6px;">Total: ${totalSekarang} / ${item.sysQty}</span>`;
-    
-    // Tampilkan 1 baris menyamping
-    display.innerHTML = `<span style="background:#dcfce7; color:#16a34a; padding:2px 8px; border-radius:12px; border:1px solid #86efac; font-size:1rem; font-weight:bold;">x ${activeQty}</span> ${progressBadge}`;
+    // Tampilkan qty scanned x 1 / max qty (simple format)
+    display.innerHTML = `<span style="background:#dcfce7; color:#16a34a; padding:2px 8px; border-radius:12px; border:1px solid #86efac; font-size:1rem; font-weight:bold;">x ${activeQty}</span> <span style="margin-left:4px; font-weight:bold;" title="Scan qty / Target qty">/ ${item.sysQty}</span>`;
     display.style.display = 'inline-block';
 }
 
