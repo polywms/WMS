@@ -64,10 +64,10 @@ let renderLimit = 50;
 let tempPart = null; 
 let opnameConflictData = null; 
 let simpanConflictData = null;
-let opnameCountData = null; // Data untuk opname count modal
 let isMultiScan = false;
-let isOpnameMode = false; // Toggle untuk input qty sekalian saat simpan
 let multiBuffer = []; 
+let simpanBuffer = []; // Buffer untuk SIMPAN tab (accumulate qty saat scan part)
+let simpanBufferBox = null; // Target box untuk simpanBuffer
 let editId = null;
 let filterNewOnly = false; 
 let lastAction = null; 
@@ -76,3 +76,7 @@ let scanHistoryLog = []; // History log untuk display (Part >> Box)
 let lastOpnameScanId = null;
 let offBsSession = JSON.parse(localStorage.getItem('wms_off_bs') || '[]');
 let activeOffBsBox = null;
+
+// ===== OPNAME BUFFER (Cashier Mode) =====
+let opnameBuffer = []; // Array of {item, qty} untuk accumulate parts
+let opnameBufferBox = null; // Target box untuk finalize opname

@@ -144,9 +144,12 @@
                     <div id="multiTagsContainer" style="max-height:100px; overflow-y:auto; padding-bottom:5px; display:flex; flex-wrap:wrap; gap:5px;"></div>
                     <div style="margin-top:10px; font-size:0.9rem; font-weight:bold; color:var(--purple); animation: pulse 2s infinite; text-align:center;"><i class="fas fa-arrow-right"></i> SCAN BOX UNTUK SET LOKASI</div>
                 </div>
-                <div id="simpanStatusPanel" class="status-panel">
+                <div id="simpanStatusPanel" class="status-panel" style="position:sticky; top:0; z-index:100;">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;">
-                        <b style="font-size:1.1rem; color:var(--primary);" id="activePartNo">-</b>
+                        <div style="display:flex; align-items:center; gap:10px;">
+                            <b style="font-size:1.1rem; color:var(--primary);" id="activePartNo">-</b>
+                            <span id="simpanBufferDisplay" style="display:none; font-size:0.95rem; color:#6b7280; font-weight:bold;"></span>
+                        </div>
                         <div style="display:flex; gap:6px;">
                             <button class="btn-sm" style="width:35px; height:35px; padding:0; background:#fef2f2; color:#dc2626; border:1px solid #fca5a5; border-radius:6px; display:flex; justify-content:center; align-items:center; cursor:pointer;" onclick="addLabelIssue('NO_LABEL')" title="Tanpa Label"><i class="fas fa-tag"></i></button>
                             <button class="btn-sm" style="width:35px; height:35px; padding:0; background:#fffbeb; color:#d97706; border:1px solid #fcd34d; border-radius:6px; display:flex; justify-content:center; align-items:center; cursor:pointer;" onclick="addLabelIssue('DAMAGED')" title="Label Rusak"><i class="fas fa-tags"></i></button>
@@ -184,6 +187,15 @@
                         <button class="btn-sm btn-warning" onclick="resetCurrentBoxOpname()" style="border-radius:50%; width:45px; height:45px; padding:0; display:flex; align-items:center; justify-content:center; box-shadow:0 4px 6px rgba(0,0,0,0.1);"><i class="fas fa-undo" style="font-size:1.2rem;"></i></button>
                     </div>
                     <div style="margin-top:10px; font-size:0.85rem; color:#166534; border-top:1px dashed #86efac; padding-top:10px;"><i class="fas fa-bolt"></i> Mode Cepat: Scan Part untuk Auto +1</div>
+                </div>
+                <!-- Opname Buffer Panel (Cashier Mode) -->
+                <div id="opnameBufferPanel" class="multi-panel" style="display:none; background:#f0fdf4; border:1px solid #86efac; margin-bottom:15px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                        <b style="color:#14532d;"><i class="fas fa-calculator"></i> Buffer Qty: <span id="opnameBufferCount">0</span> items</b>
+                        <button class="btn-sm btn-danger" onclick="clearOpnameBuffer()">Clear</button>
+                    </div>
+                    <div id="opnameBufferTagsContainer" style="max-height:120px; overflow-y:auto; padding-bottom:5px; display:flex; flex-wrap:wrap; gap:5px;"></div>
+                    <div style="margin-top:10px; font-size:0.9rem; font-weight:bold; color:#14532d; animation: pulse 2s infinite; text-align:center;"><i class="fas fa-arrow-right"></i> SCAN BOX UNTUK PROSES</div>
                 </div>
                 <div id="opnameInfoPanel" class="info-mode-panel">
                     <i class="fas fa-search" style="font-size:2rem; color:#f97316; margin-bottom:10px;"></i>
@@ -413,32 +425,6 @@
                 <div style="background:#eff6ff; padding:15px; text-align:center; border-radius:8px; margin:15px 0; border:1px dashed #bfdbfe;">Target Baru:<br> <b id="scmNewBox" style="color:var(--primary); font-size:1.5rem; display:block; margin-top:5px;"></b></div>
                 <button class="btn btn-warning" onclick="executeSimpanAction('move')" style="margin-bottom:5px;"><i class="fas fa-dolly"></i> PINDAH LOKASI (Move)</button>
                 <button class="btn btn-success" onclick="executeSimpanAction('split')" style="margin-bottom:5px;"><i class="fas fa-columns"></i> TAMBAH LOKASI (Split)</button>
-            </div>
-        </div>
-        
-        <div class="overlay" id="opnameCountModal">
-            <div class="modal">
-                <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); padding-bottom:10px; margin-bottom:15px;">
-                    <h3 style="margin:0; color:#f59e0b;">📊 Hitung Jumlah Part</h3>
-                    <button onclick="closeOpnameCountModal()" style="border:none; background:none; font-size:1.5rem; color:var(--secondary); cursor:pointer;"><i class="fas fa-times"></i></button>
-                </div>
-                <div style="text-align:center; margin-bottom:20px;">
-                    <h2 id="ocmPartNo" style="margin:0 0 10px 0; color:var(--primary); font-size:1.5rem;">PART-001</h2>
-                    <p id="ocmPartDesc" style="margin:0; color:var(--secondary); font-size:0.9rem;">Deskripsi Part</p>
-                </div>
-                <div style="background:#f0fdf4; padding:15px; text-align:center; border-radius:8px; margin-bottom:15px; border:1px solid #86efac;">
-                    <div style="font-size:0.85rem; color:#166534; font-weight:bold; margin-bottom:8px;"><i class="fas fa-chart-bar"></i> Target vs Database</div>
-                    <div style="font-size:2rem; font-weight:bold; color:#16a34a;">
-                        <span id="ocmQtyScanned" style="color:#f59e0b;">0</span> <span style="color:#999;">/ </span><span id="ocmQtyDb" style="color:#3b82f6;">0</span>
-                    </div>
-                    <div style="font-size:0.75rem; color:#166534; margin-top:8px;">Yang ditemukan / Database</div>
-                </div>
-                <label style="display:block; margin-bottom:10px; font-weight:bold; font-size:0.9rem; color:var(--text);">Jumlah yang ditemukan:</label>
-                <input type="number" id="ocmQtyInput" placeholder="Masukkan jumlah..." min="0" style="width:100%; padding:12px; border:2px solid #f59e0b; border-radius:8px; box-sizing:border-box; font-size:1.1rem; text-align:center; margin-bottom:15px;" inputmode="numeric">
-                <div style="display:flex; gap:8px; margin-top:15px;">
-                    <button class="btn btn-outline" onclick="closeOpnameCountModal()" style="flex:1; border-color:var(--secondary); color:var(--secondary);"><i class="fas fa-times"></i> Batal</button>
-                    <button class="btn btn-success" onclick="submitOpnameCount()" style="flex:1;"><i class="fas fa-check-circle"></i> Simpan</button>
-                </div>
             </div>
         </div>
         

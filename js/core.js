@@ -142,69 +142,6 @@ function toggleOpnameMode() {
     document.getElementById('mainInput').focus();
 }
 
-function openOpnameCountModal(item) {
-    opnameCountData = { item, scannedQty: 0 };
-    
-    // Set modal content
-    document.getElementById('ocmPartNo').innerText = item.partNo;
-    document.getElementById('ocmPartDesc').innerText = item.desc || '-';
-    document.getElementById('ocmQtyDb').innerText = item.sysQty || 0;
-    document.getElementById('ocmQtyScanned').innerText = '0';
-    document.getElementById('ocmQtyInput').value = '';
-    document.getElementById('ocmQtyInput').focus();
-    
-    // Show modal
-    document.getElementById('opnameCountModal').style.display = 'flex';
-    
-    // Auto scroll to part in list
-    setTimeout(() => {
-        const partRow = document.getElementById(`simpan-row-${item.id}`);
-        if (partRow) {
-            partRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            partRow.style.backgroundColor = '#fffbeb';
-            setTimeout(() => { partRow.style.backgroundColor = ''; }, 2000);
-        }
-    }, 100);
-}
-
-function closeOpnameCountModal() {
-    document.getElementById('opnameCountModal').style.display = 'none';
-    opnameCountData = null;
-    document.getElementById('mainInput').focus();
-}
-
-function submitOpnameCount() {
-    if (!opnameCountData) return;
-    
-    const qtyInput = document.getElementById('ocmQtyInput').value.trim();
-    if (!qtyInput || parseInt(qtyInput) < 0) {
-        showToast("Jumlah tidak valid!");
-        feedback('error');
-        return;
-    }
-    
-    const scannedQty = parseInt(qtyInput);
-    const { item } = opnameCountData;
-    
-    // Update history dengan qty info
-    addHistoryLog(item.partNo, `QTY: ${scannedQty}/${item.sysQty}`);
-    
-    // Show feedback
-    const variance = scannedQty - item.sysQty;
-    if (variance === 0) {
-        feedback('success');
-        showToast(`✅ ${item.partNo} Sesuai (${scannedQty}/${item.sysQty})`);
-    } else if (variance > 0) {
-        feedback('warning');
-        showToast(`⚠️ ${item.partNo} Lebih (+${variance}) (${scannedQty}/${item.sysQty})`);
-    } else {
-        feedback('error');
-        showToast(`❌ ${item.partNo} Kurang (${variance}) (${scannedQty}/${item.sysQty})`);
-    }
-    
-    closeOpnameCountModal();
-}
-
 function addHistoryLog(partNo, boxNo) {
     scanHistoryLog.unshift({ 
         partNo: partNo, 
@@ -369,88 +306,104 @@ if (currentTab === 'packing') {
     const item = filteredItems.find(i => i.partNo.toUpperCase() === parsedCode);
     
     if (currentTab === 'simpan') {
-        if (item) {
-            feedback('scan');
-            if (isMultiScan) addToMultiBuffer(item);
-            else {
-                if (isOpnameMode) {
-                    openOpnameCountModal(item);
+        // ===== SIMPAN MODE: Buffer accumulation (cashier-like) =====
+        if (simpanBufferBox !== null) {
+            // Buffer is active (box already scanned) - accumulate parts
+            if (isBox) {
+                // Scan another box = finalize current buffer and start new one
+                if (simpanBuffer.length > 0) {
+                    processSimpanBuffer(parsedCode);
+                    return;
                 } else {
+                    // Change target box without processing
+                    simpanBufferBox = parsedCode;
+                    feedback('scan');
+                    showToast(`📦 Box ditubah ke: ${parsedCode}`);
+                    return;
+                }
+            } else if (item) {
+                // Scan part = add to buffer with qty accumulate
+                addToSimpanBuffer(item);
+                return;
+            } else {
+                if(confirm(`Kode "${parsedCode}" Baru. Tambah ke buffer?`)) {
+                    const newItem = createNewItem(parsedCode);
+                    addToSimpanBuffer(newItem);
+                }
+                return;
+            }
+        } else {
+            // Buffer not initialized - first box scan or legacy flow
+            if (isBox) {
+                feedback('scan');
+                simpanBufferBox = parsedCode;
+                showToast(`📦 Box ${parsedCode} set. Scan part untuk akumulasi...`);
+                return;
+            } else if (item) {
+                // Part scanned without buffer - use old flow (multi or single)
+                feedback('scan');
+                if (isMultiScan) addToMultiBuffer(item);
+                else {
                     selectPartSimpan(item);
                     showToast(`Part: ${item.partNo}`);
                 }
-            }
-        } else {
-            if (isBox) {
-                if (isMultiScan) {
-                    if (multiBuffer.length > 0) {
-                        const hasConflicts = multiBuffer.some(i => Object.keys(i.locations).length > 0);
-                        if (hasConflicts) {
-                            if (confirm(`Peringatan: Beberapa part sudah punya lokasi lama.\n\n[OK] = PINDAH\n[Batal] = SPLIT`)) { processMultiBatchMove(parsedCode, 'move'); } 
-                            else { processMultiBatchMove(parsedCode, 'split'); }
-                        } else { processMultiBatchMove(parsedCode, 'split'); }
-                    }
-                    else { feedback('error'); setStatus("Buffer Kosong!"); }
-                } else {
-                    if (tempPart) checkSimpanConflict(tempPart, parsedCode);
-                    else { feedback('error'); showToast("Scan Part Dulu!"); }
-                }
+                return;
             } else {
                 if (confirm(`Kode "${parsedCode}" Baru. Buat Part?`)) {
                     const newItem = createNewItem(parsedCode);
                     if (isMultiScan) addToMultiBuffer(newItem);
                     else selectPartSimpan(newItem);
                 }
+                return;
             }
         }
-        return;
     }
     
     if (currentTab === 'opname') {
-        if (activeBoxFilter) {
-            if (isBox) { feedback('scan'); setOpnameBoxFilter(parsedCode); return; }
-            if (item) {
-                const currentQty = item.locations[activeBoxFilter];
-                if (currentQty !== undefined) {
-                    const currentTotalFisik = Object.values(item.locations).reduce((a,b)=>a+b,0);
-                    if (currentTotalFisik >= item.sysQty) {
-                        feedback('error'); 
-                        if (!confirm(`⚠️ OVER QTY!\nPart: ${item.partNo}\nTarget: ${item.sysQty}\nTetap tambahkan (+1)?`)) { showToast("Dibatalkan"); return; }
-                    }
-                    item.locations[activeBoxFilter]++; saveDB(item);
-                    const totalFisik = Object.values(item.locations).reduce((a,b)=>a+b,0);
-                    if (totalFisik === item.sysQty) {
-                        playChime(); showToast(`${item.partNo}: LENGKAP`);
-                        document.body.classList.add('flash-success'); setTimeout(() => document.body.classList.remove('flash-success'), 500);
-                    } else if (totalFisik > item.sysQty) { feedback('error'); showToast(`⚠️ OVER QTY: (${totalFisik}/${item.sysQty})`);
-                    } else { feedback('success'); showToast(`${item.partNo}: Qty +1`); }
-                    
-                    registerUndo('opname_add', item.id, activeBoxFilter); 
-                    lastOpnameScanId = item.id; handleOpnameRender();
-                    
-                    setTimeout(() => {
-                        const row = document.getElementById(`opname-row-${item.id}`);
-                        if (row) {
-                            document.querySelectorAll('.item-card').forEach(el => el.classList.remove('row-flash'));
-                            row.scrollIntoView({ behavior: 'smooth', block: 'center' }); row.classList.add('row-flash'); 
-                        }
-                    }, 100);
-                    
-                    const boxItems = filteredItems.filter(i => i.locations[activeBoxFilter] !== undefined);
-                    const allComplete = boxItems.length > 0 && boxItems.every(i => Object.values(i.locations).reduce((a,b)=>a+b,0) >= i.sysQty);
-                    if (allComplete) { setTimeout(() => playBoxCompleteChime(), 600); showToast(`🎉 BOX ${activeBoxFilter} SELESAI SEMPURNA!`); }
-                } else { feedback('scan'); promptOpnameConflict(item, activeBoxFilter); }
-            } else {
-                if(confirm(`Kode "${parsedCode}" Baru. Tambah ke Box ini?`)) {
-                    const newItem = createNewItem(parsedCode); newItem.locations[activeBoxFilter] = 1; saveDB(newItem); feedback('success'); handleOpnameRender();
+        // ===== OPNAME MODE: opnameBuffer-based workflow =====
+        if (opnameBufferBox !== null) {
+            // Buffer is active (box already scanned) - accumulate parts
+            if (isBox) {
+                // Scan another box = finalize current buffer
+                if (opnameBuffer.length > 0) {
+                    processOpnameBuffer(parsedCode);
+                    return;
+                } else {
+                    // Change target box without processing
+                    opnameBufferBox = parsedCode;
+                    feedback('scan');
+                    showToast(`📦 Box ditubah ke: ${parsedCode}`);
+                    return;
                 }
+            } else if (item) {
+                // Scan part = add to buffer
+                addToOpnameBuffer(item);
+                return;
+            } else {
+                if(confirm(`Kode "${parsedCode}" Baru. Tambah ke Buffer?`)) {
+                    const newItem = createNewItem(parsedCode);
+                    addToOpnameBuffer(newItem);
+                }
+                return;
             }
         } else {
-            if (isBox) { feedback('scan'); setOpnameBoxFilter(parsedCode); }
-            else if (item) { feedback('scan'); showOpnameInfo(item); }
-            else { feedback('error'); setStatus("Scan Box untuk mulai!"); }
+            // Buffer not initialized - first box scan or info display
+            if (isBox) {
+                feedback('scan');
+                opnameBufferBox = parsedCode;
+                showOpnameBufferPanel();
+                showToast(`📦 Box ${parsedCode} set. Scan part untuk akumulasi qty...`);
+                return;
+            } else if (item) {
+                feedback('scan');
+                showOpnameInfo(item);
+                return;
+            } else {
+                feedback('error');
+                setStatus("Scan Box atau Part!");
+                return;
+            }
         }
-        return;
     }
     
     if (item) { feedback('scan'); jumpToItem(item.partNo); } 
@@ -499,12 +452,14 @@ function renderSimpanList(reset = true) {
         const isActive = tempPart && tempPart.id === i.id;
         const hasLoc = Object.keys(i.locations).length > 0;
         const locTags = Object.entries(i.locations).map(([k,v])=>`<span class="loc-badge">${k}</span>`).join('');
+        const totalQty = Object.values(i.locations).reduce((a,b)=>a+b,0);
+        const qtyDisplay = totalQty > 0 ? `<span style="color:#16a34a; font-weight:bold;">${totalQty}</span>` : '';
         if (isFilterActive && hasLoc) return;
         const div = document.createElement('div');
         div.className = `item-card ${isActive ? 'selected' : ''}`; div.id = `simpan-row-${i.id}`;
         div.onclick = () => { if(!isMultiScan) selectPartSimpan(i); else addToMultiBuffer(i); };
         div.style.cssText = (!hasLoc && isFilterActive) ? 'border-left: 5px solid #fb923c;' : '';
-        div.innerHTML = `<div style="flex:1"><span class="part-code">${i.partNo}</span><span class="part-desc">${i.desc}</span><div style="margin-top:5px;">${locTags}</div></div>`;
+        div.innerHTML = `<div style="flex:1"><div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;"><span class="part-code">${i.partNo}</span>${qtyDisplay}${locTags ? '<div style="display:flex; gap:4px; margin-left:auto;">' + locTags + '</div>' : ''}</div><span class="part-desc">${i.desc}</span></div>`;
         container.appendChild(div);
     });
 }
@@ -690,8 +645,15 @@ function jumpToItem(partNo) {
 function openEditModal(id) {
     editId = id; const item = localItems.find(i=>i.id===id); if(!item) return; document.getElementById('editModal').style.display='flex'; document.getElementById('editPartTitle').innerText = item.partNo;
     
-    // Populate lastOpnameDate
-    document.getElementById('editLastOpnameDate').value = item.lastOpnameDate ? item.lastOpnameDate.split('T')[0] : '';
+    // Auto-set lastOpnameDate ONLY if from OPNAME tab
+    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    if (currentTab === 'opname') {
+        const dateValue = item.lastOpnameDate ? item.lastOpnameDate.split('T')[0] : today;
+        document.getElementById('editLastOpnameDate').value = dateValue;
+        document.getElementById('editLastOpnameDate').parentElement.style.display = 'block';
+    } else {
+        document.getElementById('editLastOpnameDate').parentElement.style.display = 'none';
+    }
     
     const list = document.getElementById('editLocsList'); list.innerHTML='';
     Object.keys(item.locations).forEach(box => { const r = document.createElement('div'); r.style.cssText="display:flex; justify-content:space-between; margin-bottom:8px; align-items:center;"; r.innerHTML=`<b>${box}</b> <div style="display:flex; gap:5px;"><input type="number" class="edit-qty-input" data-box="${box}" value="${item.locations[box]}" style="width:60px; padding:5px;"><button class="btn-trash" style="width:30px; height:30px;" onclick="deleteLocation(${id}, '${box}')"><i class="fas fa-trash"></i></button></div>`; list.appendChild(r); });
@@ -704,9 +666,9 @@ function saveManualEdit() {
     const item = localItems.find(i=>i.id===editId); 
     document.querySelectorAll('.edit-qty-input').forEach(inp => { const v = parseInt(inp.value); if(!isNaN(v)) item.locations[inp.dataset.box]=v; }); 
     
-    // Save lastOpnameDate
-    const opnameDate = document.getElementById('editLastOpnameDate').value;
-    if (opnameDate) {
+    // Save lastOpnameDate ONLY if from OPNAME tab
+    if (currentTab === 'opname') {
+        const opnameDate = document.getElementById('editLastOpnameDate').value || new Date().toISOString().split('T')[0];
         item.lastOpnameDate = opnameDate;
     }
     
@@ -833,67 +795,270 @@ function switchTab(id) {
     document.getElementById('scrollTopBtn').style.display = 'none';
     
     // Close sidebar drawer after selection
-    const drawer = document.getElementById('sidebarDrawer');
-    const overlay = document.getElementById('sidebarOverlay');
-    if(drawer && overlay) {
-        drawer.classList.remove('active');
-        overlay.classList.remove('active');
+    toggleMenu();
+}
+
+// ============================================
+// OPNAME BUFFER FUNCTIONS (Cashier Mode)
+// ============================================
+
+function addToOpnameBuffer(item) {
+    // Check if item already in buffer
+    const existing = opnameBuffer.find(b => b.item.id === item.id);
+    if (existing) {
+        existing.qty++;
+        feedback('warning');
+        showToast(`${item.partNo}: Qty +1 → ${existing.qty}`);
+    } else {
+        opnameBuffer.push({ item: item, qty: 1 });
+        feedback('success');
+        showToast(`${item.partNo}: Qty +1`);
     }
-    
-    const multiToggle = document.getElementById('multiScanToggle');
-    const filterToggle = document.getElementById('filterNoBoxToggle');
-    const chkFilter = document.getElementById('chkFilterNoBox'); 
-    const isMulti = document.getElementById('chkMultiScan') ? document.getElementById('chkMultiScan').checked : false;
-    const globalFilter = document.querySelector('.global-filter');
-    const scannerBar = document.querySelector('.scanner-bar');
-    
-    if (id === 'simpan') { multiToggle.style.display = 'flex'; filterToggle.style.display = isMulti ? 'flex' : 'none'; if(globalFilter) globalFilter.style.display = 'flex'; 
-    } else if (id === 'offbs' || id === 'packing') { multiToggle.style.display = 'none'; filterToggle.style.display = 'none'; if(globalFilter) globalFilter.style.display = 'none'; 
-    } else if (id === 'settings') { multiToggle.style.display = 'none'; filterToggle.style.display = 'none'; if(globalFilter) globalFilter.style.display = 'none'; 
-    } else { multiToggle.style.display = 'none'; filterToggle.style.display = 'none'; if(globalFilter) globalFilter.style.display = 'flex'; if(chkFilter && chkFilter.checked) chkFilter.checked = false; }
-    
-    if (scannerBar) { scannerBar.style.display = (id === 'data' || id === 'settings') ? 'none' : 'block'; }
-    
-    const root = document.documentElement;
-    if(id === 'simpan') { 
-        const color = isMulti ? 'var(--purple)' : 'var(--primary)';
-        const colorDark = isMulti ? 'var(--purple-dark)' : 'var(--primary-dark)';
-        root.style.setProperty('--active-color', color);
-        root.style.setProperty('--header-color-1', color);
-        root.style.setProperty('--header-color-2', colorDark);
+    renderOpnameBuffer();
+    addHistoryLog(item.partNo, `Buffer +1`);
+}
+
+function processOpnameBuffer(boxCode) {
+    if (opnameBuffer.length === 0) {
+        feedback('error');
+        showToast("Buffer kosong!");
+        return;
     }
-    if(id === 'opname') { 
-        root.style.setProperty('--active-color', 'var(--opname)');
-        root.style.setProperty('--header-color-1', 'var(--opname)');
-        root.style.setProperty('--header-color-2', 'var(--opname-dark)');
-        handleOpnameRender(); 
+
+    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+
+    let processedCount = 0;
+    let overQtyWarnings = [];
+
+    opnameBuffer.forEach(bufferItem => {
+        const item = bufferItem.item;
+        const scannedQty = bufferItem.qty;
+
+        // Initialize locations if not exists
+        if (!item.locations[boxCode]) {
+            item.locations[boxCode] = 0;
+        }
+
+        item.locations[boxCode] += scannedQty;
+
+        // Always set opname date to today
+        item.lastOpnameDate = today;
+
+        saveDB(item);
+        processedCount++;
+
+        // Check for over-qty
+        const totalPhysical = Object.values(item.locations).reduce((a, b) => a + b, 0);
+        if (totalPhysical > item.sysQty) {
+            overQtyWarnings.push({
+                partNo: item.partNo,
+                total: totalPhysical,
+                target: item.sysQty,
+                diff: totalPhysical - item.sysQty
+            });
+        }
+    });
+
+    // Feedback
+    feedback('success');
+    playChime();
+    showToast(`✅ Box ${boxCode}: ${processedCount} part diproses!`);
+
+    if (overQtyWarnings.length > 0) {
+        const msg = overQtyWarnings.map(w => `${w.partNo}: ${w.total}/${w.target} (+${w.diff})`).join('\n');
+        setTimeout(() => {
+            alert(`⚠️ PERHATIAN: Over Qty!\n\n${msg}`);
+        }, 500);
     }
-    if(id === 'data') { 
-        root.style.setProperty('--active-color', 'var(--data)');
-        root.style.setProperty('--header-color-1', 'var(--data)');
-        root.style.setProperty('--header-color-2', 'var(--data-dark)');
-        renderDataList(true); 
+
+    addHistoryLog(`Buffer→${boxCode}`, `${processedCount} items`);
+
+    // Clear buffer and refresh UI
+    clearOpnameBuffer();
+    handleOpnameRender();
+}
+
+function renderOpnameBuffer() {
+    const container = document.getElementById('opnameBufferTagsContainer');
+    const countEl = document.getElementById('opnameBufferCount');
+    const panel = document.getElementById('opnameBufferPanel');
+
+    if (opnameBuffer.length === 0) {
+        panel.style.display = 'none';
+        container.innerHTML = '';
+        countEl.textContent = '0';
+        return;
     }
-    if(id === 'offbs') { 
-        root.style.setProperty('--active-color', 'var(--offbs)');
-        root.style.setProperty('--header-color-1', 'var(--offbs)');
-        root.style.setProperty('--header-color-2', 'var(--offbs-dark)');
-        if(typeof renderOffBsList==='function') renderOffBsList(); 
+
+    panel.style.display = 'block';
+    countEl.textContent = opnameBuffer.length;
+
+    container.innerHTML = opnameBuffer.map((bufItem, idx) => {
+        return `
+            <div style="display:flex; align-items:center; gap:6px; background:#dcfce7; padding:8px 12px; border-radius:8px; border:1px solid #86efac; font-size:0.85rem; font-weight:bold; color:#14532d;">
+                <span>${bufItem.item.partNo} × ${bufItem.qty}</span>
+                <button onclick="removeFromOpnameBuffer(${idx})" style="background:none; border:none; color:#14532d; cursor:pointer; font-size:0.9rem; padding:0; width:20px; height:20px; display:flex; align-items:center; justify-content:center;">
+                    <i class="fas fa-times-circle"></i>
+                </button>
+            </div>
+        `;
+    }).join('');
+}
+
+function removeFromOpnameBuffer(index) {
+    if (index >= 0 && index < opnameBuffer.length) {
+        const removed = opnameBuffer.splice(index, 1)[0];
+        feedback('warning');
+        showToast(`${removed.item.partNo} dihapus dari buffer`);
+        renderOpnameBuffer();
     }
-    if(id === 'packing') { 
-        root.style.setProperty('--active-color', 'var(--purple)');
-        root.style.setProperty('--header-color-1', 'var(--purple)');
-        root.style.setProperty('--header-color-2', 'var(--purple-dark)');
-        if(typeof renderCollyUI==='function') renderCollyUI(); 
-        if(typeof renderPackingList==='function') renderPackingList(); 
+}
+
+function clearOpnameBuffer() {
+    if (opnameBuffer.length === 0) return;
+
+    if (confirm(`Clear Buffer (${opnameBuffer.length} items)?`)) {
+        opnameBuffer = [];
+        opnameBufferBox = null;
+        document.getElementById('opnameBufferPanel').style.display = 'none';
+        document.getElementById('opnameBufferTagsContainer').innerHTML = '';
+        document.getElementById('opnameBufferCount').textContent = '0';
+        feedback('info');
+        showToast('Buffer dihapus');
     }
-    if(id === 'settings') { 
-        root.style.setProperty('--active-color', 'var(--primary)');
-        root.style.setProperty('--header-color-1', 'var(--primary)');
-        root.style.setProperty('--header-color-2', 'var(--primary-dark)');
-    }
-    
-    if (id === 'data') document.getElementById('cariInput').focus(); else if(id !== 'settings') document.getElementById('mainInput').focus();
+}
+
+function showOpnameBufferPanel() {
+    const panel = document.getElementById('opnameBufferPanel');
+    panel.style.display = 'block';
+    renderOpnameBuffer();
 }
 
 function clearData() { if(confirm('Hapus Semua?')) { const tx = db.transaction('items','readwrite'); tx.objectStore('items').clear(); tx.oncomplete = () => location.reload(); } }
+
+// ============================================
+// SIMPAN BUFFER FUNCTIONS (Cashier Mode)
+// ============================================
+
+function addToSimpanBuffer(item) {
+    // Check if item already in buffer
+    const existing = simpanBuffer.find(b => b.item.id === item.id);
+    if (existing) {
+        existing.qty++;
+        feedback('warning');
+        showToast(`${item.partNo}: Qty +1 → ${existing.qty}`);
+    } else {
+        simpanBuffer.push({ item: item, qty: 1 });
+        feedback('success');
+        showToast(`${item.partNo}: Qty +1`);
+    }
+    renderSimpanBuffer();
+    addHistoryLog(item.partNo, `Buffer +1`);
+}
+
+function processSimpanBuffer(boxCode) {
+    if (simpanBuffer.length === 0) {
+        feedback('error');
+        showToast("Buffer kosong!");
+        return;
+    }
+
+    let processedCount = 0;
+    let overQtyWarnings = [];
+
+    simpanBuffer.forEach(bufferItem => {
+        const item = bufferItem.item;
+        const scannedQty = bufferItem.qty;
+
+        // Initialize locations if not exists
+        if (!item.locations[boxCode]) {
+            item.locations[boxCode] = 0;
+        }
+
+        // Add qty to existing
+        item.locations[boxCode] += scannedQty;
+
+        saveDB(item);
+        processedCount++;
+
+        // Check for over-qty
+        const totalPhysical = Object.values(item.locations).reduce((a, b) => a + b, 0);
+        if (totalPhysical > item.sysQty) {
+            overQtyWarnings.push({
+                partNo: item.partNo,
+                total: totalPhysical,
+                target: item.sysQty,
+                diff: totalPhysical - item.sysQty
+            });
+        }
+    });
+
+    // Feedback
+    feedback('success');
+    playChime();
+    showToast(`✅ Box ${boxCode}: ${processedCount} part(s) ditambah!`);
+
+    if (overQtyWarnings.length > 0) {
+        const msg = overQtyWarnings.map(w => `${w.partNo}: ${w.total}/${w.target} (+${w.diff})`).join('\n');
+        setTimeout(() => {
+            alert(`⚠️ PERHATIAN: Over Qty!\n\n${msg}`);
+        }, 500);
+    }
+
+    addHistoryLog(`Buffer→${boxCode}`, `${processedCount} items`);
+
+    // Clear buffer and refresh UI
+    clearSimpanBuffer();
+    renderSimpanList(true);
+}
+
+function renderSimpanBuffer() {
+    const display = document.getElementById('simpanBufferDisplay');
+    const statusPanel = document.getElementById('simpanStatusPanel');
+    
+    if (simpanBuffer.length === 0) {
+        display.style.display = 'none';
+        display.innerHTML = '';
+        statusPanel.style.display = 'none';
+        return;
+    }
+
+    // Show status panel
+    statusPanel.style.display = 'block';
+    
+    // Format: "× 2, × 1" (qty only, no part number)
+    const bufferText = simpanBuffer
+        .map(b => `× ${b.qty}`)
+        .join(', ');
+    
+    display.textContent = bufferText;
+    display.style.display = 'inline';
+}
+
+function removeFromSimpanBuffer(index) {
+    if (index >= 0 && index < simpanBuffer.length) {
+        const removed = simpanBuffer.splice(index, 1)[0];
+        feedback('warning');
+        showToast(`${removed.item.partNo} dihapus dari buffer`);
+        renderSimpanBuffer();
+    }
+}
+
+function clearSimpanBuffer() {
+    if (simpanBuffer.length === 0) return;
+
+    if (confirm(`Clear Buffer (${simpanBuffer.length} items)?`)) {
+        simpanBuffer = [];
+        simpanBufferBox = null;
+        document.getElementById('simpanBufferDisplay').style.display = 'none';
+        document.getElementById('simpanBufferDisplay').innerHTML = '';
+        feedback('info');
+        showToast('Buffer dihapus');
+    }
+}
+
+function showSimpanBufferPanel() {
+    const panel = document.getElementById('multiScanPanel');
+    panel.style.display = 'block';
+    renderSimpanBuffer();
+}
