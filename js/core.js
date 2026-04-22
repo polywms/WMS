@@ -398,6 +398,7 @@ if (currentTab === 'packing') {
                 } else {
                     // Change target box without processing
                     opnameBufferBox = parsedCode;
+                    setOpnameBoxFilter(parsedCode);  // ← TAMBAHAN: Trigger filter update
                     feedback('scan');
                     showToast(`📦 Box ditubah ke: ${parsedCode}`);
                     return;
@@ -418,6 +419,7 @@ if (currentTab === 'packing') {
             if (isBox) {
                 feedback('scan');
                 opnameBufferBox = parsedCode;
+                setOpnameBoxFilter(parsedCode);  // ← TAMBAHAN: Trigger filter + display
                 showOpnameBufferPanel();
                 showToast(`📦 Box ${parsedCode} set. Scan part untuk akumulasi qty...`);
                 return;
@@ -742,8 +744,26 @@ function handleOpnameRender() {
     document.getElementById('opnameLoading').style.display = (renderLimit < dataset.length) ? 'block' : 'none';
 }
 
-function setOpnameBoxFilter(box) { activeBoxFilter = box; document.getElementById('activeBoxName').innerText = box; document.getElementById('activeBoxPanel').style.display = 'block'; document.getElementById('opnameInfoPanel').style.display = 'none'; document.getElementById('opnameList').style.display = 'flex'; handleOpnameRender(); }
-function clearOpnameBoxFilter() { activeBoxFilter = null; document.getElementById('activeBoxPanel').style.display = 'none'; document.getElementById('opnameInfoPanel').style.display = 'none'; document.getElementById('opnameList').style.display = 'flex'; handleOpnameRender(); }
+function setOpnameBoxFilter(box) { 
+    activeBoxFilter = box; 
+    document.getElementById('activeBoxName').innerText = box; 
+    // Update box info display below input
+    document.getElementById('opnameBoxInfo').style.display = 'block';
+    document.getElementById('opnameBoxName').innerText = box;
+    document.getElementById('activeBoxPanel').style.display = 'block'; 
+    document.getElementById('opnameInfoPanel').style.display = 'none'; 
+    document.getElementById('opnameList').style.display = 'flex'; 
+    handleOpnameRender(); 
+}
+function clearOpnameBoxFilter() { 
+    activeBoxFilter = null; 
+    // Hide box info display when filter cleared
+    document.getElementById('opnameBoxInfo').style.display = 'none';
+    document.getElementById('activeBoxPanel').style.display = 'none'; 
+    document.getElementById('opnameInfoPanel').style.display = 'none'; 
+    document.getElementById('opnameList').style.display = 'flex'; 
+    handleOpnameRender(); 
+}
 function setOpnameFilter(type, btn) { opnameFilter = type; document.querySelectorAll('.segment-btn').forEach(b => b.classList.remove('active')); btn.classList.add('active'); handleOpnameRender(); }
 
 function promptOpnameConflict(item, box) {
