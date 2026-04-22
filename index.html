@@ -104,15 +104,6 @@
                             ">
                             <div id="multiIcon" style="width:40px; height:40px; background:white; color:var(--secondary); border:1px solid #cbd5e1; border-radius:8px; display:flex; justify-content:center; align-items:center; transition:0.2s; font-size:1.1rem; cursor:pointer;"><i class="fas fa-layer-group"></i></div>
                         </label>
-                        <label style="cursor: pointer; margin: 0;">
-                            <input type="checkbox" id="chkOpnameMode" style="display:none;" onchange="
-                            toggleOpnameMode();
-                            const iconOpname = document.getElementById('opnameIcon');
-                            if(this.checked) { iconOpname.style.background = '#f59e0b'; iconOpname.style.color = 'white'; iconOpname.style.borderColor = '#f59e0b';
-                            } else { iconOpname.style.background = 'white'; iconOpname.style.color = 'var(--secondary)'; iconOpname.style.borderColor = '#cbd5e1'; }
-                            ">
-                            <div id="opnameIcon" style="width:40px; height:40px; background:white; color:var(--secondary); border:1px solid #cbd5e1; border-radius:8px; display:flex; justify-content:center; align-items:center; transition:0.2s; font-size:1.1rem; cursor:pointer;"><i class="fa-solid fa-list"></i></div>
-                        </label>
                         <button id="historyToggleBtn" onclick="toggleHistoryAccordion()" style="width:40px; height:40px; background:white; color:var(--secondary); border:1px solid #cbd5e1; border-radius:8px; display:flex; justify-content:center; align-items:center; cursor:pointer; padding:0; transition:0.2s; font-size:1.1rem;" title="Riwayat Scan"><i class="fas fa-history"></i></button>
                     </div>
                 </div>
@@ -144,36 +135,43 @@
                     <div id="multiTagsContainer" style="max-height:100px; overflow-y:auto; padding-bottom:5px; display:flex; flex-wrap:wrap; gap:5px;"></div>
                     <div style="margin-top:10px; font-size:0.9rem; font-weight:bold; color:var(--purple); animation: pulse 2s infinite; text-align:center;"><i class="fas fa-arrow-right"></i> SCAN BOX UNTUK SET LOKASI</div>
                 </div>
-                <div id="simpanStatusPanel" class="status-panel" style="position:sticky; top:0; z-index:100;">
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;">
-                        <div style="display:flex; align-items:center; gap:10px;">
-                            <b style="font-size:1.1rem; color:var(--primary);" id="activePartNo">-</b>
-                            <span id="simpanBufferDisplay" style="display:none; font-size:0.95rem; color:#6b7280; font-weight:bold;"></span>
-                        </div>
-                        <div style="display:flex; gap:6px;">
-                            <button class="btn-sm" style="width:35px; height:35px; padding:0; background:#fef2f2; color:#dc2626; border:1px solid #fca5a5; border-radius:6px; display:flex; justify-content:center; align-items:center; cursor:pointer;" onclick="addLabelIssue('NO_LABEL')" title="Tanpa Label"><i class="fas fa-tag"></i></button>
-                            <button class="btn-sm" style="width:35px; height:35px; padding:0; background:#fffbeb; color:#d97706; border:1px solid #fcd34d; border-radius:6px; display:flex; justify-content:center; align-items:center; cursor:pointer;" onclick="addLabelIssue('DAMAGED')" title="Label Rusak"><i class="fas fa-tags"></i></button>
-                            <button class="btn-sm btn-danger" style="width:35px; height:35px; padding:0; display:flex; justify-content:center; align-items:center;" onclick="clearActivePart()"><i class="fas fa-times"></i></button>
-                        </div>
-                    </div>
-                    <div id="activePartDesc" style="font-size:0.9rem; color:var(--secondary); margin-bottom:10px;">-</div>
-                    <!-- Smart Suggestion Accordion -->
-                    <div id="smartSuggestionPanel" style="display:none; background:#fffbeb; padding:10px; margin-bottom:10px; border-radius:6px; border:1px solid #fcd34d;">
-                        <div id="smartSuggestionHeader" style="display:flex; justify-content:space-between; align-items:center; cursor:pointer; user-select:none;" onclick="toggleSmartSuggestion()">
-                            <div style="font-size:0.9rem; font-weight:bold; color:#92400e; display:flex; align-items:center; gap:6px;">
-                                <i class="fas fa-lightbulb"></i> <span id="smartSuggestionText">Ada X Part Seri Serupa</span>
-                            </div>
-                            <i id="smartSuggestionChevron" class="fas fa-chevron-down" style="color:#92400e; transition:transform 0.3s; transform: rotate(0deg);"></i>
-                        </div>
-                        <div id="smartSuggestionList" style="display:none; margin-top:10px; max-height:200px; overflow-y:auto; border-top:1px solid #fcd34d; padding-top:10px;"></div>
-                    </div>
-                    <!-- End Smart Suggestion -->
-                    <div style="background:#fff; padding:8px; margin-bottom:10px; border-radius:6px; border:1px solid #bfdbfe; font-size:0.9rem;">Lokasi Saat Ini: <b id="activePartLoc" style="color:var(--danger)">-</b></div>
-                    <div style="background:var(--card); padding:10px; border-radius:6px; border:1px dashed var(--primary); text-align:center;">
-                        <div style="font-size:0.9rem; font-weight:bold; color:var(--primary); margin-bottom:5px;">AKAN DISIMPAN (QTY 0 / BELUM DIHITUNG)</div>
-                        <div style="font-size:0.9rem; font-weight:bold; color:#16a34a; animation: pulse 2s infinite;"><i class="fas fa-arrow-right"></i> SCAN BOX TUJUAN</div>
-                    </div>
-                </div>
+                <div id="simpanStatusPanel" class="status-panel" style="position: sticky; top: 0px; z-index: 100; background: var(--card, #ffffff); box-shadow: rgba(0, 0, 0, 0.15) 0px 4px 10px -4px; margin-top: -10px; padding: 10px 15px; border-bottom: 1px solid var(--border); display: block;">
+    
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+        <div style="display:flex; align-items:center; gap:8px;">
+            <b style="font-size:1.15rem; color:var(--primary);" id="activePartNo">AA-872030-00A</b>
+            <span id="simpanBufferDisplay" style="display: inline-block;">
+                <span style="background:#dcfce7; color:#16a34a; padding:2px 8px; border-radius:12px; border:1px solid #86efac; font-size:1rem; font-weight:bold;">x 1</span>
+            </span>
+        </div>
+        <div style="display:flex; gap:6px;">
+            <button class="btn-sm" style="width:28px; height:28px; padding:0; background:#fef2f2; color:#dc2626; border:1px solid #fca5a5; border-radius:6px; cursor:pointer; display:flex; justify-content:center; align-items:center;" onclick="addLabelIssue('NO_LABEL')" title="Tanpa Label"><i class="fas fa-tag"></i></button>
+            <button class="btn-sm" style="width:28px; height:28px; padding:0; background:#fffbeb; color:#d97706; border:1px solid #fcd34d; border-radius:6px; cursor:pointer; display:flex; justify-content:center; align-items:center;" onclick="addLabelIssue('DAMAGED')" title="Label Rusak"><i class="fas fa-tags"></i></button>
+            <button class="btn-sm btn-danger" style="width:28px; height:28px; padding:0; display:flex; justify-content:center; align-items:center;" onclick="clearActivePart()"><i class="fas fa-times"></i></button>
+        </div>
+    </div>
+
+    <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.85rem; margin-bottom:8px;">
+        <div id="activePartDesc" style="color:var(--secondary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:65%;">LF IC AUDIO PA 18W TDA2030AL</div>
+        <div style="color:var(--danger); font-weight:bold; font-size:0.75rem; background:#fef2f2; padding:2px 6px; border-radius:4px; border:1px solid #fecdd3; white-space:nowrap;">
+            <i class="fas fa-map-marker-alt"></i> <span id="activePartLoc">Belum ada</span>
+        </div>
+    </div>
+
+    <div id="smartSuggestionPanel" style="display:none; background:#fffbeb; padding:8px; margin-bottom:8px; border-radius:6px; border:1px solid #fcd34d;">
+        <div id="smartSuggestionHeader" style="display:flex; justify-content:space-between; align-items:center; cursor:pointer; user-select:none;" onclick="toggleSmartSuggestion()">
+            <div style="font-size:0.85rem; font-weight:bold; color:#92400e; display:flex; align-items:center; gap:6px;">
+                <i class="fas fa-lightbulb"></i> <span id="smartSuggestionText">Ada X Part Seri Serupa</span>
+            </div>
+            <i id="smartSuggestionChevron" class="fas fa-chevron-down" style="color:#92400e; transition:transform 0.3s; transform: rotate(0deg);"></i>
+        </div>
+        <div id="smartSuggestionList" style="display:none; margin-top:8px; max-height:150px; overflow-y:auto; border-top:1px solid #fcd34d; padding-top:8px;"></div>
+    </div>
+    <div style="background:#f0fdf4; padding:6px; border-radius:6px; border:1px dashed #16a34a; text-align:center; font-size:0.85rem; font-weight:bold; color:#16a34a; animation: pulse 2s infinite;">
+        <i class="fas fa-box-open"></i> SCAN BOX TUJUAN
+    </div>
+
+</div>
                 <div id="simpanList" class="list-container"></div>
             </div>
             
@@ -393,7 +391,6 @@
             </div>
         
         <button id="scrollTopBtn" class="scroll-btn" onclick="scrollToTop()"><i class="fas fa-arrow-up"></i></button>
-        <div id="undoBtn" onclick="executeUndo()"><i class="fas fa-undo"></i> BATALKAN (Undo)</div>
         
         <div class="overlay" id="opnameConfirmModal">
             <div class="modal">
@@ -577,22 +574,6 @@
             </div>
         </div>
 
-        <div class="overlay" id="addCollyModal">
-            <div class="modal">
-                <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); padding-bottom:10px; margin-bottom:15px;">
-                    <h3 style="margin:0;"><i class="fas fa-box"></i> Buat Colly Baru</h3>
-                    <button onclick="closeAddCollyModal()" style="border:none; background:none; font-size:1.5rem; color:var(--secondary); cursor:pointer;"><i class="fas fa-times"></i></button>
-                </div>
-                <div style="margin-bottom:15px;">
-                    <label style="display:block; font-size:0.85rem; font-weight:bold; color:var(--secondary); margin-bottom:5px;">Nama Colly Pengiriman:</label>
-                    <input type="text" id="addCollyNameInput" placeholder="Contoh: COLLY-SAYUNG-01" style="width:100%; padding:10px; border:1px solid var(--border); border-radius:6px; font-weight:bold; outline:none; box-sizing:border-box;" onkeydown="if(event.key === 'Enter') submitAddColly()">
-                </div>
-                <div style="display:flex; gap:8px;">
-                    <button class="btn btn-outline" onclick="closeAddCollyModal()" style="flex:1; margin:0;">Batal</button>
-                    <button class="btn btn-success" onclick="submitAddColly()" style="flex:1; margin:0;"><i class="fas fa-plus-circle"></i> Buat Colly</button>
-                </div>
-            </div>
-        </div>
 
         <div id="toast">Notifikasi</div>
         

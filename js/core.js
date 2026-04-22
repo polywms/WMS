@@ -43,7 +43,9 @@ function handleFilterChange() {
     });
     
     clearActivePart();
-    clearMultiBuffer();
+    // Clear both buffers when filter changes
+    if (Array.isArray(multiBuffer) && multiBuffer.length > 0) clearMultiBuffer();
+    if (Array.isArray(simpanBuffer) && simpanBuffer.length > 0) clearSimpanBuffer();
     clearOpnameBoxFilter();
     handleOpnameRender();
     renderSimpanList(true);
@@ -75,12 +77,13 @@ function toggleKeyboardMode() {
 function toggleMultiMode() {
     isMultiScan = document.getElementById('chkMultiScan').checked;
     const root = document.documentElement;
-    document.getElementById('simpanStatusPanel').style.display = isMultiScan ? 'none' : 'none'; 
+    document.getElementById('simpanStatusPanel').style.display = isMultiScan ? 'none' : 'block'; 
     document.getElementById('multiScanPanel').style.display = isMultiScan ? 'block' : 'none';
     document.getElementById('filterNoBoxToggle').style.display = isMultiScan ? 'flex' : 'none';
     
     if (isMultiScan) {
         clearActivePart();
+        clearSimpanBuffer();
         root.style.setProperty('--active-color', 'var(--purple)');
         document.querySelector('header').style.background = 'var(--purple)';
         showToast("🟣 Mode Multi Scan Aktif");
@@ -180,8 +183,6 @@ function renderHistoryLog() {
 function processScan(code) {
     let rawCode = code.trim().toUpperCase();
     let parsedCode = rawCode.includes('|') ? rawCode.split('|')[0] : rawCode;
-
-    addToHistory(parsedCode);
 
     const boxPattern = /^[A-Z][0-9]{0,2}-[0-9]{2,3}$/;
     const isBox = boxPattern.test(rawCode);
@@ -306,56 +307,75 @@ if (currentTab === 'packing') {
     const item = filteredItems.find(i => i.partNo.toUpperCase() === parsedCode);
     
     if (currentTab === 'simpan') {
-        // ===== SIMPAN MODE: Buffer accumulation (cashier-like) =====
-        if (simpanBufferBox !== null) {
-            // Buffer is active (box already scanned) - accumulate parts
-            if (isBox) {
-                // Scan another box = finalize current buffer and start new one
-                if (simpanBuffer.length > 0) {
-                    processSimpanBuffer(parsedCode);
-                    return;
-                } else {
-                    // Change target box without processing
-                    simpanBufferBox = parsedCode;
-                    feedback('scan');
-                    showToast(`📦 Box ditubah ke: ${parsedCode}`);
-                    return;
-                }
-            } else if (item) {
-                // Scan part = add to buffer with qty accumulate
-                addToSimpanBuffer(item);
-                return;
-            } else {
-                if(confirm(`Kode "${parsedCode}" Baru. Tambah ke buffer?`)) {
-                    const newItem = createNewItem(parsedCode);
-                    addToSimpanBuffer(newItem);
-                }
+        if (isBox) {
+            // 1. CEK DULU APAKAH SEDANG MODE MULTI-SCAN (Mencegah Bug!)
+            if (isMultiScan && multiBuffer.length > 0) {
+                processMultiBatchMove(parsedCode);
                 return;
             }
-        } else {
-            // Buffer not initialized - first box scan or legacy flow
-            if (isBox) {
-                feedback('scan');
-                simpanBufferBox = parsedCode;
-                showToast(`📦 Box ${parsedCode} set. Scan part untuk akumulasi...`);
-                return;
-            } else if (item) {
-                // Part scanned without buffer - use old flow (multi or single)
-                feedback('scan');
-                if (isMultiScan) addToMultiBuffer(item);
+            
+            // 2. JIKA SINGLE SCAN (NORMAL)
+            if (simpanBuffer.length > 0 && tempPart) {
+                const scannedQty = simpanBuffer[0].qty;
+                const boxCode = parsedCode;
+                const existingLocs = Object.keys(tempPart.locations);
+                
+                // SKENARIO 1 & 3: Part Baru (0 lokasi) ATAU Scan Box yang sama persis
+                if (existingLocs.length === 0 || existingLocs.includes(boxCode)) {
+                    if (!tempPart.locations[boxCode]) {
+                        tempPart.locations[boxCode] = 0;
+                    }
+                    tempPart.locations[boxCode] += scannedQty;
+                    saveDB(tempPart);
+                    
+                    addHistoryLog(`${tempPart.partNo} → ${boxCode}`, `+${scannedQty}`);
+                    feedback('success');
+                    if (typeof playChime === 'function') playChime();
+                    showToast(`✅ ${tempPart.partNo} (${scannedQty} pcs) masuk ke ${boxCode}!`);
+                    
+                    clearSimpanBuffer();
+                    renderSimpanList(true);
+                } 
+                // SKENARIO 2: Beda Rak (Konflik / Pindah Lokasi)
                 else {
-                    selectPartSimpan(item);
-                    showToast(`Part: ${item.partNo}`);
+                    simpanConflictData = { item: tempPart, newBox: boxCode, qty: scannedQty };
+                    
+                    document.getElementById('simpanConflictModal').style.display = 'flex';
+                    document.getElementById('scmPart').innerText = tempPart.partNo;
+                    document.getElementById('scmOldLoc').innerText = existingLocs.map(loc => `${loc} (${tempPart.locations[loc]} pcs)`).join(', ');
+                    document.getElementById('scmNewBox').innerText = boxCode;
+                    
+                    feedback('error');
                 }
                 return;
             } else {
-                if (confirm(`Kode "${parsedCode}" Baru. Buat Part?`)) {
-                    const newItem = createNewItem(parsedCode);
-                    if (isMultiScan) addToMultiBuffer(newItem);
-                    else selectPartSimpan(newItem);
-                }
-                return;
+                feedback('error');
+                showToast("⚠️ Scan Part terlebih dahulu sebelum scan Box!");
             }
+            return;
+            
+        } else if (item) {
+            // ==========================================
+            // JIKA SCAN PART -> AKUMULASI QTY (x1, x2)
+            // ==========================================
+            feedback('scan');
+            if (isMultiScan) {
+                addToMultiBuffer(item);
+            } else {
+                addToSimpanBuffer(item);
+            }
+            return;
+            
+        } else {
+            // ==========================================
+            // PART BARU
+            // ==========================================
+            if (confirm(`Kode "${parsedCode}" Baru. Buat Part?`)) {
+                const newItem = createNewItem(parsedCode);
+                if (isMultiScan) addToMultiBuffer(newItem);
+                else addToSimpanBuffer(newItem);
+            }
+            return;
         }
     }
     
@@ -410,10 +430,7 @@ if (currentTab === 'packing') {
     else { feedback('error'); setStatus("Item tidak ditemukan"); }
 }
 
-function addToHistory(code) {
-    // This function is kept for backward compatibility but deprecated
-    // Use addHistoryLog() instead for the new history accordion
-}
+
 
 function registerUndo(type, itemId, box, oldState = null) {
     lastAction = { type, itemId, box, oldState, time: Date.now() };
@@ -448,26 +465,54 @@ function renderSimpanList(reset = true) {
     if(reset) container.innerHTML = ''; if(filteredItems.length === 0) return;
     const isFilterActive = filterNoBoxEl && filterNoBoxEl.checked;
     const show = filteredItems.slice(0, renderLimit);
+    
     show.forEach(i => {
         const isActive = tempPart && tempPart.id === i.id;
         const hasLoc = Object.keys(i.locations).length > 0;
         const locTags = Object.entries(i.locations).map(([k,v])=>`<span class="loc-badge">${k}</span>`).join('');
         const totalQty = Object.values(i.locations).reduce((a,b)=>a+b,0);
-        const qtyDisplay = totalQty > 0 ? `<span style="color:#16a34a; font-weight:bold;">${totalQty}</span>` : '';
+        
+        // Tulis jumlah tersimpan di sebelah part number
+        const qtyDisplay = totalQty > 0 ? `<span style="background:#dcfce7; color:#16a34a; padding:2px 8px; border-radius:8px; font-size:0.8rem; font-weight:bold; margin-left:8px; border:1px solid #86efac;">x ${totalQty}</span>` : '';
+        
         if (isFilterActive && hasLoc) return;
         const div = document.createElement('div');
         div.className = `item-card ${isActive ? 'selected' : ''}`; div.id = `simpan-row-${i.id}`;
         div.onclick = () => { if(!isMultiScan) selectPartSimpan(i); else addToMultiBuffer(i); };
         div.style.cssText = (!hasLoc && isFilterActive) ? 'border-left: 5px solid #fb923c;' : '';
-        div.innerHTML = `<div style="flex:1"><div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;"><span class="part-code">${i.partNo}</span>${qtyDisplay}${locTags ? '<div style="display:flex; gap:4px; margin-left:auto;">' + locTags + '</div>' : ''}</div><span class="part-desc">${i.desc}</span></div>`;
+        
+        // locTags ditaruh 1 baris menggunakan flex wrap agar aman jika layar sempit
+        div.innerHTML = `
+        <div style="flex:1">
+            <div style="display:flex; align-items:center; flex-wrap:wrap; gap:6px; margin-bottom:4px;">
+                <span class="part-code" style="font-size:1.05rem; font-weight:bold;">${i.partNo}</span>
+                ${qtyDisplay}
+                ${locTags ? `<div style="display:flex; gap:4px; margin-left:auto; flex-wrap:wrap;">${locTags}</div>` : ''}
+            </div>
+            <span class="part-desc" style="font-size:0.85rem; color:#64748b;">${i.desc}</span>
+        </div>`;
         container.appendChild(div);
     });
 }
 
 function selectPartSimpan(item) {
-    if(isMultiScan) return; tempPart = item;
+    if(isMultiScan) return; 
+    
+    tempPart = item;
+    // Validate simpanBuffer and clear it
+    if (!Array.isArray(simpanBuffer)) simpanBuffer = [];
+    simpanBuffer = []; // Kosongkan buffer karena cuma dilihat, belum di-scan
+    
     document.getElementById('simpanStatusPanel').style.display = 'block';
-    document.getElementById('activePartNo').innerText = item.partNo;
+    
+    // Hitung total tersimpan untuk tampilan "Hanya Dilihat"
+    const qtyTersimpan = Object.values(item.locations).reduce((a,b)=>a+b, 0);
+    let color = qtyTersimpan >= item.sysQty ? '#16a34a' : '#ea580c';
+    let progressBadge = `<span style="font-size:0.85rem; color:${color}; background:#f8fafc; padding:2px 8px; border-radius:6px; border:1px solid #cbd5e1; margin-left:8px; font-weight:bold;">Terisi: ${qtyTersimpan}/${item.sysQty}</span>`;
+    
+    // Taruh menyamping di sebelah Nama Part
+    document.getElementById('activePartNo').innerHTML = item.partNo + progressBadge;
+    
     let issueWarning = '';
     if (item.labelIssues && (item.labelIssues.DAMAGED > 0 || item.labelIssues.NO_LABEL > 0)) {
         let t = [];
@@ -477,12 +522,13 @@ function selectPartSimpan(item) {
     }
     document.getElementById('activePartDesc').innerHTML = item.desc + issueWarning;
     document.getElementById('activePartLoc').innerText = Object.keys(item.locations).join(', ') || 'Belum ada';
+    
     document.querySelectorAll('.item-card').forEach(el => { el.classList.remove('selected'); el.classList.remove('row-flash'); });
     const row = document.getElementById(`simpan-row-${item.id}`);
     if(row) { row.classList.add('selected'); row.classList.add('row-flash'); row.scrollIntoView({behavior:'smooth', block:'center'}); }
     
-    // Render Smart Suggestion
-    renderSmartSuggestion(item);
+    if(typeof renderSmartSuggestion === 'function') renderSmartSuggestion(item);
+    renderSimpanBuffer();
 }
 
 function clearActivePart() {
@@ -507,33 +553,108 @@ function checkSimpanConflict(item, newBox) {
 }
 
 function executeSimpanAction(action) {
-    if (!simpanConflictData) return; const { item, newBox, oldState } = simpanConflictData; registerUndo('simpan_conflict', item.id, newBox, oldState);
-    if (action === 'move') { item.locations = {}; item.locations[newBox] = 0; showToast(`Pindah Lokasi ke ${newBox}`); } 
-    else if (action === 'split') { item.locations[newBox] = 0; showToast(`Tambah Lokasi: ${newBox}`); }
-    saveDB(item); addHistoryLog(item.partNo, newBox); feedback('success'); closeSimpanConflictModal(); clearActivePart(); renderSimpanList(false); 
+    if (!simpanConflictData) return; 
+    const { item, newBox, qty } = simpanConflictData; 
+    
+    if (action === 'move') { 
+        // LOGIKA PINDAH: Kurangi dari rak lama sejumlah qty yang di-scan
+        let sisaPindah = qty;
+        for (let loc in item.locations) {
+            if (sisaPindah <= 0) break;
+            if (item.locations[loc] > 0) {
+                if (item.locations[loc] >= sisaPindah) {
+                    item.locations[loc] -= sisaPindah;
+                    sisaPindah = 0;
+                } else {
+                    sisaPindah -= item.locations[loc];
+                    item.locations[loc] = 0;
+                }
+            }
+        }
+        // Bersihkan data rak lama jika stoknya habis jadi 0
+        for (let loc in item.locations) {
+            if (item.locations[loc] <= 0) delete item.locations[loc];
+        }
+        
+        // Pindahkan ke rak baru
+        if (!item.locations[newBox]) item.locations[newBox] = 0;
+        item.locations[newBox] += qty;
+        
+        showToast(`✅ Pindah ${qty} pcs ke ${newBox}`); 
+    } 
+    else if (action === 'split') { 
+        // LOGIKA TAMBAH (INBOUND): Biarkan rak lama utuh, tambah barang baru di rak baru
+        if (!item.locations[newBox]) item.locations[newBox] = 0;
+        item.locations[newBox] += qty;
+        showToast(`✅ Stok Baru (+${qty}) ditambah ke ${newBox}`); 
+    }
+    
+    // Simpan ke database dan bersihkan layar
+    saveDB(item); 
+    addHistoryLog(`${item.partNo} → ${newBox}`, action === 'move' ? `Pindah ${qty}` : `Tambah ${qty}`); 
+    feedback('success'); 
+    if (typeof playChime === 'function') playChime();
+    closeSimpanConflictModal(); 
+    clearSimpanBuffer(); 
+    renderSimpanList(true); 
 }
 
 function closeSimpanConflictModal() { document.getElementById('simpanConflictModal').style.display = 'none'; simpanConflictData = null; document.getElementById('mainInput').focus(); }
 
 function addToMultiBuffer(item) {
-    const exists = multiBuffer.some(i => i.partNo === item.partNo); if (exists) { showToast("Part sudah ada di list!"); return; }
-    multiBuffer.push(item); renderMultiBuffer(); 
-    const row = document.getElementById(`simpan-row-${item.id}`); if(row) row.classList.add('selected');
+    // Validate multiBuffer exists
+    if (!Array.isArray(multiBuffer)) {
+        console.warn('multiBuffer not initialized, initializing now');
+        multiBuffer = [];
+    }
+    const exists = multiBuffer.some(i => i.partNo === item.partNo); 
+    if (exists) { showToast("Part sudah ada di list!"); return; }
+    multiBuffer.push(item); 
+    renderMultiBuffer(); 
+    const row = document.getElementById(`simpan-row-${item.id}`); 
+    if(row) row.classList.add('selected');
 }
 
 function renderMultiBuffer() {
-    const container = document.getElementById('multiTagsContainer'); const filterEl = document.getElementById('chkFilterNoBox');
-    if (!container || !filterEl) return; const filterActive = filterEl.checked; container.innerHTML = ''; let displayCount = 0;
+    const container = document.getElementById('multiTagsContainer'); 
+    const filterEl = document.getElementById('chkFilterNoBox');
+    if (!container || !filterEl) return; 
+    
+    // Validate multiBuffer exists and is array
+    if (!Array.isArray(multiBuffer) || multiBuffer.length === 0) {
+        container.innerHTML = '';
+        const counterEl = document.getElementById('multiCount'); 
+        if(counterEl) counterEl.innerText = '0/0';
+        return;
+    }
+    
+    const filterActive = filterEl.checked; 
+    container.innerHTML = ''; 
+    let displayCount = 0;
+    
     multiBuffer.forEach(item => {
-        const locs = item.locations || {}; const hasLoc = Object.keys(locs).length > 0; const locInfo = hasLoc ? Object.keys(locs).join(',') : 'Baru';
-        if (filterActive && hasLoc) return; displayCount++;
-        const tag = document.createElement('span'); tag.className = 'multi-tag'; tag.style.cssText = !hasLoc ? 'background:#fb923c; color:#fff;' : ''; 
-        tag.innerHTML = `${item.partNo} <small style="opacity:0.8">(${locInfo})</small>`; container.prepend(tag);
+        const locs = item.locations || {}; 
+        const hasLoc = Object.keys(locs).length > 0; 
+        const locInfo = hasLoc ? Object.keys(locs).join(',') : 'Baru';
+        if (filterActive && hasLoc) return; 
+        displayCount++;
+        const tag = document.createElement('span'); 
+        tag.className = 'multi-tag'; 
+        tag.style.cssText = !hasLoc ? 'background:#fb923c; color:#fff;' : ''; 
+        tag.innerHTML = `${item.partNo} <small style="opacity:0.8">(${locInfo})</small>`; 
+        container.prepend(tag);
     });
-    const counterEl = document.getElementById('multiCount'); if(counterEl) counterEl.innerText = `${displayCount}/${multiBuffer.length}`;
+    
+    const counterEl = document.getElementById('multiCount'); 
+    if(counterEl) counterEl.innerText = `${displayCount}/${multiBuffer.length}`;
 }
 
-function clearMultiBuffer() { multiBuffer = []; renderMultiBuffer(); document.querySelectorAll('.item-card').forEach(el => el.classList.remove('selected')); }
+function clearMultiBuffer() { 
+    if (!Array.isArray(multiBuffer)) multiBuffer = [];
+    multiBuffer = []; 
+    renderMultiBuffer(); 
+    document.querySelectorAll('.item-card').forEach(el => el.classList.remove('selected')); 
+}
 
 function processMultiBatchMove(box, actionType = 'move') {
     multiBuffer.forEach(item => { if (actionType === 'move') item.locations = {}; if (item.locations[box] === undefined) item.locations[box] = 0; saveDB(item); });
@@ -563,12 +684,23 @@ function handleOpnameRender() {
             if (Object.keys(i.locations).length > 1) qtyDisplay = `${qtyInBox} <span style="font-size:0.7rem; opacity:0.8;">(Tot: ${totalPhysical}/${i.sysQty})</span>`;
             else qtyDisplay = `${qtyInBox} / ${i.sysQty}`;
         }
-        let locStr = activeBoxFilter ? `Box ${activeBoxFilter}` : Object.entries(i.locations).map(([k,v])=>`${k}(${v})`).join(', ');
+        
+        // Location Badge 1 baris
+        let locBadges = activeBoxFilter ? `<span class="loc-badge" style="font-size:0.7rem; padding:2px 6px;">Box ${activeBoxFilter}</span>` : Object.entries(i.locations).map(([k,v])=>`<span class="loc-badge" style="font-size:0.7rem; padding:2px 6px;">${k}(${v})</span>`).join('');
+        
         const div = document.createElement('div'); div.className = `item-card ${(lastOpnameScanId === i.id) ? 'selected' : ''}`; div.id = `opname-row-${i.id}`;
         div.innerHTML = `
-        <div style="flex:1" onclick="openEditModal(${i.id})"><span class="part-code">${i.partNo}</span><span class="part-desc">${i.desc}</span><div style="margin-top:4px; font-size:0.75rem; color:var(--opname);"><i class="fas fa-map-marker-alt"></i> ${locStr}</div></div>
-        <div style="display:flex; gap:8px; align-items:center;"><div class="qty-badge ${badgeClass}" onclick="openEditModal(${i.id})">${qtyDisplay}</div>
-        ${activeBoxFilter ? `<div class="btn-trash" onclick="deleteLocation(${i.id}, '${activeBoxFilter}')"><i class="fas fa-trash"></i></div>` : ''}</div>`;
+        <div style="flex:1" onclick="openEditModal(${i.id})">
+            <div style="display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:4px;">
+                <span class="part-code" style="font-size:1.05rem; font-weight:bold;">${i.partNo}</span>
+                ${locBadges ? `<div style="display:flex; gap:4px; margin-left:auto; flex-wrap:wrap;">${locBadges}</div>` : ''}
+            </div>
+            <span class="part-desc" style="font-size:0.85rem; color:#64748b;">${i.desc}</span>
+        </div>
+        <div style="display:flex; gap:8px; align-items:center; margin-left:10px;">
+            <div class="qty-badge ${badgeClass}" onclick="openEditModal(${i.id})">${qtyDisplay}</div>
+            ${activeBoxFilter ? `<div class="btn-trash" onclick="deleteLocation(${i.id}, '${activeBoxFilter}')"><i class="fas fa-trash"></i></div>` : ''}
+        </div>`;
         container.appendChild(div);
     });
     document.getElementById('opnameLoading').style.display = (renderLimit < dataset.length) ? 'block' : 'none';
@@ -626,11 +758,23 @@ function renderDataList(reset = false) {
     let html = '';
     show.forEach(i => {
         const total = Object.values(i.locations).reduce((a,b)=>a+b,0); 
-        const locs = Object.entries(i.locations).map(([k,v])=>`${k}(${v})`).join(', ');
+        // Location Badge 1 baris
+        const locBadges = Object.entries(i.locations).map(([k,v])=>`<span class="loc-badge" style="font-size:0.7rem; padding:2px 6px;">${k}(${v})</span>`).join('');
         const opnameDate = i.lastOpnameDate ? new Date(i.lastOpnameDate).toLocaleDateString('id-ID', {year:'numeric', month:'short', day:'numeric'}) : '-';
         let color = total!==i.sysQty ? 'var(--danger)' : (total>0 ? 'var(--opname)' : 'var(--text)');
         let cardStyle = i.desc === 'PART BARU' ? 'border-left: 5px solid #ca8a04; background:#fffbeb;' : '';
-        html += `<div class="item-card" id="data-row-${i.id}" onclick="openEditModal(${i.id})" style="${cardStyle}"><div style="flex:1;"><div style="display:flex; justify-content:space-between; align-items:baseline;"><b style="font-size:1rem;">${i.partNo}</b> <span style="font-weight:bold; color:${color}; font-size:0.9rem;">${total}/${i.sysQty}</span></div><div style="font-size:0.75rem; color:var(--secondary); margin-top:2px;">${i.desc}</div><div style="font-size:0.75rem; color:var(--data); margin-top:4px;"><i class="fas fa-map-marker-alt"></i> ${locs || '-'}</div><div style="font-size:0.75rem; color:#666; margin-top:3px;"><i class="fas fa-calendar-alt"></i> Opname: ${opnameDate}</div></div></div>`;
+        
+        html += `<div class="item-card" id="data-row-${i.id}" onclick="openEditModal(${i.id})" style="${cardStyle}">
+            <div style="flex:1;">
+                <div style="display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:4px;">
+                    <b style="font-size:1.05rem;">${i.partNo}</b> 
+                    <span style="font-weight:bold; color:${color}; font-size:0.9rem; background:#f1f5f9; padding:2px 6px; border-radius:6px;">${total}/${i.sysQty}</span>
+                    ${locBadges ? `<div style="display:flex; gap:4px; margin-left:auto; flex-wrap:wrap;">${locBadges}</div>` : ''}
+                </div>
+                <div style="font-size:0.8rem; color:var(--secondary); margin-bottom:4px;">${i.desc}</div>
+                <div style="font-size:0.75rem; color:#666;"><i class="fas fa-calendar-alt"></i> Opname: ${opnameDate}</div>
+            </div>
+        </div>`;
     });
     container.innerHTML = html; document.getElementById('dataLoading').style.display = (renderLimit < dataset.length) ? 'block' : 'none';
 }
@@ -917,15 +1061,14 @@ function removeFromOpnameBuffer(index) {
 function clearOpnameBuffer() {
     if (opnameBuffer.length === 0) return;
 
-    if (confirm(`Clear Buffer (${opnameBuffer.length} items)?`)) {
-        opnameBuffer = [];
-        opnameBufferBox = null;
-        document.getElementById('opnameBufferPanel').style.display = 'none';
-        document.getElementById('opnameBufferTagsContainer').innerHTML = '';
-        document.getElementById('opnameBufferCount').textContent = '0';
-        feedback('info');
-        showToast('Buffer dihapus');
-    }
+    // Hapus popup confirm()
+    opnameBuffer = [];
+    opnameBufferBox = null;
+    document.getElementById('opnameBufferPanel').style.display = 'none';
+    document.getElementById('opnameBufferTagsContainer').innerHTML = '';
+    document.getElementById('opnameBufferCount').textContent = '0';
+    feedback('info');
+    showToast('Buffer dihapus');
 }
 
 function showOpnameBufferPanel() {
@@ -941,75 +1084,46 @@ function clearData() { if(confirm('Hapus Semua?')) { const tx = db.transaction('
 // ============================================
 
 function addToSimpanBuffer(item) {
-    // Check if item already in buffer
-    const existing = simpanBuffer.find(b => b.item.id === item.id);
-    if (existing) {
-        existing.qty++;
-        feedback('warning');
-        showToast(`${item.partNo}: Qty +1 → ${existing.qty}`);
+    // Validate simpanBuffer is array
+    if (!Array.isArray(simpanBuffer)) simpanBuffer = [];
+    
+    // Jika part yang discan beda dengan yang aktif, reset buffer (mulai dari x1 lagi)
+    if (tempPart && tempPart.id !== item.id) {
+        simpanBuffer = [];
+    }
+
+    tempPart = item;
+    document.getElementById('activePartNo').innerText = item.partNo;
+    
+    // Tampilkan deskripsi & peringatan
+    let issueWarning = '';
+    if (item.labelIssues && (item.labelIssues.DAMAGED > 0 || item.labelIssues.NO_LABEL > 0)) {
+        let t = [];
+        if (item.labelIssues.NO_LABEL > 0) t.push(`${item.labelIssues.NO_LABEL} Tanpa Label`);
+        if (item.labelIssues.DAMAGED > 0) t.push(`${item.labelIssues.DAMAGED} Label Rusak`);
+        issueWarning = `<br><span style="color:var(--danger); font-weight:bold; font-size:0.8rem;"><i class="fas fa-exclamation-triangle"></i> Catatan: ${t.join(' | ')}</span>`;
+    }
+    document.getElementById('activePartDesc').innerHTML = item.desc + issueWarning;
+    document.getElementById('activePartLoc').innerText = Object.keys(item.locations).join(', ') || 'Belum ada';
+
+    // Tambah atau Update Qty Buffer
+    if (simpanBuffer.length > 0) {
+        simpanBuffer[0].qty++;
+        feedback('warning'); // Nada berbeda untuk indikasi qty bertambah
+        showToast(`${item.partNo} ➔ x ${simpanBuffer[0].qty}`);
     } else {
         simpanBuffer.push({ item: item, qty: 1 });
         feedback('success');
-        showToast(`${item.partNo}: Qty +1`);
     }
+    
+    // Highlight di List
+    document.querySelectorAll('.item-card').forEach(el => { el.classList.remove('selected'); el.classList.remove('row-flash'); });
+    const row = document.getElementById(`simpan-row-${item.id}`);
+    if(row) { row.classList.add('selected'); row.classList.add('row-flash'); row.scrollIntoView({behavior:'smooth', block:'center'}); }
+
+    // Update UI Panel
     renderSimpanBuffer();
-    addHistoryLog(item.partNo, `Buffer +1`);
-}
-
-function processSimpanBuffer(boxCode) {
-    if (simpanBuffer.length === 0) {
-        feedback('error');
-        showToast("Buffer kosong!");
-        return;
-    }
-
-    let processedCount = 0;
-    let overQtyWarnings = [];
-
-    simpanBuffer.forEach(bufferItem => {
-        const item = bufferItem.item;
-        const scannedQty = bufferItem.qty;
-
-        // Initialize locations if not exists
-        if (!item.locations[boxCode]) {
-            item.locations[boxCode] = 0;
-        }
-
-        // Add qty to existing
-        item.locations[boxCode] += scannedQty;
-
-        saveDB(item);
-        processedCount++;
-
-        // Check for over-qty
-        const totalPhysical = Object.values(item.locations).reduce((a, b) => a + b, 0);
-        if (totalPhysical > item.sysQty) {
-            overQtyWarnings.push({
-                partNo: item.partNo,
-                total: totalPhysical,
-                target: item.sysQty,
-                diff: totalPhysical - item.sysQty
-            });
-        }
-    });
-
-    // Feedback
-    feedback('success');
-    playChime();
-    showToast(`✅ Box ${boxCode}: ${processedCount} part(s) ditambah!`);
-
-    if (overQtyWarnings.length > 0) {
-        const msg = overQtyWarnings.map(w => `${w.partNo}: ${w.total}/${w.target} (+${w.diff})`).join('\n');
-        setTimeout(() => {
-            alert(`⚠️ PERHATIAN: Over Qty!\n\n${msg}`);
-        }, 500);
-    }
-
-    addHistoryLog(`Buffer→${boxCode}`, `${processedCount} items`);
-
-    // Clear buffer and refresh UI
-    clearSimpanBuffer();
-    renderSimpanList(true);
+    if(typeof renderSmartSuggestion === 'function') renderSmartSuggestion(item);
 }
 
 function renderSimpanBuffer() {
@@ -1019,21 +1133,31 @@ function renderSimpanBuffer() {
     if (simpanBuffer.length === 0) {
         display.style.display = 'none';
         display.innerHTML = '';
-        statusPanel.style.display = 'none';
-        return;
+        return; 
     }
 
-    // Show status panel
     statusPanel.style.display = 'block';
     
-    // Format: "× 2, × 1" (qty only, no part number)
-    const bufferText = simpanBuffer
-        .map(b => `× ${b.qty}`)
-        .join(', ');
+    // Ambil data aktif
+    let activeQty = simpanBuffer[0].qty;
+    let item = simpanBuffer[0].item;
     
-    display.textContent = bufferText;
-    display.style.display = 'inline';
+    // Bersihkan dulu PartNo agar tidak dobel dengan badge saat diklik manual
+    document.getElementById('activePartNo').innerText = item.partNo;
+    
+    // Hitung akumulasi qty (Di Rak + Di Tangan/Buffer)
+    const qtyTersimpan = Object.values(item.locations).reduce((a,b)=>a+b, 0);
+    const totalSekarang = qtyTersimpan + activeQty;
+    
+    // Logika warna otomatis
+    let progressColor = totalSekarang > item.sysQty ? '#dc2626' : (totalSekarang === item.sysQty ? '#16a34a' : '#ea580c');
+    let progressBadge = `<span style="font-size:0.85rem; color:${progressColor}; background:#f8fafc; padding:2px 8px; border-radius:6px; border:1px solid #cbd5e1; margin-left:6px;">Total: ${totalSekarang} / ${item.sysQty}</span>`;
+    
+    // Tampilkan 1 baris menyamping
+    display.innerHTML = `<span style="background:#dcfce7; color:#16a34a; padding:2px 8px; border-radius:12px; border:1px solid #86efac; font-size:1rem; font-weight:bold;">x ${activeQty}</span> ${progressBadge}`;
+    display.style.display = 'inline-block';
 }
+
 
 function removeFromSimpanBuffer(index) {
     if (index >= 0 && index < simpanBuffer.length) {
@@ -1045,16 +1169,20 @@ function removeFromSimpanBuffer(index) {
 }
 
 function clearSimpanBuffer() {
-    if (simpanBuffer.length === 0) return;
-
-    if (confirm(`Clear Buffer (${simpanBuffer.length} items)?`)) {
-        simpanBuffer = [];
-        simpanBufferBox = null;
-        document.getElementById('simpanBufferDisplay').style.display = 'none';
-        document.getElementById('simpanBufferDisplay').innerHTML = '';
-        feedback('info');
-        showToast('Buffer dihapus');
+    // Validate simpanBuffer exists and is array
+    if (!Array.isArray(simpanBuffer)) simpanBuffer = [];
+    simpanBuffer = [];
+    simpanBufferBox = null;
+    tempPart = null;
+    
+    const bufferDisplay = document.getElementById('simpanBufferDisplay');
+    const statusPanel = document.getElementById('simpanStatusPanel');
+    if (bufferDisplay) {
+        bufferDisplay.style.display = 'none';
+        bufferDisplay.innerHTML = '';
     }
+    if (statusPanel && !isMultiScan) statusPanel.style.display = 'none';
+    document.querySelectorAll('.item-card').forEach(el => el.classList.remove('selected'));
 }
 
 function showSimpanBufferPanel() {

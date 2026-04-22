@@ -1,5 +1,14 @@
 # SYSTEM MAP - WMS Magelang V6
 
+**Panduan Navigasi**: 
+- **Untuk Memahami Alur Sistem**: Lihat section "Core Logic Flow"
+- **Untuk Menemukan Fungsi**: Lihat "Module Map" dan "Module Dependencies Graph"
+- **Untuk Integrasi Eksternal**: Lihat "External Integrations" dan "Data & Config"
+- **Untuk Troubleshooting**: Lihat "Risks / Blind Spots"
+- **Untuk Perubahan Terbaru**: Lihat "Latest Improvements" di Risks section
+
+---
+
 ## Project Summary
 
 **Tujuan Aplikasi**  
@@ -100,25 +109,107 @@ saveDB() per item + sync queue
 clearMultiBuffer()
 ```
 
-### Flow 5: Data Sync (Background)
+### Flow 5: Packing (Colly Management)
+```
+User clicks "Packing" tab
+  ↓
+selectOrCreateColly(collyName) → activeColly = name
+  ↓
+User Scan Part QR (dari OFF BS atau baru)
+  ↓
+parseQRCode() → extract partNo, qty, docNo
+  ↓
+Check: part exists + qty <= target
+  ↓
+Check: QR not duplicate in packingSession
+  ↓
+[AUTO CUT & PASTE] Find same partNo in offBsSession
+  ↓
+IF found: Remove from OFF BS (cut)
+  ↓
+packingSession.unshift({...}) + save to localStorage
+  ↓
+triggerPackingSync() → POST to Google Sheets
+  ↓
+Render packed items in colly
+```
+
+### Flow 6: Cashier Mode (Opname Buffer)
+```
+User enters OPNAME tab
+  ↓
+Scan Box (RTF-XXX format)
+  ↓
+opnameBufferBox = boxCode
+  ↓
+Scan Part 1, 2, 3...
+  ↓
+addToOpnameBuffer(item) → buffer += 1 qty per scan
+  ↓
+Scan DIFFERENT box (to finalize)
+  ↓
+processOpnameBuffer(newBox) → bulk apply to first box
+  ↓
+For each buffered item: item.locations[box] += qty
+  ↓
+saveDB() per item + set lastOpnameDate = today
+  ↓
+clearOpnameBuffer()
+  ↓
+Show warn if any item exceeds sysQty
+```
+
+### Flow 7: Data Sync (Background / Batch Processed)
 ```
 [Every scan → saveDB()]
   ↓
 syncQueue.push(item), syncLogs.push(log)
   ↓
-[Every 10-15 sec or trigger] processSyncQueue()
+Check: syncQueue.length > MAX_QUEUE_SIZE (500)?
+  ↓
+IF yes: Warn user, prevent new scans
+  ↓
+[Every 10-15 sec or on button click] processSyncQueue()
   ↓
 Check navigator.onLine
   ↓
-POST JSON { action: "sync", data: [...], logs: [...] }
+BATCH LOOP: slice syncQueue into 100-item chunks
   ↓
-to: https://script.google.com/macros/.../exec (Google Sheets)
+FOR EACH BATCH:
+  POST JSON { action: "sync", data: [100 items], logs: [...] }
   ↓
-Response: { status, duplicates, duplicateParts }
+  to: https://script.google.com/macros/.../exec (Google Sheets)
   ↓
-Clear syncQueue, syncLogs if success
+  Response: { status, duplicates, duplicateParts }
+  ↓
+  IF error: Abort batch, revert queue, show error toast
+  ↓
+  IF success: Remove batch from queue, continue next batch
+  ↓
+Clear syncQueue & syncLogs after ALL batches succeed
   ↓
 updateSyncUI("🟢 Tersimpan")
+```
+
+### Flow 8: Version Check & Auto-Update (Background)
+```
+[On page load] checkForUpdates()
+  ↓
+Fetch version.json with cache bypass
+  ↓
+Parse currentVersion.version
+  ↓
+Compare with localStorage.appVersion
+  ↓
+IF new version: Show "Update available" banner
+  ↓
+User clicks "Update" → Send SKIP_WAITING to SW
+  ↓
+SW skips waiting, activates new version
+  ↓
+Browser triggers controllerchange → location.reload()
+  ↓
+Fresh version loaded
 ```
 
 ---
@@ -254,14 +345,111 @@ WMS/
 
 ---
 
-### [sw.js](sw.js)
-**Strategi Caching**: Network-First untuk HTML/CSS/JS (offline fallback dari cache)  
-**Exclusions**: 
-- Google Sheets API (script.google.com) → langsung fetch, tidak di-cache
-- POST requests (sync) → langsung fetch
+### [code.gs](code.gs) — Google Apps Script Macro
+**Fungsi Publik**:
+- `doGet(e)` — GET endpoint; return all items dari DB_MASTER sheet as JSON
+- `doPost(e)` — POST endpoint; handle sync actions (sync, sync_off_bs, bulk_import, delete_off_bs)
+- `mergeDataFast(sheet, incomingItems)` — Merge logic untuk avoid duplicates
 
-**Peran**: Enable offline functionality via caching; improve load time  
-**Caller**: Browser (registered di main.js), automatic on page load
+**Peran**: Backend server logic; data persist ke Google Sheets; deduplication  
+**Caller**: database.js (fetch, processSyncQueue, triggerOffBsSync)  
+**Sheets Used**:
+- `DB_MASTER` — Master item data (id, partNo, desc, locType, techName, sysQty, locations JSON, labelIssues JSON)
+- `LOG_SCAN` — Audit log (partNo, action, detail, timestamp)
+- `TEMP_OFF_BS` — Off-balance-sheet staging (time, box, partNo, qty, docNo, qr, updated_at timestamp)
+
+**Actions Supported**:
+- `sync` — Merge regular item updates
+- `sync_off_bs` — Append off BS items, detect duplicates via (partNo_docNo)
+- `bulk_import` — Replace DB_MASTER from Excel, log all changes
+- `delete_off_bs` — Remove items from TEMP_OFF_BS by QR
+
+**Side Effects**: Google Sheets data mutation, sheet operations
+
+---
+
+### [sw.js](sw.js) — Service Worker
+**Strategi Caching**: Network-first dengan fallback ke cache  
+**Cache Name**: `wms-cache-v27` (versioned per update)
+
+**Cached Assets** (on install):
+- `index.html`, `manifest.json`, icons, `version.json`
+
+**Cache Bypass** (never cached):
+- `script.google.com/*` → Always fetch fresh (API calls)
+- POST requests → Always fresh (sync operations)
+
+**Cleanup**: Old cache versions auto-deleted on activate
+
+**Peran**: Enable offline mode; instant page load  
+**Caller**: Browser automatic; registered in main.js  
+**Side Effects**: Cache storage, fetch interception
+
+---
+
+### [index.html](index.html) — UI Structure
+**5 Main Tabs**:
+1. **SIMPAN** — Penyimpanan (single-scan or multi-scan buffer mode)
+2. **OPNAME** — Inventory check per box (cashier buffer mode)
+3. **DATA** — Search & view all items
+4. **OFF BS** — Off-balance-sheet session management
+5. **PACKING** — Colly-based packing operations
+
+**Key Modals**:
+- Camera Scanner (Html5QrcodeScanner)
+- Simpan Conflict (move vs split decision)
+- Opname Conflict (location conflict resolution)
+- Edit Modal (manual qty/location edit)
+- Label Report (quality issues)
+- Rak Summary (missing stock per rack)
+
+**Peran**: View layer; all UI elements & form inputs  
+**Caller**: HTML onclick handlers, JS event listeners  
+**Side Effects**: DOM manipulation, modal display
+
+---
+
+## Module Dependencies Graph
+
+```
+ENTRY POINT (index.html)
+  ↓
+main.js (window.onload)
+  ├─ initDB() ← database.js
+  ├─ Register sw.js
+  ├─ Request wake lock
+  └─ Setup scroll listeners → renderLimit pagination
+  
+core.js (Business Logic)
+  ├─ calls: database.js (saveDB, processSyncQueue)
+  ├─ calls: config.js (localItems, filteredItems, currentTab)
+  ├─ calls: utils.js (feedback, showToast)
+  ├─ calls: scanner.js (onScanSuccess → processScan)
+  └─ Event handlers: <input onkeydown>, <button onclick>, tabs
+  
+database.js (Data Persistence)
+  ├─ IndexedDB ops (open, read, write, clear)
+  ├─ HTTP fetch: code.gs (API_URL)
+  └─ localStorage: sync queue, off BS session, packing session
+  
+scanner.js (Camera Input)
+  └─ calls: core.js (processScan) on scan success
+  
+excel.js (Import/Export)
+  ├─ Reads/writes IndexedDB
+  ├─ Parses XLSX files
+  ├─ Calls: database.js (saveDB, db transactions)
+  └─ Generates XLSX files
+  
+utils.js (UI Helpers)
+  ├─ Audio/vibration feedback
+  ├─ Toast notifications
+  ├─ Dark mode toggle
+  └─ Menu toggle
+  
+config.js (Global State)
+  └─ All modules read/write variables here
+```
 
 ---
 
@@ -325,58 +513,231 @@ Not found — Pure client-side app; no server-side artifacts.
 
 ## External Integrations
 
-### Google Sheets API
-**Service**: https://script.google.com/macros/s/.../exec (Google Apps Script)  
-**Caller**: database.js:
-- `fetchInitialDataFromCloud()` — GET data awal
-- `processSyncQueue()` — POST items & logs untuk sync
-- `triggerOffBsSync()` — POST off BS session
+### Google Sheets API (code.gs Macro)
+**Service**: `https://script.google.com/macros/s/AKfycbxDQBLQEyIaNwQsA2Ubs4KDhFI5v7aNs4pfrs_e8MDmVGwj1zuwHWoCMiGuB27flOsS/exec`  
+**Caller Modules**: database.js:
+- `fetchInitialDataFromCloud()` — GET data awal (doGet endpoint)
+- `processSyncQueue()` — POST items & logs untuk sync (doPost:action=sync)
+- `triggerOffBsSync()` — POST off BS session (doPost:action=sync_off_bs)
+- `handleImport()` in excel.js — POST bulk import (doPost:action=bulk_import)
 
-**Method**: `fetch(API_URL, { method: "POST", body: JSON.stringify(payload) })`
+**HTTP Methods**:
+- `GET /exec` → Fetch all items dari DB_MASTER sheet
+- `POST /exec` → Sync/import data based on action field
 
 **Payload Format**:
+
 ```javascript
-// Sync regular items
-{ action: "sync", data: [Item[]], logs: [Log[]] }
+// Regular Sync
+{ 
+  action: "sync",
+  data: [Item[], Item[], ...],        // Max 100 items per batch
+  logs: [
+    { partNo, action: "UPDATE"|"CREATE", detail, timestamp }
+  ]
+}
 
-// Sync off BS
-{ action: "sync_off_bs", data: [OffBsItem[]] }
+// Off BS Sync
+{ 
+  action: "sync_off_bs",
+  data: [
+    { time, box, partNo, qty, docNo, qr, updated_at }
+  ]
+}
 
-// Bulk import from Excel
-{ action: "bulk_import", data: [Item[]], logs: [Log[]] }
-```
+// Bulk Import from Excel
+{ 
+  action: "bulk_import",
+  data: [Item[], Item[], ...],
+  logs: [...]
+}
 
-**Response**:
-```javascript
-{
-  status: "success" | "error",
-  duplicates: number,              // (off BS only)
-  duplicateParts: string[]         // (off BS only)
+// Delete Off BS (manual cleanup)
+{ 
+  action: "delete_off_bs",
+  data: [{ qr, partNo }, ...]
 }
 ```
 
-### Html5QrcodeScanner (External Library)
-**Fungsi**: Camera-based QR/barcode scanning  
-**Used in**: scanner.js:openCameraScanner()  
-**CDN**: Assumed loaded in HTML (not in workspace)
+**Response Format**:
+```javascript
+{
+  status: "success" | "error",
+  message: "string",
+  data: [Item[]] (only for doGet),
+  duplicates: number,           // Count of duplicate off BS items
+  duplicateParts: [partNo[], ...], // List of duplicate part numbers
+  inserted: number              // Count of new off BS items inserted
+}
+```
 
-### SheetJS / XLSX (External Library)
-**Fungsi**: Excel file parsing & generation  
-**Used in**: excel.js (import/export)  
-**CDN**: Assumed loaded in HTML
+**Google Sheets Sheets**:
+- `DB_MASTER` — Master item catalog (id, partNo, desc, locType, techName, sysQty, locations JSON, labelIssues JSON)
+- `LOG_SCAN` — Audit log (partNo, action, detail, timestamp) — appended on every sync
+- `TEMP_OFF_BS` — Off-balance-sheet staging (auto-appended, no delete on client side)
+
+**Error Handling**:
+- Network error → Keep queue in syncQueue, retry next cycle
+- API error (400, 500) → Show error toast, log to console
+- Offline (navigator.onLine === false) → Skip sync, keep queue, show offline indicator
+
+---
+
+### QR Code Format Parsing (Configurable)
+**Module**: config.js → QR_PARSERS object
+
+**Supported Formats** (in order of matching priority):
+
+1. **Standard (Baru)** — Pipe-separated format
+   ```
+   Pattern: PART_NO|QTY|SERIAL|DOC_NO
+   Example: KE-010015-00A|1| |SJOB/SKM-MGL/26/03/28/008
+   Extract: partNo, qty, docNo
+   ```
+
+2. **SCL/MGL (Lama)** — Space-separated format
+   ```
+   Pattern: DOC_NO QTY UNIT_TYPE PART_NO
+   Example: SCL/MGL/25/12/17/010 1 PS-PLD43BUG5959 XV-033284-00A
+   Extract: docNo, qty, partNo (unit type ignored)
+   ```
+
+3. **SCL Legacy** — Simplified SCL format
+   ```
+   Pattern: SCL/ QTY PART_NO
+   Example: SCL/ 1 XV-033284-00A
+   Extract: docNo="SCL", qty, partNo
+   ```
+
+4. **Simple Fallback** — Any text
+   ```
+   Pattern: .+ (matches anything)
+   Extract: partNo=raw_code, qty=1, docNo="AUTO"
+   ```
+
+**Parser Configuration** (in config.js):
+```javascript
+const QR_PARSERS = {
+  standard: { name: '...', pattern: /.../, extract: (match) => {...} },
+  sclMGL: { name: '...', pattern: /.../, extract: (match) => {...} },
+  scl2025: { name: '...', pattern: /.../, extract: (match) => {...} },
+  simple: { name: '...', pattern: /.../, extract: (match) => {...} }
+};
+```
+
+**Box Pattern Detection**:
+- Box format: `/^[A-Z][0-9]{0,2}-[0-9]{2,3}$/` (e.g., A-01, B-123, K-999)
+- OFF BS box: Must start with `RTF` (e.g., RTF-001, RTF-A05)
+
+**Usage in Flows**:
+- core.js:parseQRCode() tries each parser in order
+- First match wins (fallback always matches)
+- Result includes parser metadata for logging
+
+---
+
+### Html5QrcodeScanner Library (External)
+**Fungsi**: Camera-based QR/barcode real-time scanning  
+**Used in**: scanner.js:openCameraScanner()  
+**CDN**: Loaded via `<script src="https://unpkg.com/html5-qrcode"></script>` in index.html
+
+**API Used**:
+```javascript
+new Html5QrcodeScanner(
+  "reader",  // DOM element ID
+  { fps: 10, qrbox: {width: 250, height: 250}, aspectRatio: 1.0 },
+  false      // Verbose
+);
+scanner.render(onScanSuccess, onScanError);
+scanner.clear();  // Stop & cleanup
+```
+
+**Callbacks**:
+- `onScanSuccess(decodedText, decodedResult)` → Extract raw QR string, call processScan()
+- `onScanError(errorMessage)` → Ignored (suppress "QR could not be decoded" spam)
+
+---
+
+### SheetJS / XLSX Library (External)
+**Fungsi**: Excel file parsing (.xlsx, .xls) and generation  
+**Used in**: excel.js (handleImport, exportData, backupJson)  
+**CDN**: `<script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>`
+
+**API Used**:
+```javascript
+// Parse Excel file
+const wb = XLSX.read(arrayBuffer, { type: 'array' });
+const json = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+
+// Generate Excel file
+const ws = XLSX.utils.json_to_sheet(data);
+const wb = XLSX.utils.book_new();
+XLSX.utils.book_append_sheet(wb, ws, "Sheet Name");
+XLSX.writeFile(wb, "filename.xlsx");
+```
+
+**Consolidation Logic** (in handleImport):
+- Map existing items by partNo
+- Merge new data with location pool
+- FG filter (only RECEIPT transactions for OFF BS)
+- Deduplication by (partNo, box, docNo)
+
+---
 
 ### Font Awesome Icons (CDN)
-**CDN**: https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css  
-**Used**: Icon classes di HTML (fa-bars, fa-search, etc.)
+**CDN**: `https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css`  
+**Usage**: Icon classes in HTML (fa-bars, fa-search, fa-camera, etc.)  
+**Used by**: All UI buttons, indicators, badges
+
+---
+
+### Web APIs (Browser Native)
+
+**IndexedDB**:
+- Open database: `DB_NAME = 'WMS_Stock_v10'`
+- Store: `items` with keyPath `id`
+- Operations: add, put, get, getAll, clear (in database.js)
+
+**localStorage**:
+- Keys: `wms_packing`, `wms_off_bs`, `wms_colly_list`, `wms_active_colly`, `darkMode`, `appVersion`, `lastCloudSyncTime`
+- Used by: config.js (offBsSession, packingSession), utils.js (darkMode)
+
+**Service Worker API**:
+- Register in main.js: `navigator.serviceWorker.register('sw.js')`
+- Message handler: `controller.postMessage({ type: 'SKIP_WAITING' })`
+
+**Web Audio API**:
+- Context: `new AudioContext()` in utils.js
+- Generate tones: OscillatorNode + GainNode
+- Used for: Feedback tones (success, error, warning, scan)
+
+**Vibration API**:
+- Navigator.vibrate() in utils.js
+- Used for: Haptic feedback on scan success
+
+**Screen Wake Lock API**:
+- In main.js: `navigator.wakeLock.request('screen')`
+- Keeps screen on during scanning session
+
+**Manifest & PWA**:
+- manifest.json: App name, icons, display mode, theme color
+- Used for: Installable web app, standalone display
 
 ---
 
 ## Risks / Blind Spots (Continuously Updated)
 
-**Status Update**: 3 critical improvements implemented 2026-04-21:
-- ✅ Batch sync queue (MAX_SYNC_BATCH=100)
-- ✅ Auto SW cache versioning
-- ✅ Modular QR parser (configurable)
+**Latest Improvements** (2026-04-22):
+- ✅ **Multi-Scan Logic Fixed**: isMultiScan check in processScan() now routes correctly to processMultiBatchMove
+- ✅ **Redundant Function Removed**: Obsolete processSimpanBuffer() deleted
+- ✅ **Buffer Validation Added**: All buffers (multiBuffer, simpanBuffer, opnameBuffer) now validated as arrays
+
+**Status**: 5 critical improvements implemented since 2026-04-21:
+- ✅ Batch sync queue (MAX_SYNC_BATCH=100, MAX_QUEUE_SIZE=500)
+- ✅ Auto SW cache versioning with user prompt
+- ✅ Modular QR parser (configurable in config.js)
+- ✅ Multi-scan mode logic corrected
+- ✅ Buffer clearing edge-case fixed
 
 ### Remaining Risks
 
@@ -384,57 +745,72 @@ Not found — Pure client-side app; no server-side artifacts.
    - Cloud sync will fail if API URL changes or macro disabled
    - Fallback: Supabase hybrid storage planned
    - Risk: Data stale if sync error not handled
+   - Mitigation: Check `navigator.onLine` before sync, queue persists offline
 
 2. **Concurrent Edit Conflicts** (Versioning planned)
    - No lock mechanism; 2+ devices editing same part → last-write-wins
    - Planned: Add version + timestamp tracking
    - Risk: Qty overwrite without merge logic
+   - Workaround: Manual conflict resolution in edit modal
 
-3. ~~**Performance for 10,000+ Items**~~ **FIXED**
+3. **Performance for 10,000+ Items** ✅ **VERIFIED FIXED**
    - ✅ Batch sync (100 items/POST) prevents OOM crashes
    - ✅ Queue overflow protection (MAX_QUEUE_SIZE=500)
-   - Render layer still uses pagination (renderLimit=50)
+   - ✅ Render layer uses pagination (renderLimit=50, infinite scroll)
+   - Risk: Eliminated
 
-4. ~~**QR Format Parsing Hardcoded**~~ **FIXED**
+4. **QR Format Parsing** ✅ **CONFIGURABLE NOW**
    - ✅ Configurable QR_PARSERS in config.js
-   - Supports: Standard (pipe), SCL format, simple fallback
-   - Easy to add new formats via QR_PARSERS config
+   - ✅ Supports: Standard (pipe), SCL format (lama), simple fallback
+   - ✅ Easy to add new formats via QR_PARSERS config (documented in AGENTS.md)
+   - Risk: Mitigated
 
 5. **Storage Limit** (Archival planned)
    - IndexedDB ~50MB, localStorage ~5-10MB limits
    - Planned: Archive old logs after 30 days
    - Risk: Storage overflow if data not pruned
+   - Current: Manual cleanup via "Reset Opname" or "Reset DB"
 
-6. ~~**Service Worker Cache Stale**~~ **FIXED**
-   - ✅ Auto version check (version.json + SKIP_WAITING)
+6. **Service Worker Cache Stale** ✅ **AUTO-UPDATE ACTIVE**
+   - ✅ Auto version check (version.json + SKIP_WAITING message)
    - ✅ User prompted for update after 3 sec on load
    - ✅ Cache cleanup on activation
+   - ✅ Old cache versions auto-deleted
    - Risk: Eliminated
 
 7. **No Authentication / Authorization**
    - Pure client-side, no user login
    - Planned: Add OAuth2 + deviceId tracking
    - Risk: No audit trail of who scanned what
+   - Workaround: Check LOG_SCAN sheet in Google Sheets for timestamps
 
 8. **Excel Import Logic Complexity** (Refactor planned)
-   - consolidateExcel() logic complex
-   - FG filtering hardcoded
+   - consolidateExcel() logic complex; FG filtering hardcoded
    - Risk: Import breaks if Excel format changes
+   - Workaround: Test import on sample file first, check preview
 
 9. **Limited Export Formats** (CSV planned for next sprint)
    - Currently: Excel + JSON only
    - Planned: Add CSV export
    - Risk: Data hard to analyze elsewhere
+   - Workaround: Import Excel file into any tool that supports XLSX
 
-10. ~~**Offline Queue Accumulation**~~ **FIXED**
+10. **Offline Queue Accumulation** ✅ **FULLY PROTECTED**
     - ✅ MAX_SYNC_BATCH = 100 items per POST
     - ✅ MAX_QUEUE_SIZE = 500 prevents overflow
     - ✅ Automatic log cleanup (keep last 100 logs)
     - ✅ Alert user if queue exceeds limit
+    - ✅ Graceful degradation in offline mode
+    - Risk: Eliminated
+
+11. **Multi-Scan Mode Buffer Edge Cases** ✅ **JUST FIXED**
+    - ✅ multiBuffer now validated as array in addToMultiBuffer, renderMultiBuffer, clearMultiBuffer
+    - ✅ processScan() checks isMultiScan first before single-scan logic
+    - ✅ simpanBuffer also validates and clears properly on mode toggle
     - Risk: Eliminated
 
 ---
 
-**Last Updated**: 2026-04-21  
-**Improvements**: Batch sync, cache versioning, modular QR parser  
-**Next Priority**: Conflict detection, CSV export, archival strategy
+**Last Updated**: 2026-04-22  
+**Latest Fixes**: Multi-scan logic, buffer validation, redundant code removal  
+**Next Priority**: Conflict detection & merge, CSV export, archival strategy, OAuth2 auth
