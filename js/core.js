@@ -1435,11 +1435,14 @@ function renderSimpanBuffer() {
     const statusPanel = document.getElementById('simpanStatusPanel');
     const itemsContainer = document.getElementById('simpanBufferItemsContainer');
     const countDisplay = document.getElementById('simpanBufferCountDisplay');
+    const smartPanel = document.getElementById('smartSuggestionPanel');
     
     if (!Array.isArray(simpanBuffer) || simpanBuffer.length === 0) {
         statusPanel.style.display = 'none';
         if (itemsContainer) itemsContainer.innerHTML = '';
         if (countDisplay) countDisplay.textContent = '0';
+        // Hide smart suggestion panel when buffer is empty
+        if (smartPanel) smartPanel.style.display = 'none';
         return;
     }
     
@@ -1498,10 +1501,13 @@ function clearSimpanBuffer() {
     const statusPanel = document.getElementById('simpanStatusPanel');
     const itemsContainer = document.getElementById('simpanBufferItemsContainer');
     const countDisplay = document.getElementById('simpanBufferCountDisplay');
+    const smartPanel = document.getElementById('smartSuggestionPanel');
     
     if (statusPanel) statusPanel.style.display = 'none';
     if (itemsContainer) itemsContainer.innerHTML = '';
     if (countDisplay) countDisplay.textContent = '0';
+    // Hide smart suggestion panel when buffer is cleared
+    if (smartPanel) smartPanel.style.display = 'none';
     
     document.querySelectorAll('.item-card').forEach(el => el.classList.remove('selected'));
 }
