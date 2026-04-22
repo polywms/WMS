@@ -670,6 +670,10 @@
             border: 2px solid #bfdbfe; padding: 16px; border-radius: 12px; 
             margin-bottom: 15px; display: none;
             box-shadow: var(--shadow-md);
+            flex-direction: row;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: nowrap;
             }
             .multi-panel { 
             background: linear-gradient(135deg, #f3e8ff 0%, #faf5ff 100%); 
@@ -730,12 +734,12 @@
             background: linear-gradient(135deg, #059669 0%, #047857 100%);
             }
             .btn-danger { 
-            background: linear-gradient(135deg, var(--danger) 0%, #dc2626 100%);
-            color: white; 
+            background: none;
+            color: var(--danger); 
+            border:none;
+            font-size:1.5rem;
             }
-            .btn-danger:hover {
-            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-            }
+
             .btn-warning { 
             background: linear-gradient(135deg, var(--warning) 0%, #d97706 100%);
             color: white; 
@@ -1286,6 +1290,82 @@
             
             .list-item:hover {
             background: rgba(59, 130, 246, 0.04);
+            }
+            
+            /* Simpan Buffer Item Styling - Compact */
+            .simpan-buffer-item {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                padding: 6px 10px;
+                background: #ffffff;
+                border-radius: 6px;
+                border: 1px solid #e5e7eb;
+                color: #1f2937;
+                font-size: 0.8rem;
+                box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+            }
+            
+            .simpan-buffer-item-info {
+                flex: 1;
+                min-width: 0;
+                display: flex;
+                align-items: center;
+                gap: 4px;
+            }
+            
+            .simpan-buffer-item-part {
+                font-weight: bold;
+                white-space: nowrap;
+                min-width: max-content;
+                font-size: 0.8rem;
+            }
+            
+            .simpan-buffer-item-qty {
+                background: #eff6ff;
+                color: #1e40af;
+                padding: 2px 6px;
+                border-radius: 3px;
+                font-size: 0.75rem;
+                font-weight: bold;
+                white-space: nowrap;
+                min-width: max-content;
+                border: 1px solid #bfdbfe;
+            }
+            
+            .simpan-buffer-item-desc {
+                color: var(--text);
+                font-size: 0.75rem;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+                flex: 1;
+            }
+            
+            .simpan-buffer-item-remove {
+                flex: 0 0 auto;
+                background: #f3f4f6;
+                border: 1px solid #d1d5db;
+                color: #ef4444;
+                width: 22px;
+                height: 22px;
+                border-radius: 4px;
+                cursor: pointer;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                transition: all 0.15s ease;
+                font-size: 0.8rem;
+                padding: 0;
+            }
+            
+            .simpan-buffer-item-remove:hover {
+                background: #fee2e2;
+                border-color: #f87171;
+            }
+            
+            .simpan-buffer-item-remove:active {
+                transform: scale(0.9);
             }
             
             /* Responsive improvements */

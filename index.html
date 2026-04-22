@@ -95,13 +95,9 @@
                             ">
                             <div id="kbdIcon" style="width:40px; height:40px; background:white; color:var(--secondary); border:1px solid #cbd5e1; border-radius:8px; display:flex; justify-content:center; align-items:center; transition:0.2s; font-size:1.1rem; cursor:pointer;"><i class="fas fa-keyboard"></i></div>
                         </label>
-                        <label style="cursor: pointer; margin: 0;">
-                            <input type="checkbox" id="chkMultiScan" style="display:none;" onchange="
-                            toggleMultiMode(); 
-                            const iconMulti = document.getElementById('multiIcon');
-                            if(this.checked) { iconMulti.style.background = 'var(--purple)'; iconMulti.style.color = 'white'; iconMulti.style.borderColor = 'var(--purple)';
-                            } else { iconMulti.style.background = 'white'; iconMulti.style.color = 'var(--secondary)'; iconMulti.style.borderColor = '#cbd5e1'; }
-                            ">
+                        <!-- Multi-Scan Toggle Hidden (Auto-Buffer Default) -->
+                        <label style="cursor: pointer; margin: 0; display:none;">
+                            <input type="checkbox" id="chkMultiScan" style="display:none;" onchange="toggleMultiMode()">
                             <div id="multiIcon" style="width:40px; height:40px; background:white; color:var(--secondary); border:1px solid #cbd5e1; border-radius:8px; display:flex; justify-content:center; align-items:center; transition:0.2s; font-size:1.1rem; cursor:pointer;"><i class="fas fa-layer-group"></i></div>
                         </label>
                         <button id="historyToggleBtn" onclick="toggleHistoryAccordion()" style="width:40px; height:40px; background:white; color:var(--secondary); border:1px solid #cbd5e1; border-radius:8px; display:flex; justify-content:center; align-items:center; cursor:pointer; padding:0; transition:0.2s; font-size:1.1rem;" title="Riwayat Scan"><i class="fas fa-history"></i></button>
@@ -124,10 +120,24 @@
                         <span><i class="fas fa-box-open"></i> Non-Box</span>
                     </label>
                 </div>
+                
+                <!-- Simpan Status Panel (Multi-Line Buffer Items) -->
+                <div id="simpanStatusPanel" style="display: none; background: linear-gradient(90deg, var(--primary) 0%, var(--primary-dark) 100%); padding: 0; border-top: none; width: calc(100% + 32px); margin-left: -16px; margin-right: -16px; box-sizing: border-box; z-index: 99;">
+                    <!-- Header -->
+                    <div style="padding: 10px 16px; border-bottom: 1px solid rgba(255,255,255,0.1); display: flex; justify-content: space-between; align-items: center; color: white;">
+                        <div style="display: flex; align-items: center; gap: 8px; font-size: 0.85rem; font-weight: bold;">
+                            <i class="fas fa-layer-group"></i>
+                            <span>Buffer: <span id="simpanBufferCountDisplay">0</span> items</span>
+                        </div>
+                        <button onclick="clearSimpanBuffer()" style="background: rgba(255,255,255,0.2); color: white; border: none; padding: 4px 10px; border-radius: 4px; font-size: 0.75rem; cursor: pointer; font-weight: bold; transition: 0.2s;" title="Clear semua buffer">Clear All</button>
+                    </div>
+                    <!-- Items Container (Scrollable) -->
+                    <div id="simpanBufferItemsContainer" style="max-height: 200px; overflow-y: auto; padding: 8px 16px; display: flex; flex-direction: column; gap: 8px;"></div>
+                </div>
             </div>
             
             <div id="tab-simpan" class="tab-content active">
-                <div id="multiScanPanel" class="multi-panel">
+                <div id="multiScanPanel" class="multi-panel" style="display:none;">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
                         <b style="color:var(--purple);"><i class="fas fa-layer-group"></i> Buffer: <span id="multiCount">0</span> items</b>
                         <button class="btn-sm btn-danger" onclick="clearMultiBuffer()">Clear</button>
@@ -135,51 +145,26 @@
                     <div id="multiTagsContainer" style="max-height:200px; overflow-y:auto; padding-bottom:5px; display:flex; flex-direction:column; gap:6px;"></div>
                     <div style="margin-top:10px; font-size:0.9rem; font-weight:bold; color:var(--purple); animation: pulse 2s infinite; text-align:center;"><i class="fas fa-arrow-right"></i> SCAN BOX UNTUK SET LOKASI</div>
                 </div>
-                <div id="simpanStatusPanel" class="status-panel" style="position: sticky; top: 0px; z-index: 100; background: var(--card, #ffffff); box-shadow: rgba(0, 0, 0, 0.15) 0px 4px 10px -4px; margin-top: -10px; padding: 10px 15px; border-bottom: 1px solid var(--border); display: none;">
-    
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-        <div style="display:flex; align-items:center; gap:8px;">
-            <b style="font-size:1.15rem; color:var(--primary);" id="activePartNo">AA-872030-00A</b>
-            <span id="simpanBufferDisplay" style="display: inline-block;">
-                <span style="background:#dcfce7; color:#16a34a; padding:2px 8px; border-radius:12px; border:1px solid #86efac; font-size:1rem; font-weight:bold;">x 1</span>
-            </span>
-        </div>
-        <div style="display:flex; gap:6px;">
-            <button class="btn-sm btn-danger" style="width:28px; height:28px; padding:0; display:flex; justify-content:center; align-items:center;" onclick="clearActivePart()"><i class="fas fa-times"></i></button>
-        </div>
-    </div>
-
-    <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.85rem; margin-bottom:8px;">
-        <div id="activePartDesc" style="color:var(--secondary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:65%;">LF IC AUDIO PA 18W TDA2030AL</div>
-        <div style="color:var(--danger); font-weight:bold; font-size:0.75rem; background:#fef2f2; padding:2px 6px; border-radius:4px; border:1px solid #fecdd3; white-space:nowrap;">
-            <i class="fas fa-map-marker-alt"></i> <span id="activePartLoc">Belum ada</span>
-        </div>
-    </div>
-
-    <div id="smartSuggestionPanel" style="display:none; background:#fffbeb; padding:8px; margin-bottom:8px; border-radius:6px; border:1px solid #fcd34d;">
-        <div id="smartSuggestionHeader" style="display:flex; justify-content:space-between; align-items:center; cursor:pointer; user-select:none;" onclick="toggleSmartSuggestion()">
-            <div style="font-size:0.85rem; font-weight:bold; color:#92400e; display:flex; align-items:center; gap:6px;">
-                <i class="fas fa-lightbulb"></i> <span id="smartSuggestionText">Ada X Part Seri Serupa</span>
-            </div>
-            <i id="smartSuggestionChevron" class="fas fa-chevron-down" style="color:#92400e; transition:transform 0.3s; transform: rotate(0deg);"></i>
-        </div>
-        <div id="smartSuggestionList" style="display:none; margin-top:8px; max-height:150px; overflow-y:auto; border-top:1px solid #fcd34d; padding-top:8px;"></div>
-    </div>
-    <div style="background:#f0fdf4; padding:6px; border-radius:6px; border:1px dashed #16a34a; text-align:center; font-size:0.85rem; font-weight:bold; color:#16a34a; animation: pulse 2s infinite;">
-        <i class="fas fa-box-open"></i> SCAN BOX TUJUAN
-    </div>
-
-</div>
+                <!-- Smart Suggestion Panel -->
+                <div id="smartSuggestionPanel" style="display:none; background:#fffbeb; padding:8px 12px; margin:8px 16px 0; border-radius:6px; border:1px solid #fcd34d;">
+                    <div id="smartSuggestionHeader" style="display:flex; justify-content:space-between; align-items:center; cursor:pointer; user-select:none;" onclick="toggleSmartSuggestion()">
+                        <div style="font-size:0.85rem; font-weight:bold; color:#92400e; display:flex; align-items:center; gap:6px;">
+                            <i class="fas fa-lightbulb"></i> <span id="smartSuggestionText">Ada X Part Seri Serupa</span>
+                        </div>
+                        <i id="smartSuggestionChevron" class="fas fa-chevron-down" style="color:#92400e; transition:transform 0.3s; transform: rotate(0deg);"></i>
+                    </div>
+                    <div id="smartSuggestionList" style="display:none; margin-top:8px; max-height:150px; overflow-y:auto; border-top:1px solid #fcd34d; padding-top:8px;"></div>
+                </div>
                 <div id="simpanList" class="list-container"></div>
             </div>
             
             <div id="tab-opname" class="tab-content">
-                <!-- Active Box Display (Below Input) -->
-                <div id="opnameBoxInfo" style="background:#f0fdf4; border:1px solid #86efac; border-radius:6px; padding:8px 12px; margin-bottom:12px; display:none; text-align:center;">
-                    <span style="font-size:0.75rem; color:#166534; font-weight:bold; text-transform:uppercase;">📦 Box Aktif:</span>
-                    <div id="opnameBoxName" style="font-size:1.3rem; color:#14532d; font-weight:bold; margin-top:2px;">-</div>
+                <!-- Active Box Display (Horizontal Layout) -->
+                <div id="opnameBoxInfo" style="background:#f0fdf4; border:1px solid #86efac; border-radius:6px; padding:8px 12px; margin-bottom:12px; display:none; text-align:center; flex-direction: row; align-items: center; justify-content: center; gap: 8px; white-space: nowrap;">
+                    <span style="font-size:0.75rem; color:#166534; font-weight:bold; text-transform:uppercase;">📦 Box:</span>
+                    <div id="opnameBoxName" style="font-size:1rem; color:#14532d; font-weight:bold;">-</div>
                 </div>
-                <div id="activeBoxPanel" class="status-panel" style="background:#f0fdf4; border-color:#86efac; display:none; padding:15px 20px;">
+                <div id="activeBoxPanel" class="status-panel" style="background:#f0fdf4; border-color:#86efac; display:none; padding:15px 20px; flex-direction: row; align-items: center; justify-content: space-between; overflow-x: auto; gap: 15px;">
                     <div style="display:flex; justify-content:space-between; align-items:flex-start;">
                         <div>
                             <div style="font-size:0.8rem; color:#166534; font-weight:bold; text-transform:uppercase; letter-spacing:1px;"><i class="fas fa-box-open"></i> Target Opname</div>
@@ -216,6 +201,31 @@
                 </div>
                 <div id="opnameList" class="list-container"></div>
                 <div id="opnameLoading" style="text-align:center; padding:15px; display:none; color:var(--secondary);">Load more...</div>
+            </div>
+            
+            <!-- CONFLICT MODAL -->
+            <div id="conflictModal" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 1000; display: none; justify-content: center; align-items: flex-end;">
+                <div style="background: white; border-radius: 12px 12px 0 0; width: 100%; max-height: 80vh; display: flex; flex-direction: column; box-shadow: 0 -4px 12px rgba(0,0,0,0.15);">
+                    <!-- Header -->
+                    <div style="padding: 15px 20px; border-bottom: 1px solid #e5e7eb; background: #fef2f2;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <div>
+                                <h3 style="margin: 0 0 4px 0; color: #dc2626; font-size: 1.1rem;"><i class="fas fa-exclamation-triangle"></i> Konflik Lokasi Part</h3>
+                                <p style="margin: 0; font-size: 0.85rem; color: #7f1d1d;">Ada part yang pernah masuk box lain. Pilih aksi:</p>
+                            </div>
+                            <button onclick="closeConflictModal()" style="background: none; border: none; font-size: 1.5rem; color: #9ca3af; cursor: pointer;">&times;</button>
+                        </div>
+                    </div>
+                    
+                    <!-- List Container -->
+                    <div id="conflictListContainer" style="flex: 1; overflow-y: auto; padding: 15px 20px;"></div>
+                    
+                    <!-- Footer -->
+                    <div style="padding: 15px 20px; border-top: 1px solid #e5e7eb; background: #f9fafb; display: flex; gap: 10px;">
+                        <button onclick="closeConflictModal()" style="flex: 1; padding: 12px; background: #e5e7eb; color: #374151; border: none; border-radius: 6px; font-weight: bold; cursor: pointer;">Batal Semua</button>
+                        <button onclick="forceSaveAllConflicts()" style="flex: 1; padding: 12px; background: #dc2626; color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer;">Simpan Anyway</button>
+                    </div>
+                </div>
             </div>
             
             <div id="tab-data" class="tab-content">

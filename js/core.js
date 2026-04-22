@@ -75,28 +75,8 @@ function toggleKeyboardMode() {
 }
 
 function toggleMultiMode() {
-    isMultiScan = document.getElementById('chkMultiScan').checked;
-    const root = document.documentElement;
-    document.getElementById('simpanStatusPanel').style.display = isMultiScan ? 'none' : 'block'; 
-    document.getElementById('multiScanPanel').style.display = isMultiScan ? 'block' : 'none';
-    document.getElementById('filterNoBoxToggle').style.display = isMultiScan ? 'flex' : 'none';
-    
-    if (isMultiScan) {
-        clearActivePart();
-        clearSimpanBuffer();
-        root.style.setProperty('--active-color', 'var(--purple)');
-        document.querySelector('header').style.background = 'var(--purple)';
-        showToast("🟣 Mode Multi Scan Aktif");
-        feedback('success');
-        renderMultiBuffer(); 
-    } else {
-        clearMultiBuffer();
-        root.style.setProperty('--active-color', 'var(--primary)');
-        document.querySelector('header').style.background = 'var(--primary)';
-        showToast("Mode Single Scan");
-        feedback('info');
-    }
-    document.getElementById('mainInput').focus();
+    // Auto-Buffer is default mode now - toggle disabled
+    showToast("🔄 Auto-Buffer Mode Active");
 }
 
 function toggleHistoryAccordion() {
@@ -308,60 +288,81 @@ if (currentTab === 'packing') {
     
     if (currentTab === 'simpan') {
         if (isBox) {
-            // 1. CEK DULU APAKAH SEDANG MODE MULTI-SCAN (Mencegah Bug!)
-            if (isMultiScan && multiBuffer.length > 0) {
-                processMultiBatchMove(parsedCode);
+            // Set temporary target box for conflict detection
+            targetBufferBox = parsedCode;
+            
+            // Check if simpanBuffer has items that conflict with this box
+            const conflictedItems = simpanBuffer.filter(b => {
+                const lastBox = b.item.lastBox || '-';
+                // Conflict if: lastBox is not empty, not '-', and doesn't match target
+                return lastBox !== '-' && lastBox !== parsedCode;
+            });
+            
+            // If conflicts exist, show modal; otherwise save all directly
+            if (conflictedItems.length > 0) {
+                showConflictModal(conflictedItems);
                 return;
             }
             
-            // 2. JIKA SINGLE SCAN (NORMAL)
-            if (simpanBuffer.length > 0 && tempPart) {
-                // PROTEKSI: Cek apakah qty yang di-scan akan over dari sysQty
-                // Get qty dari item yang aktif di buffer
-                const bufferItem = simpanBuffer.find(b => b.item.id === tempPart.id);
-                const scannedQty = bufferItem ? bufferItem.qty : 0;
-                const totalPhysical = Object.values(tempPart.locations).reduce((a, b) => a + b, 0);
-                if ((totalPhysical + scannedQty) > tempPart.sysQty) {
-                    feedback('error');
-                    alert(`⚠️ OVER QTY!\n\nPart: ${tempPart.partNo}\nTarget Sistem: ${tempPart.sysQty}\nUdah Ada: ${totalPhysical}\nMau Tambah: ${scannedQty}\nTotal: ${totalPhysical + scannedQty}\n\nGunakan SPLIT jika perlu pindahkan ke box lain!`);
-                    return;
-                }
+            // Safe to save: no conflicts - SAVE ALL ITEMS IN BUFFER to target box
+            if (simpanBuffer.length > 0) {
                 const boxCode = parsedCode;
-                const existingLocs = Object.keys(tempPart.locations);
+                let savedCount = 0;
+                let totalQtySaved = 0;
                 
-                // SKENARIO 1 & 3: Part Baru (0 lokasi) ATAU Scan Box yang sama persis
-                if (existingLocs.length === 0 || existingLocs.includes(boxCode)) {
-                    if (!tempPart.locations[boxCode]) {
-                        tempPart.locations[boxCode] = 0;
-                    }
-                    tempPart.locations[boxCode] += scannedQty;
-                    saveDB(tempPart);
+                // Save EACH item in buffer to the target box
+                simpanBuffer.forEach(bufferItem => {
+                    const item = bufferItem.item;
+                    const scannedQty = bufferItem.qty;
                     
-                    addHistoryLog(`${tempPart.partNo} → ${boxCode}`, `+${scannedQty}`);
+                    // PROTEKSI: Cek apakah qty akan over dari sysQty
+                    const totalPhysical = Object.values(item.locations).reduce((a, b) => a + b, 0);
+                    if ((totalPhysical + scannedQty) > item.sysQty) {
+                        feedback('error');
+                        alert(`⚠️ OVER QTY!\n\nPart: ${item.partNo}\nTarget Sistem: ${item.sysQty}\nUdah Ada: ${totalPhysical}\nMau Tambah: ${scannedQty}\nTotal: ${totalPhysical + scannedQty}\n\nGunakan SPLIT jika perlu pindahkan ke box lain!`);
+                        return;  // Skip this item on qty violation
+                    }
+                    
+                    // Add or update location
+                    if (!item.locations[boxCode]) {
+                        item.locations[boxCode] = 0;
+                    }
+                    item.locations[boxCode] += scannedQty;
+                    item.lastBox = boxCode;  // Update lastBox tracking
+                    
+                    // Save to database
+                    saveDB(item);
+                    savedCount++;
+                    totalQtySaved += scannedQty;
+                    
+                    addHistoryLog(`${item.partNo} → ${boxCode}`, `+${scannedQty}`);
+                });
+                
+                // Show summary feedback
+                if (savedCount > 0) {
                     feedback('success');
                     if (typeof playChime === 'function') playChime();
-                    showToast(`✅ ${tempPart.partNo} (${scannedQty} pcs) masuk ke ${boxCode}!`);
                     
-                    // Remove only this item from buffer, keep others
-                    removeItemFromSimpanBuffer(tempPart.id);
+                    if (savedCount === 1) {
+                        showToast(`✅ ${simpanBuffer[0].item.partNo} (${totalQtySaved} pcs) masuk ke ${boxCode}!`);
+                    } else {
+                        showToast(`✅ ${savedCount} part (${totalQtySaved} pcs total) masuk ke ${boxCode}!`);
+                    }
+                    
+                    // Clear entire buffer and reset
+                    simpanBuffer = [];
+                    tempPart = null;
+                    targetBufferBox = null;
+                    clearSimpanBuffer();  // Clear UI
                     renderSimpanList(true);
-                } 
-                // SKENARIO 2: Beda Rak (Konflik / Pindah Lokasi)
-                else {
-                    simpanConflictData = { item: tempPart, newBox: boxCode, qty: scannedQty };
-                    
-                    document.getElementById('simpanConflictModal').style.display = 'flex';
-                    document.getElementById('scmPart').innerText = tempPart.partNo;
-                    document.getElementById('scmOldLoc').innerText = existingLocs.map(loc => `${loc} (${tempPart.locations[loc]} pcs)`).join(', ');
-                    document.getElementById('scmNewBox').innerText = boxCode;
-                    
-                    feedback('error');
                 }
+                
                 return;
-            } else {
-                feedback('error');
-                showToast("⚠️ Scan Part terlebih dahulu sebelum scan Box!");
             }
+            
+            // No items in buffer but trying to scan box
+            feedback('error');
+            showToast("⚠️ Scan Part terlebih dahulu sebelum scan Box!");
             return;
             
         } else if (item) {
@@ -369,11 +370,7 @@ if (currentTab === 'packing') {
             // JIKA SCAN PART -> AKUMULASI QTY (x1, x2)
             // ==========================================
             feedback('scan');
-            if (isMultiScan) {
-                addToMultiBuffer(item);
-            } else {
-                addToSimpanBuffer(item);
-            }
+            addToSimpanBuffer(item);
             return;
             
         } else {
@@ -382,8 +379,7 @@ if (currentTab === 'packing') {
             // ==========================================
             if (confirm(`Kode "${parsedCode}" Baru. Buat Part?`)) {
                 const newItem = createNewItem(parsedCode);
-                if (isMultiScan) addToMultiBuffer(newItem);
-                else addToSimpanBuffer(newItem);
+                addToSimpanBuffer(newItem);
             }
             return;
         }
@@ -465,7 +461,7 @@ function executeUndo() {
         } else if (type === 'simpan_set' || type === 'simpan_conflict') {
             if (oldState) item.locations = JSON.parse(JSON.stringify(oldState)); else delete item.locations[box];
             saveDB(item); feedback('success'); showToast("Undo Berhasil");
-            if (currentTab === 'simpan') { if (!isMultiScan) selectPartSimpan(item); renderSimpanList(false); }
+            if (currentTab === 'simpan') { renderSimpanList(false); }
         }
     }
     document.getElementById('undoBtn').style.display = 'none'; lastAction = null;
@@ -490,7 +486,7 @@ function renderSimpanList(reset = true) {
         if (isFilterActive && hasLoc) return;
         const div = document.createElement('div');
         div.className = `item-card ${isActive ? 'selected' : ''}`; div.id = `simpan-row-${i.id}`;
-        div.onclick = () => { if(!isMultiScan) selectPartSimpan(i); else addToMultiBuffer(i); };
+        div.onclick = () => { addToSimpanBuffer(i); };
         div.style.cssText = (!hasLoc && isFilterActive) ? 'border-left: 5px solid #fb923c;' : '';
         
         // locTags ditaruh 1 baris menggunakan flex wrap agar aman jika layar sempit
@@ -508,7 +504,8 @@ function renderSimpanList(reset = true) {
 }
 
 function selectPartSimpan(item) {
-    if(isMultiScan) return; 
+    // Legacy function for single-scan mode; auto-buffer always active now
+    // This function is not called anymore but kept for backward compatibility
     
     tempPart = item;
     // Validate simpanBuffer and clear it
@@ -726,7 +723,7 @@ function processMultiBatchMove(box, actionType = 'move') {
 }
 
 function createNewItem(code) {
-    const item = { id: Date.now(), partNo: code, desc: "PART BARU", locType: document.getElementById('filterLoc').value, techName: document.getElementById('filterTech').value, locations: {}, sysQty: 0, raw: {}, lastOpnameDate: '' };
+    const item = { id: Date.now(), partNo: code, desc: "PART BARU", locType: document.getElementById('filterLoc').value, techName: document.getElementById('filterTech').value, locations: {}, sysQty: 0, raw: {}, lastOpnameDate: '', lastBox: '-' };
     localItems.push(item); filteredItems.push(item); return item;
 }
 
@@ -1014,6 +1011,12 @@ function renderSmartSuggestion(item) {
 }
 
 function switchTab(id) {
+    // Clean up buffer when leaving SIMPAN tab
+    if (currentTab === 'simpan' && currentTab !== id) {
+        clearSimpanBuffer();
+        targetBufferBox = null;
+    }
+    
     currentTab = id;
     
     // Update tab content
@@ -1199,18 +1202,15 @@ function addToSimpanBuffer(item) {
     const existing = simpanBuffer.find(b => b.item.id === item.id);
     
     tempPart = item;
-    document.getElementById('activePartNo').innerText = item.partNo;
     
-    // Tampilkan deskripsi & peringatan
+    // Tampilkan deskripsi & peringatan (untuk info saja, tidak update panel lagi)
     let issueWarning = '';
     if (item.labelIssues && (item.labelIssues.DAMAGED > 0 || item.labelIssues.NO_LABEL > 0)) {
         let t = [];
         if (item.labelIssues.NO_LABEL > 0) t.push(`${item.labelIssues.NO_LABEL} Tanpa Label`);
         if (item.labelIssues.DAMAGED > 0) t.push(`${item.labelIssues.DAMAGED} Label Rusak`);
-        issueWarning = `<br><span style="color:var(--danger); font-weight:bold; font-size:0.8rem;"><i class="fas fa-exclamation-triangle"></i> Catatan: ${t.join(' | ')}</span>`;
+        issueWarning = `${t.join(' | ')}`;
     }
-    document.getElementById('activePartDesc').innerHTML = item.desc + issueWarning;
-    document.getElementById('activePartLoc').innerText = Object.keys(item.locations).join(', ') || 'Belum ada';
 
     // Tambah atau Update Qty Buffer - TERAKUMULASI untuk item yang sama
     if (existing) {
@@ -1218,9 +1218,22 @@ function addToSimpanBuffer(item) {
         feedback('warning'); // Nada berbeda untuk indikasi qty bertambah
         showToast(`${item.partNo} ➔ x ${existing.qty}`);
     } else {
-        simpanBuffer.push({ item: item, qty: 1 });  // Tambah item baru dengan qty 1
-        feedback('success');
-        showToast(`${item.partNo} ➔ x 1`);
+        // Calculate qty: existing in DB + 1 new scan
+        const existingQtyInDB = Object.values(item.locations).reduce((a, b) => a + b, 0);
+        const bufferQty = existingQtyInDB + 1;  // DB qty + this scan
+        const bufferItem = { item: item, qty: bufferQty, hasConflict: false };
+        
+        // NEW: Detect conflict - compare item.lastBox vs targetBufferBox
+        if (targetBufferBox && item.lastBox && item.lastBox !== '-' && item.lastBox !== targetBufferBox) {
+            bufferItem.hasConflict = true;
+            feedback('warning');  // Double-beep audio for conflict
+            showToast(`⚠️ ${item.partNo} - Awal: ${item.lastBox}, Target: ${targetBufferBox}`);
+        } else {
+            feedback('success');
+            showToast(`${item.partNo} ➔ x ${bufferQty}`);
+        }
+        
+        simpanBuffer.push(bufferItem);
     }
     
     // Highlight di List
@@ -1233,73 +1246,245 @@ function addToSimpanBuffer(item) {
     if(typeof renderSmartSuggestion === 'function') renderSmartSuggestion(item);
 }
 
-function renderSimpanBuffer() {
-    const display = document.getElementById('simpanBufferDisplay');
-    const statusPanel = document.getElementById('simpanStatusPanel');
-    
-    if (simpanBuffer.length === 0) {
-        display.style.display = 'none';
-        display.innerHTML = '';
-        return; 
-    }
+// ========== CONFLICT MODAL FUNCTIONS ==========
 
-    statusPanel.style.display = 'block';
+function showConflictModal(conflictedItems) {
+    /**
+     * Display modal dengan list item yang konflik (berbeda lokasi dari target box)
+     * @param {Array} conflictedItems - Array of { item, qty, hasConflict }
+     */
+    const modal = document.getElementById('conflictModal');
+    const container = document.getElementById('conflictListContainer');
     
-    // PENTING: Ambil qty dari item yang SEDANG AKTIF (tempPart)
-    let activeQty = 1;  // Default
-    let item = null;
-    
-    if (tempPart && Array.isArray(simpanBuffer)) {
-        // Cari buffer item yang sesuai dengan tempPart
-        const bufferItem = simpanBuffer.find(b => b.item && b.item.id === tempPart.id);
-        if (bufferItem && bufferItem.qty) {
-            activeQty = bufferItem.qty;
-            item = bufferItem.item;
-        } else {
-            // Fallback jika tidak ketemu (shouldn't happen)
-            item = tempPart;
-        }
-    } else if (simpanBuffer.length > 0) {
-        // Fallback ke item pertama di buffer
-        item = simpanBuffer[0].item;
-        activeQty = simpanBuffer[0].qty || 1;
+    if (!modal || !container) {
+        console.warn('❌ conflictModal atau conflictListContainer tidak ditemukan di HTML');
+        return;
     }
     
-    if (!item) item = tempPart || simpanBuffer[0]?.item;
+    container.innerHTML = '';  // Clear previous list
     
-    // Bersihkan dulu PartNo agar tidak dobel dengan badge saat diklik manual
-    if (item) {
-        document.getElementById('activePartNo').innerText = item.partNo;
+    conflictedItems.forEach(bufferItem => {
+        const { item, qty } = bufferItem;
+        const lastBox = item.lastBox || '-';
         
-        // Tampilkan qty scanned x N / max qty (update dengan qty dari buffer)
-        display.innerHTML = `<span style="background:#dcfce7; color:#16a34a; padding:2px 8px; border-radius:12px; border:1px solid #86efac; font-size:1rem; font-weight:bold;">x ${activeQty}</span> <span style="margin-left:4px; font-weight:bold;" title="Scan qty / Target qty">/ ${item.sysQty}</span>`;
-        display.style.display = 'inline-block';
+        const div = document.createElement('div');
+        div.style.cssText = 'display:flex; align-items:center; gap:12px; padding:12px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; margin-bottom:8px; flex-wrap:wrap;';
+        
+        div.innerHTML = `
+            <div style="flex:1; min-width:150px;">
+                <div style="font-weight:bold; font-size:1rem;">${item.partNo}</div>
+                <div style="font-size:0.85rem; color:#64748b;">Awal: ${lastBox} → Target: ${targetBufferBox}</div>
+                <div style="font-size:0.85rem; color:#64748b;">Qty: ${qty} pcs</div>
+            </div>
+            <div style="display:flex; gap:6px;">
+                <button onclick="handleMove(${item.id}, '${targetBufferBox}')" style="padding:6px 12px; background:#3b82f6; color:white; border:none; border-radius:6px; cursor:pointer; font-size:0.85rem;">Pindah</button>
+                <button onclick="handleSplit(${item.id}, '${targetBufferBox}')" style="padding:6px 12px; background:#8b5cf6; color:white; border:none; border-radius:6px; cursor:pointer; font-size:0.85rem;">Split</button>
+                <button onclick="handleCancel(${item.id})" style="padding:6px 12px; background:#ef4444; color:white; border:none; border-radius:6px; cursor:pointer; font-size:0.85rem;">Batal</button>
+            </div>
+        `;
+        
+        container.appendChild(div);
+    });
+    
+    // Add footer buttons
+    const footer = document.createElement('div');
+    footer.style.cssText = 'display:flex; gap:12px; margin-top:16px; padding-top:12px; border-top:1px solid #e2e8f0; justify-content:flex-end;';
+    footer.innerHTML = `
+        <button onclick="forceSaveAllConflicts()" style="padding:8px 16px; background:#16a34a; color:white; border:none; border-radius:6px; cursor:pointer; font-weight:bold;">✅ Simpan Semua</button>
+        <button onclick="closeConflictModal()" style="padding:8px 16px; background:#6b7280; color:white; border:none; border-radius:6px; cursor:pointer;">Tutup</button>
+    `;
+    container.appendChild(footer);
+    
+    modal.style.display = 'flex';  // Show modal
+    feedback('warning');
+}
+
+function handleMove(partId, newBox) {
+    /**
+     * Pindah item ke box baru: hapus dari lokasi lama, masukkan ke lokasi baru
+     */
+    const bufferItem = simpanBuffer.find(b => b.item.id === partId);
+    if (!bufferItem) return;
+    
+    const item = bufferItem.item;
+    
+    // Clear old locations
+    item.locations = {};
+    
+    // Set new location
+    item.locations[newBox] = bufferItem.qty;
+    item.lastBox = newBox;
+    
+    // Remove from buffer (moved to database)
+    simpanBuffer = simpanBuffer.filter(b => b.item.id !== partId);
+    
+    // Save to database
+    saveDB(item);
+    feedback('success');
+    showToast(`✅ ${item.partNo} dipindah ke ${newBox}`);
+    
+    // Refresh modal
+    const remainingConflicts = simpanBuffer.filter(b => b.hasConflict);
+    if (remainingConflicts.length > 0) {
+        showConflictModal(remainingConflicts);
+    } else {
+        closeConflictModal();
+        forceSaveAllConflicts();
     }
 }
 
+function handleSplit(partId, newBox) {
+    /**
+     * Split item: tambah qty ke box baru, jaga qty di box lama tetap ada
+     */
+    const bufferItem = simpanBuffer.find(b => b.item.id === partId);
+    if (!bufferItem) return;
+    
+    const item = bufferItem.item;
+    
+    // Add new location (split lokasi)
+    if (!item.locations[newBox]) {
+        item.locations[newBox] = 0;
+    }
+    item.locations[newBox] += bufferItem.qty;
+    
+    // Keep old locations intact, update lastBox to new box
+    item.lastBox = newBox;
+    
+    // Remove from buffer (moved to database)
+    simpanBuffer = simpanBuffer.filter(b => b.item.id !== partId);
+    
+    // Save to database
+    saveDB(item);
+    feedback('success');
+    showToast(`✅ ${item.partNo} di-split ke ${newBox} (total: ${Object.values(item.locations).reduce((a,b)=>a+b,0)} pcs)`);
+    
+    // Refresh modal
+    const remainingConflicts = simpanBuffer.filter(b => b.hasConflict);
+    if (remainingConflicts.length > 0) {
+        showConflictModal(remainingConflicts);
+    } else {
+        closeConflictModal();
+        forceSaveAllConflicts();
+    }
+}
 
-function removeFromSimpanBuffer(index) {
-    if (index >= 0 && index < simpanBuffer.length) {
+function handleCancel(partId) {
+    /**
+     * Hapus item dari buffer tanpa menyimpan ke database
+     */
+    const bufferItem = simpanBuffer.find(b => b.item.id === partId);
+    if (!bufferItem) return;
+    
+    simpanBuffer = simpanBuffer.filter(b => b.item.id !== partId);
+    feedback('error');
+    showToast(`❌ ${bufferItem.item.partNo} dibatalkan dari buffer`);
+    
+    // Refresh modal
+    const remainingConflicts = simpanBuffer.filter(b => b.hasConflict);
+    if (remainingConflicts.length > 0) {
+        showConflictModal(remainingConflicts);
+    } else {
+        closeConflictModal();
+    }
+}
+
+function closeConflictModal() {
+    /**
+     * Tutup modal konflik
+     */
+    const modal = document.getElementById('conflictModal');
+    if (modal) {
+        modal.style.display = 'none';
+    }
+}
+
+function forceSaveAllConflicts() {
+    /**
+     * Simpan semua item di buffer ke database dengan targetBufferBox sebagai lokasi
+     * Abaikan konfliks dan langsung pindahkan ke target box
+     */
+    simpanBuffer.forEach(bufferItem => {
+        const item = bufferItem.item;
+        
+        // Clear old locations and set target box
+        item.locations = {};
+        item.locations[targetBufferBox] = bufferItem.qty;
+        item.lastBox = targetBufferBox;
+        
+        // Save to database
+        saveDB(item);
+    });
+    
+    // Clear buffer
+    simpanBuffer = [];
+    targetBufferBox = null;
+    
+    // Close modal
+    closeConflictModal();
+    
+    // Reset UI
+    clearSimpanBuffer();
+    renderSimpanList(true);
+    
+    feedback('success');
+    showToast(`✅ Semua item tersimpan (${simpanBuffer.length} pcs)`);
+}
+
+function renderSimpanBuffer() {
+    const statusPanel = document.getElementById('simpanStatusPanel');
+    const itemsContainer = document.getElementById('simpanBufferItemsContainer');
+    const countDisplay = document.getElementById('simpanBufferCountDisplay');
+    
+    if (!Array.isArray(simpanBuffer) || simpanBuffer.length === 0) {
+        statusPanel.style.display = 'none';
+        if (itemsContainer) itemsContainer.innerHTML = '';
+        if (countDisplay) countDisplay.textContent = '0';
+        return;
+    }
+    
+    // Tampilkan panel
+    statusPanel.style.display = 'block';
+    if (countDisplay) countDisplay.textContent = simpanBuffer.length;
+    
+    // Render semua items di buffer
+    let html = '';
+    simpanBuffer.forEach((bufferItem, index) => {
+        const item = bufferItem.item;
+        const qty = bufferItem.qty;
+        const locList = Object.keys(item.locations || {}).join(', ') || 'Belum Box';
+        const conflictBadge = bufferItem.hasConflict ? '<span style="background: rgba(255, 255, 255, 0.3); padding: 2px 6px; border-radius: 4px; font-size: 0.75rem; font-weight: bold;">⚠️ Konflik</span>' : '';
+        
+        html += `
+            <div class="simpan-buffer-item">
+                <div class="simpan-buffer-item-info">
+                    <span class="simpan-buffer-item-part">${item.partNo}</span>
+                    <span class="simpan-buffer-item-qty">x${qty}/${item.sysQty}</span>
+                    <span class="simpan-buffer-item-desc" title="${item.desc}">${item.desc}</span>
+                    ${conflictBadge}
+                </div>
+                <button class="simpan-buffer-item-remove" onclick="removeFromSimpanBuffer(${item.id})" title="Hapus dari buffer">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+        `;
+    });
+    
+    if (itemsContainer) itemsContainer.innerHTML = html;
+}
+
+
+function removeFromSimpanBuffer(itemId) {
+    const index = simpanBuffer.findIndex(b => b.item.id === itemId);
+    if (index !== -1) {
         const removed = simpanBuffer.splice(index, 1)[0];
         feedback('warning');
         showToast(`${removed.item.partNo} dihapus dari buffer`);
         renderSimpanBuffer();
-    }
-}
-
-// Helper: Remove specific item (by id) from buffer
-function removeItemFromSimpanBuffer(itemId) {
-    const index = simpanBuffer.findIndex(b => b.item.id === itemId);
-    if (index >= 0) {
-        simpanBuffer.splice(index, 1);
-        // Jika buffer kosong, clear tempPart
-        if (simpanBuffer.length === 0) {
-            tempPart = null;
-        } else {
-            // Set tempPart ke item berikutnya di buffer
-            tempPart = simpanBuffer[0].item;
-        }
-        renderSimpanBuffer();
+        
+        // Update highlight di list
+        const row = document.getElementById(`simpan-row-${itemId}`);
+        if (row) row.classList.remove('selected');
     }
 }
 
@@ -1310,13 +1495,14 @@ function clearSimpanBuffer() {
     simpanBufferBox = null;
     tempPart = null;
     
-    const bufferDisplay = document.getElementById('simpanBufferDisplay');
     const statusPanel = document.getElementById('simpanStatusPanel');
-    if (bufferDisplay) {
-        bufferDisplay.style.display = 'none';
-        bufferDisplay.innerHTML = '';
-    }
-    if (statusPanel && !isMultiScan) statusPanel.style.display = 'none';
+    const itemsContainer = document.getElementById('simpanBufferItemsContainer');
+    const countDisplay = document.getElementById('simpanBufferCountDisplay');
+    
+    if (statusPanel) statusPanel.style.display = 'none';
+    if (itemsContainer) itemsContainer.innerHTML = '';
+    if (countDisplay) countDisplay.textContent = '0';
+    
     document.querySelectorAll('.item-card').forEach(el => el.classList.remove('selected'));
 }
 

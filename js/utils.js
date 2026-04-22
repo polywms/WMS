@@ -13,6 +13,11 @@ function feedback(type) {
         setTimeout(() => body.classList.remove('flash-error'), 500);
         playTone(150, 'sawtooth', 0.3);
         if(navigator.vibrate) navigator.vibrate([100, 50, 100]); 
+    } else if (type === 'warning') {
+        // Double beep untuk warning konflik (tinggi, cepat, tidak menakutkan)
+        playTone(1000, 'sine', 0.08);
+        setTimeout(() => playTone(1000, 'sine', 0.08), 120);
+        if(navigator.vibrate) navigator.vibrate([40, 30, 40]); 
     } else if (type === 'scan') {
         playTone(1200, 'sine', 0.05);
     }
