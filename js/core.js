@@ -1245,23 +1245,36 @@ function renderSimpanBuffer() {
 
     statusPanel.style.display = 'block';
     
-    // Tampilkan qty dari item yang sedang aktif (tempPart)
-    let activeQty = 1;
-    if (tempPart) {
-        const bufferItem = simpanBuffer.find(b => b.item.id === tempPart.id);
-        if (bufferItem) {
+    // PENTING: Ambil qty dari item yang SEDANG AKTIF (tempPart)
+    let activeQty = 1;  // Default
+    let item = null;
+    
+    if (tempPart && Array.isArray(simpanBuffer)) {
+        // Cari buffer item yang sesuai dengan tempPart
+        const bufferItem = simpanBuffer.find(b => b.item && b.item.id === tempPart.id);
+        if (bufferItem && bufferItem.qty) {
             activeQty = bufferItem.qty;
+            item = bufferItem.item;
+        } else {
+            // Fallback jika tidak ketemu (shouldn't happen)
+            item = tempPart;
         }
+    } else if (simpanBuffer.length > 0) {
+        // Fallback ke item pertama di buffer
+        item = simpanBuffer[0].item;
+        activeQty = simpanBuffer[0].qty || 1;
     }
     
-    let item = tempPart || simpanBuffer[0].item;
+    if (!item) item = tempPart || simpanBuffer[0]?.item;
     
     // Bersihkan dulu PartNo agar tidak dobel dengan badge saat diklik manual
-    document.getElementById('activePartNo').innerText = item.partNo;
-    
-    // Tampilkan qty scanned x 1 / max qty (simple format)
-    display.innerHTML = `<span style="background:#dcfce7; color:#16a34a; padding:2px 8px; border-radius:12px; border:1px solid #86efac; font-size:1rem; font-weight:bold;">x ${activeQty}</span> <span style="margin-left:4px; font-weight:bold;" title="Scan qty / Target qty">/ ${item.sysQty}</span>`;
-    display.style.display = 'inline-block';
+    if (item) {
+        document.getElementById('activePartNo').innerText = item.partNo;
+        
+        // Tampilkan qty scanned x N / max qty (update dengan qty dari buffer)
+        display.innerHTML = `<span style="background:#dcfce7; color:#16a34a; padding:2px 8px; border-radius:12px; border:1px solid #86efac; font-size:1rem; font-weight:bold;">x ${activeQty}</span> <span style="margin-left:4px; font-weight:bold;" title="Scan qty / Target qty">/ ${item.sysQty}</span>`;
+        display.style.display = 'inline-block';
+    }
 }
 
 
