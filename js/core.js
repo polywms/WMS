@@ -1458,14 +1458,24 @@ function renderSimpanBuffer() {
         const locList = Object.keys(item.locations || {}).join(', ') || 'Belum Box';
         const conflictBadge = bufferItem.hasConflict ? '<span style="background: rgba(255, 255, 255, 0.3); padding: 2px 6px; border-radius: 4px; font-size: 0.75rem; font-weight: bold;">⚠️ Konflik</span>' : '';
         
+        // Check if qty exceeds database qty
+        const isQtyExceeded = qty > item.sysQty;
+        const itemClass = isQtyExceeded ? 'simpan-buffer-item simpan-buffer-item-warning' : 'simpan-buffer-item';
+        
+        // Trigger beep if qty exceeded
+        if (isQtyExceeded) {
+            setTimeout(() => feedback('error'), index * 100);
+        }
+        
         html += `
-            <div class="simpan-buffer-item">
+            <div class="${itemClass}">
                 <div class="simpan-buffer-item-info">
                     <span class="simpan-buffer-item-part">${item.partNo}</span>
-                    <span class="simpan-buffer-item-qty">x${qty}/${item.sysQty}</span>
+                    <span class="simpan-buffer-item-qty">${isQtyExceeded ? '⚠️' : ''} x${qty}/${item.sysQty}</span>
                     <span class="simpan-buffer-item-desc" title="${item.desc}">${item.desc}</span>
                     ${conflictBadge}
                 </div>
+                <span class="simpan-buffer-item-location" title="Lokasi Box">${locList}</span>
                 <button class="simpan-buffer-item-remove" onclick="removeFromSimpanBuffer(${item.id})" title="Hapus dari buffer">
                     <i class="fas fa-times"></i>
                 </button>
