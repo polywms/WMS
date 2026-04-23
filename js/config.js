@@ -42,10 +42,10 @@ const QR_PARSERS = {
     },
     pipeThree: {
         name: 'pipeThree (format lama 3-pipe)',
-        pattern: /^([^|]+)\|([^|]+)\|([A-Z]+)$/,
+        pattern: /^([A-Z0-9\-]+)\s*\|.+\|([A-Z]{1,3})$/,
         extract: (match) => ({
-            partNo: match[1].trim(),      // Part number: KV-032512-00C
-            docNo: match[3].trim(),       // Warehouse: MGL
+            partNo: match[1],             // Part number: KV-032512-00C (tanpa spasi)
+            docNo: match[2],              // Warehouse: MGL
             qty: 1                        // Default qty = 1
         })
     },
