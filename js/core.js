@@ -604,8 +604,7 @@ function executeSimpanAction(action) {
     // Simpan ke database dan bersihkan layar
     saveDB(item); 
     addHistoryLog(`${item.partNo} → ${newBox}`, action === 'move' ? `Pindah ${qty}` : `Tambah ${qty}`); 
-    feedback('success'); 
-    if (typeof playChime === 'function') playChime();
+    feedback('scan_saved');  // Nada chime lengkap saat berhasil disimpan ke box
     closeSimpanConflictModal(); 
     clearSimpanBuffer(); 
     renderSimpanList(true); 
@@ -1213,14 +1212,15 @@ function addToSimpanBuffer(item) {
     }
 
     // Tambah atau Update Qty Buffer - PURE SCAN COUNT ONLY (bukan DB qty)
+    let scanQty;
     if (existing) {
         existing.qty++;  // Increment qty jika item sudah ada di buffer (pure scan count)
-        feedback('warning'); // Nada berbeda untuk indikasi qty bertambah
+        scanQty = existing.qty;
         showToast(`${item.partNo} ➔ +${existing.qty} Scan`);
     } else {
         // NEW: Buffer qty = PURE SCAN COUNT ONLY (tidak termasuk DB qty)
-        const bufferQty = 1;  // Hanya 1 scan untuk item baru
-        const bufferItem = { item: item, qty: bufferQty, hasConflict: false };
+        scanQty = 1;  // Hanya 1 scan untuk item baru
+        const bufferItem = { item: item, qty: scanQty, hasConflict: false };
         
         // NEW: Detect conflict - compare item.lastBox vs targetBufferBox
         if (targetBufferBox && item.lastBox && item.lastBox !== '-' && item.lastBox !== targetBufferBox) {
@@ -1228,11 +1228,23 @@ function addToSimpanBuffer(item) {
             feedback('warning');  // Double-beep audio for conflict
             showToast(`⚠️ ${item.partNo} - Awal: ${item.lastBox}, Target: ${targetBufferBox}`);
         } else {
-            feedback('success');
-            showToast(`${item.partNo} ➔ +${bufferQty} Scan`);
+            showToast(`${item.partNo} ➔ +${scanQty} Scan`);
         }
         
         simpanBuffer.push(bufferItem);
+    }
+    
+    // Hitung visualTotalQty untuk menentukan audio feedback
+    const existingQtyInDB = Object.values(item.locations).reduce((a, b) => a + b, 0);
+    const visualTotalQty = existingQtyInDB + scanQty;
+    
+    // Logika audio feedback berdasarkan total qty
+    if (visualTotalQty < item.sysQty) {
+        feedback('scan_normal');  // Beep standar, qty masih kurang
+    } else if (visualTotalQty === item.sysQty) {
+        feedback('scan_complete');  // Nada "Ding ding ting", qty pas sempurna
+    } else {
+        feedback('scan_over');  // Nada error, qty berlebih
     }
     
     // Highlight di List
@@ -1459,20 +1471,23 @@ function renderSimpanBuffer() {
         const locList = Object.keys(item.locations || {}).join(', ') || 'Belum Box';
         const conflictBadge = bufferItem.hasConflict ? '<span style="background: rgba(255, 255, 255, 0.3); padding: 2px 6px; border-radius: 4px; font-size: 0.75rem; font-weight: bold;">⚠️ Konflik</span>' : '';
         
-        // FIX: Check if TOTAL (DB + scan) exceeds system qty - use visualTotalQty for validation
-        const isQtyExceeded = visualTotalQty > item.sysQty;
-        const itemClass = isQtyExceeded ? 'simpan-buffer-item simpan-buffer-item-warning' : 'simpan-buffer-item';
-        
-        // Trigger beep if qty exceeded
-        if (isQtyExceeded) {
-            setTimeout(() => feedback('error'), index * 100);
+        // Tentukan status kuantitas dan class CSS berdasarkan visualTotalQty
+        let statusClass = 'simpan-buffer-item';
+        if (visualTotalQty < item.sysQty) {
+            statusClass += ' buffer-kurang';
+        } else if (visualTotalQty === item.sysQty) {
+            statusClass += ' buffer-pas';
+        } else {
+            statusClass += ' buffer-lebih';
         }
         
         html += `
-            <div class="${itemClass}">
+            <div class="${statusClass}">
                 <div class="simpan-buffer-item-info">
                     <span class="simpan-buffer-item-part">${item.partNo}</span>
-                    <span class="simpan-buffer-item-qty">${isQtyExceeded ? '⚠️' : ''} x${visualTotalQty}/${item.sysQty}</span>
+                    <button class="simpan-buffer-item-qty-edit" onclick="editBufferQty(${item.id})" title="Klik untuk edit jumlah scan">
+                        x${visualTotalQty}/${item.sysQty} <i class="fas fa-pencil-alt"></i>
+                    </button>
                     <span class="simpan-buffer-item-desc" title="${item.desc}">${item.desc}</span>
                     ${conflictBadge}
                 </div>
@@ -1487,6 +1502,56 @@ function renderSimpanBuffer() {
     if (itemsContainer) itemsContainer.innerHTML = html;
 }
 
+function editBufferQty(itemId) {
+    /**
+     * Edit jumlah scan manual untuk item di buffer
+     * @param {number} itemId - Item ID dari simpanBuffer
+     */
+    const bufferItem = simpanBuffer.find(b => b.item.id === itemId);
+    if (!bufferItem) {
+        feedback('error');
+        showToast('Item tidak ditemukan di buffer');
+        return;
+    }
+    
+    const item = bufferItem.item;
+    const currentScanQty = bufferItem.qty;
+    const newQtyStr = prompt(`Masukkan jumlah scan manual untuk part ${item.partNo}:`, currentScanQty.toString());
+    
+    // Jika user cancel/tidak memasukkan, keluar
+    if (newQtyStr === null || newQtyStr === '') {
+        return;
+    }
+    
+    const newQty = parseInt(newQtyStr);
+    
+    // Validasi input
+    if (isNaN(newQty) || newQty < 0) {
+        feedback('error');
+        showToast('Masukkan angka yang valid (>= 0)');
+        return;
+    }
+    
+    // Update qty di buffer
+    bufferItem.qty = newQty;
+    
+    // Hitung ulang visualTotalQty
+    const dbQty = Object.values(item.locations).reduce((a, b) => a + b, 0);
+    const visualTotalQty = dbQty + newQty;
+    
+    // Trigger audio feedback berdasarkan status qty baru
+    if (visualTotalQty < item.sysQty) {
+        feedback('scan_normal');
+    } else if (visualTotalQty === item.sysQty) {
+        feedback('scan_complete');
+    } else {
+        feedback('scan_over');
+    }
+    
+    // Update UI dan tampilkan toast
+    showToast(`${item.partNo} diubah menjadi ${newQty} scan`);
+    renderSimpanBuffer();
+}
 
 function removeFromSimpanBuffer(itemId) {
     const index = simpanBuffer.findIndex(b => b.item.id === itemId);

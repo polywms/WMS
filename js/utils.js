@@ -20,6 +20,24 @@ function feedback(type) {
         if(navigator.vibrate) navigator.vibrate([40, 30, 40]); 
     } else if (type === 'scan') {
         playTone(1200, 'sine', 0.05);
+    } else if (type === 'scan_normal') {
+        // Beep standar untuk scan normal (qty masih kurang)
+        playTone(1200, 'sine', 0.05);
+        if(navigator.vibrate) navigator.vibrate(30);
+    } else if (type === 'scan_complete') {
+        // Nada berurutan "Ding ding ting" untuk scan komplit (sesuai target)
+        playTone(800, 'sine', 0.1);
+        setTimeout(() => playTone(1000, 'sine', 0.1), 120);
+        setTimeout(() => playTone(1200, 'sine', 0.15), 240);
+        if(navigator.vibrate) navigator.vibrate([50, 30, 50, 30, 50]);
+    } else if (type === 'scan_over') {
+        // Nada error/harsh yang panjang dan jelas (qty berlebih)
+        playTone(150, 'sawtooth', 0.3);
+        if(navigator.vibrate) navigator.vibrate([100, 50, 100]);
+    } else if (type === 'scan_saved') {
+        // Nada sukses masuk box menggunakan playBoxCompleteChime yang sudah ada
+        playBoxCompleteChime();
+        if(navigator.vibrate) navigator.vibrate([50, 20, 50]);
     }
 }
 

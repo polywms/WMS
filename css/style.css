@@ -1385,6 +1385,58 @@
                 transform: scale(0.9);
             }
             
+            /* Buffer Status Colors */
+            .buffer-kurang {
+                background: #fef9c3;
+                border: 1.5px solid #fcd34d;
+                box-shadow: 0 2px 4px rgba(202, 138, 4, 0.15);
+            }
+            
+            .buffer-pas {
+                background: #dcfce7;
+                border: 1.5px solid #86efac;
+                box-shadow: 0 2px 4px rgba(34, 197, 94, 0.15);
+            }
+            
+            .buffer-lebih {
+                background: #fce7f3;
+                border: 1.5px solid #f472b6;
+                box-shadow: 0 2px 4px rgba(236, 72, 153, 0.15);
+            }
+            
+            /* Qty Edit Button */
+            .simpan-buffer-item-qty-edit {
+                background: #eff6ff;
+                color: #1e40af;
+                padding: 2px 6px;
+                border-radius: 3px;
+                font-size: 0.75rem;
+                font-weight: bold;
+                white-space: nowrap;
+                min-width: max-content;
+                border: 1px solid #bfdbfe;
+                cursor: pointer;
+                transition: all 0.15s ease;
+                display: inline-flex;
+                align-items: center;
+                gap: 4px;
+            }
+            
+            .simpan-buffer-item-qty-edit:hover {
+                background: #dbeafe;
+                border-color: #93c5fd;
+                box-shadow: 0 1px 3px rgba(30, 64, 175, 0.2);
+            }
+            
+            .simpan-buffer-item-qty-edit:active {
+                transform: scale(0.95);
+            }
+            
+            .simpan-buffer-item-qty-edit i {
+                font-size: 0.65rem;
+                margin-left: 2px;
+            }
+            
             /* Responsive improvements */
             @media (max-width: 600px) {
             header {
