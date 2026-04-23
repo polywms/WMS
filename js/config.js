@@ -42,9 +42,9 @@ const QR_PARSERS = {
     },
     pipeThree: {
         name: 'pipeThree (format lama 3-pipe)',
-        pattern: /^([A-Z0-9\-]+)\s*\|/,
+        pattern: /^([^|]+)\|/,
         extract: (match) => ({
-            partNo: match[1].replace(/\s+/g, ''),  // Hanya nomor part, hapus semua spasi
+            partNo: match[1].trim().replace(/\s+/g, ''),  // Hapus semua spasi, hanya part number
             docNo: 'AUTO',
             qty: 1
         })

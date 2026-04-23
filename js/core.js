@@ -162,7 +162,7 @@ function renderHistoryLog() {
 
 function processScan(code) {
     let rawCode = code.trim().toUpperCase();
-    let parsedCode = rawCode.includes('|') ? rawCode.split('|')[0] : rawCode;
+    let parsedCode = rawCode.includes('|') ? rawCode.split('|')[0].trim() : rawCode;
 
     const boxPattern = /^[A-Z][0-9]{0,2}-[0-9]{2,3}$/;
     const isBox = boxPattern.test(rawCode);
