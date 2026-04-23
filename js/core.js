@@ -1212,15 +1212,14 @@ function addToSimpanBuffer(item) {
         issueWarning = `${t.join(' | ')}`;
     }
 
-    // Tambah atau Update Qty Buffer - TERAKUMULASI untuk item yang sama
+    // Tambah atau Update Qty Buffer - PURE SCAN COUNT ONLY (bukan DB qty)
     if (existing) {
-        existing.qty++;  // Increment qty jika item sudah ada di buffer
+        existing.qty++;  // Increment qty jika item sudah ada di buffer (pure scan count)
         feedback('warning'); // Nada berbeda untuk indikasi qty bertambah
-        showToast(`${item.partNo} ➔ x ${existing.qty}`);
+        showToast(`${item.partNo} ➔ +${existing.qty} Scan`);
     } else {
-        // Calculate qty: existing in DB + 1 new scan
-        const existingQtyInDB = Object.values(item.locations).reduce((a, b) => a + b, 0);
-        const bufferQty = existingQtyInDB + 1;  // DB qty + this scan
+        // NEW: Buffer qty = PURE SCAN COUNT ONLY (tidak termasuk DB qty)
+        const bufferQty = 1;  // Hanya 1 scan untuk item baru
         const bufferItem = { item: item, qty: bufferQty, hasConflict: false };
         
         // NEW: Detect conflict - compare item.lastBox vs targetBufferBox
@@ -1230,7 +1229,7 @@ function addToSimpanBuffer(item) {
             showToast(`⚠️ ${item.partNo} - Awal: ${item.lastBox}, Target: ${targetBufferBox}`);
         } else {
             feedback('success');
-            showToast(`${item.partNo} ➔ x ${bufferQty}`);
+            showToast(`${item.partNo} ➔ +${bufferQty} Scan`);
         }
         
         simpanBuffer.push(bufferItem);
@@ -1454,12 +1453,14 @@ function renderSimpanBuffer() {
     let html = '';
     simpanBuffer.forEach((bufferItem, index) => {
         const item = bufferItem.item;
-        const qty = bufferItem.qty;
+        const scanCount = bufferItem.qty;  // Pure scan count (not including DB qty)
+        const dbQty = Object.values(item.locations).reduce((a, b) => a + b, 0);  // Existing DB qty
+        const visualTotalQty = dbQty + scanCount;  // Total for UI display only
         const locList = Object.keys(item.locations || {}).join(', ') || 'Belum Box';
         const conflictBadge = bufferItem.hasConflict ? '<span style="background: rgba(255, 255, 255, 0.3); padding: 2px 6px; border-radius: 4px; font-size: 0.75rem; font-weight: bold;">⚠️ Konflik</span>' : '';
         
-        // Check if qty exceeds database qty
-        const isQtyExceeded = qty > item.sysQty;
+        // FIX: Check if TOTAL (DB + scan) exceeds system qty - use visualTotalQty for validation
+        const isQtyExceeded = visualTotalQty > item.sysQty;
         const itemClass = isQtyExceeded ? 'simpan-buffer-item simpan-buffer-item-warning' : 'simpan-buffer-item';
         
         // Trigger beep if qty exceeded
@@ -1471,7 +1472,7 @@ function renderSimpanBuffer() {
             <div class="${itemClass}">
                 <div class="simpan-buffer-item-info">
                     <span class="simpan-buffer-item-part">${item.partNo}</span>
-                    <span class="simpan-buffer-item-qty">${isQtyExceeded ? '⚠️' : ''} x${qty}/${item.sysQty}</span>
+                    <span class="simpan-buffer-item-qty">${isQtyExceeded ? '⚠️' : ''} x${visualTotalQty}/${item.sysQty}</span>
                     <span class="simpan-buffer-item-desc" title="${item.desc}">${item.desc}</span>
                     ${conflictBadge}
                 </div>
