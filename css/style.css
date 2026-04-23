@@ -231,7 +231,7 @@
             margin-top: auto;
             border-top: 1px solid rgba(255, 255, 255, 0.15);
             padding-top: 14px;
-            padding-bottom: 14px;
+            padding-bottom: 40px;
             font-weight: 600;
             color: rgba(255, 255, 255, 0.9);
             }
@@ -1360,6 +1360,8 @@
                 white-space: nowrap;
                 font-weight: 500;
             }
+            
+            .simpan-buffer-item-remove {
                 flex: 0 0 auto;
                 background: #f3f4f6;
                 border: 1px solid #d1d5db;

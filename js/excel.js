@@ -78,22 +78,67 @@ function handleImport(input) {
 
 function exportData() {
     showLoading("📤 Export Data", "Mempersiapkan file...");
-    const dataUtama = localItems.filter(i => i.desc !== 'PART BARU').map(i => {
-        let r = {...i.raw}; const p = Object.values(i.locations).reduce((a,b) => a+b, 0); r['QTY Fisik'] = p; r['Lokasi'] = Object.entries(i.locations).map(([k,v]) => `${k}(${v})`).join(', ');
-        r['Tanpa Label (Qty)'] = (i.labelIssues && i.labelIssues.NO_LABEL) ? i.labelIssues.NO_LABEL : 0; 
-        r['Label Rusak (Qty)'] = (i.labelIssues && i.labelIssues.DAMAGED) ? i.labelIssues.DAMAGED : 0; 
-        r['Tanggal Opname Terakhir'] = i.lastOpnameDate || '-';
-        return r;
+    
+    // ===== FLATTENED FORMAT: Satu baris per lokasi =====
+    const flattenedData = [];
+    
+    localItems.filter(i => i.desc !== 'PART BARU').forEach(item => {
+        const hasLocations = item.locations && Object.keys(item.locations).length > 0;
+        
+        if (hasLocations) {
+            // Jika ada lokasi, buat satu baris per lokasi
+            Object.entries(item.locations).forEach(([lokasi, qty]) => {
+                flattenedData.push({
+                    'Part Number': item.partNo,
+                    'Deskripsi': item.desc || '',
+                    'Kategori Lokasi': item.locType || '',
+                    'Nama Teknisi': item.techName || '',
+                    'Qty Sistem': item.sysQty || 0,
+                    'Lokasi': lokasi,
+                    'Qty Hitung': qty
+                });
+            });
+        } else {
+            // Jika tidak ada lokasi, tampilkan 1 baris dengan lokasi & qty kosong
+            flattenedData.push({
+                'Part Number': item.partNo,
+                'Deskripsi': item.desc || '',
+                'Kategori Lokasi': item.locType || '',
+                'Nama Teknisi': item.techName || '',
+                'Qty Sistem': item.sysQty || 0,
+                'Lokasi': '',
+                'Qty Hitung': ''
+            });
+        }
     });
-    const dataBaru = localItems.filter(i => i.desc === 'PART BARU').map(i => { 
-        return { 
-            'Part Number': i.partNo, 
-            'QTY Fisik': Object.values(i.locations).reduce((a,b) => a+b, 0), 
-            'Lokasi Ditemukan': Object.entries(i.locations).map(([k,v]) => `${k}(${v})`).join(', '),
-            'Tanggal Ditemukan': i.lastOpnameDate || '-'
-        }; 
+    
+    // ===== Part Temuan (Baru) - Format Flattened =====
+    const dataBaru = [];
+    localItems.filter(i => i.desc === 'PART BARU').forEach(item => {
+        const hasLocations = item.locations && Object.keys(item.locations).length > 0;
+        
+        if (hasLocations) {
+            Object.entries(item.locations).forEach(([lokasi, qty]) => {
+                dataBaru.push({
+                    'Part Number': item.partNo,
+                    'Lokasi Ditemukan': lokasi,
+                    'Qty Ditemukan': qty,
+                    'Tanggal Ditemukan': item.lastOpnameDate || '-'
+                });
+            });
+        } else {
+            dataBaru.push({
+                'Part Number': item.partNo,
+                'Lokasi Ditemukan': '',
+                'Qty Ditemukan': '',
+                'Tanggal Ditemukan': item.lastOpnameDate || '-'
+            });
+        }
     });
-    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(dataUtama), "Data Master");
+    
+    // ===== Generate Excel File =====
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(flattenedData), "Data Master");
     if (dataBaru.length > 0) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(dataBaru), "Part Temuan (Baru)");
     XLSX.writeFile(wb, "WMS_Result.xlsx");
     hideLoading();
