@@ -42,11 +42,11 @@ const QR_PARSERS = {
     },
     pipeThree: {
         name: 'pipeThree (format lama 3-pipe)',
-        pattern: /^([A-Z0-9\-]+)\s*\|.+\|([A-Z]{1,3})$/,
+        pattern: /^([A-Z0-9\-]+)\s*\|/,
         extract: (match) => ({
-            partNo: match[1],             // Part number: KV-032512-00C (tanpa spasi)
-            docNo: match[2],              // Warehouse: MGL
-            qty: 1                        // Default qty = 1
+            partNo: match[1].replace(/\s+/g, ''),  // Hanya nomor part, hapus semua spasi
+            docNo: 'AUTO',
+            qty: 1
         })
     },
     simple: {
