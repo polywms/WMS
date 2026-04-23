@@ -40,6 +40,15 @@ const QR_PARSERS = {
             partNo: match[2].trim() 
         })
     },
+    pipeThree: {
+        name: 'pipeThree (format lama 3-pipe)',
+        pattern: /^([^|]+)\|([^|]+)\|([A-Z]+)$/,
+        extract: (match) => ({
+            partNo: match[1].trim(),      // Part number: KV-032512-00C
+            docNo: match[3].trim(),       // Warehouse: MGL
+            qty: 1                        // Default qty = 1
+        })
+    },
     simple: {
         name: 'simple',
         pattern: /^(.+)$/,
