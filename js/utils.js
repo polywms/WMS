@@ -35,9 +35,16 @@ function feedback(type) {
         playTone(150, 'sawtooth', 0.3);
         if(navigator.vibrate) navigator.vibrate([100, 50, 100]);
     } else if (type === 'scan_saved') {
-        // Nada sukses masuk box menggunakan playBoxCompleteChime yang sudah ada
-        playBoxCompleteChime();
-        if(navigator.vibrate) navigator.vibrate([50, 20, 50]);
+        // 4 nada bertingkat (ascending) untuk kesan "Sukses/Tersimpan" yang memuaskan
+        // Nada 1 (Dasar): 600Hz, 0.1s, 0ms delay
+        playTone(600, 'sine', 0.1);
+        // Nada 2 (Naik): 800Hz, 0.1s, 100ms delay
+        setTimeout(() => playTone(800, 'sine', 0.1), 100);
+        // Nada 3 (Naik): 1000Hz, 0.1s, 200ms delay
+        setTimeout(() => playTone(1000, 'sine', 0.1), 200);
+        // Nada 4 (Puncak/Panjang): 1300Hz, 0.8s, 300ms delay
+        setTimeout(() => playTone(1300, 'sine', 0.8), 300);
+        if(navigator.vibrate) navigator.vibrate([50, 20, 50, 20, 50]);
     }
 }
 
