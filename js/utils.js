@@ -34,16 +34,12 @@ function feedback(type) {
         // Nada error/harsh yang panjang dan jelas (qty berlebih)
         playTone(150, 'sawtooth', 0.3);
         if(navigator.vibrate) navigator.vibrate([100, 50, 100]);
-    } else if (type === 'scan_saved') {
-        // 4 nada bertingkat (ascending) untuk kesan "Sukses/Tersimpan" yang memuaskan
-        // Nada 1 (Dasar): 600Hz, 0.1s, 0ms delay
-        playTone(600, 'sine', 0.1);
-        // Nada 2 (Naik): 800Hz, 0.1s, 100ms delay
-        setTimeout(() => playTone(800, 'sine', 0.1), 100);
-        // Nada 3 (Naik): 1000Hz, 0.1s, 200ms delay
-        setTimeout(() => playTone(1000, 'sine', 0.1), 200);
-        // Nada 4 (Puncak/Panjang): 1300Hz, 0.8s, 300ms delay
-        setTimeout(() => playTone(1300, 'sine', 0.8), 300);
+} else if (type === 'scan_saved') {
+        // Durasi 0.08 memberi jeda hening 0.02 detik antar nada biar suaranya lebih tegas
+        playTone(600, 'sine', 0.08); 
+        setTimeout(() => playTone(800, 'sine', 0.08), 100);
+        setTimeout(() => playTone(1000, 'sine', 0.08), 200);
+        setTimeout(() => playTone(1300, 'sine', 0.5), 300); 
         if(navigator.vibrate) navigator.vibrate([50, 20, 50, 20, 50]);
     }
 }
