@@ -57,9 +57,9 @@ function feedback(type) {
 
         // Jadwalkan 4 nada berurutan secara absolut (Jarak persis 0.1 detik)
         scheduleTone(600, t, 0.1);        // Main sekarang
-        scheduleTone(800, t + 0.1, 0.1);  // Main di detik ke-0.1
-        scheduleTone(1000, t + 0.2, 0.1); // Main di detik ke-0.2
-        scheduleTone(1300, t + 0.3, 0.4); // Main di detik ke-0.3, durasi agak panjang
+        scheduleTone(800, t + 0.4, 0.2);  // Main di detik ke-0.1
+        scheduleTone(1000, t + 0.8, 0.2); // Main di detik ke-0.2
+        scheduleTone(1300, t + 1.2, 0.4); // Main di detik ke-0.3, durasi agak panjang
         
         if(navigator.vibrate) navigator.vibrate([50, 20, 50, 20, 50]);
     }
