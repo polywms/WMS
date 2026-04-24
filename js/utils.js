@@ -34,12 +34,33 @@ function feedback(type) {
         // Nada error/harsh yang panjang dan jelas (qty berlebih)
         playTone(150, 'sawtooth', 0.3);
         if(navigator.vibrate) navigator.vibrate([100, 50, 100]);
-} else if (type === 'scan_saved') {
-        // Durasi 0.08 memberi jeda hening 0.02 detik antar nada biar suaranya lebih tegas
-        playTone(600, 'sine', 0.08); 
-        setTimeout(() => playTone(800, 'sine', 0.08), 100);
-        setTimeout(() => playTone(1000, 'sine', 0.08), 200);
-        setTimeout(() => playTone(1300, 'sine', 0.5), 300); 
+    } else if (type === 'scan_saved') {
+        if(audioCtx.state === 'suspended') audioCtx.resume();
+        const t = audioCtx.currentTime; // Ambil waktu persis saat ini
+
+        // Fungsi khusus agar nada dijadwalkan langsung di dalam chip audio (anti-lag)
+        const scheduleTone = (freq, startTime, dur) => {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(freq, startTime);
+            gain.gain.setValueAtTime(0.1, startTime);
+            
+            // Bikin efek fade-out super cepat biar perpindahan nada mulus (gak bunyi "klik")
+            gain.gain.setTargetAtTime(0, startTime + dur - 0.02, 0.015); 
+            
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start(startTime);
+            osc.stop(startTime + dur);
+        };
+
+        // Jadwalkan 4 nada berurutan secara absolut (Jarak persis 0.1 detik)
+        scheduleTone(600, t, 0.1);        // Main sekarang
+        scheduleTone(800, t + 0.1, 0.1);  // Main di detik ke-0.1
+        scheduleTone(1000, t + 0.2, 0.1); // Main di detik ke-0.2
+        scheduleTone(1300, t + 0.3, 0.4); // Main di detik ke-0.3, durasi agak panjang
+        
         if(navigator.vibrate) navigator.vibrate([50, 20, 50, 20, 50]);
     }
 }

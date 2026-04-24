@@ -604,7 +604,7 @@ function executeSimpanAction(action) {
     // Simpan ke database dan bersihkan layar
     saveDB(item); 
     addHistoryLog(`${item.partNo} → ${newBox}`, action === 'move' ? `Pindah ${qty}` : `Tambah ${qty}`); 
-    feedback('scan_saved');  // Nada chime lengkap saat berhasil disimpan ke box
+    feedback('scan_saved'); 
     closeSimpanConflictModal(); 
     clearSimpanBuffer(); 
     renderSimpanList(true); 
