@@ -147,7 +147,29 @@ function exportData() {
 // Helper perbaikan Tahun 1899 untuk waktu (Supaya Excel baca YYYY-MM-DD HH:MM:SS)
 function formatExcelTime(isoTime) {
     if (!isoTime) return "";
-    try { return isoTime.replace('T', ' ').split('.')[0]; } catch(e) { return isoTime; }
+    try {
+        // Jika waktu ditarik dari Cloud dan mengandung epoch 1899, ambil jamnya saja
+        if (typeof isoTime === 'string' && isoTime.includes('1899-12-30')) {
+            const d = new Date(isoTime);
+            return d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' }).replace(/\./g, ':');
+        }
+        
+        // Parsing tanggal normal
+        const d = new Date(isoTime);
+        if (!isNaN(d.getTime())) {
+            const pad = n => n.toString().padStart(2, '0');
+            return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+        }
+        
+        // Fallback jika format lama (seperti "14.30.45") terlanjur masuk
+        if (typeof isoTime === 'string' && isoTime.includes('.')) {
+            return isoTime.replace(/\./g, ':'); // Ubah 14.30.45 jadi 14:30:45
+        }
+        
+        return isoTime;
+    } catch(e) { 
+        return isoTime; 
+    }
 }
 
 function exportOffBsData() {

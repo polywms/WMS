@@ -129,7 +129,7 @@ function addHistoryLog(partNo, boxNo) {
     scanHistoryLog.unshift({ 
         partNo: partNo, 
         box: boxNo, 
-        time: new Date().toLocaleTimeString(),
+        time: new Date().toISOString(),
         timestamp: Date.now()
     });
     
@@ -208,7 +208,7 @@ if (currentTab === 'packing') {
             qty: scanQty, 
             qr: rawCode, 
             colly: activeColly, 
-            time: new Date().toLocaleTimeString(), 
+            time: new Date().toISOString(), 
             updated_at: Date.now(),  // Timestamp for two-way sync
             synced: false
         });
@@ -269,7 +269,7 @@ if (currentTab === 'packing') {
             box: activeOffBsBox, 
             qty: scanQty, 
             qr: rawCode, 
-            time: new Date().toLocaleTimeString(),
+            time: new Date().toISOString(),
             updated_at: Date.now(),  // Timestamp for two-way sync
             synced: false
         });
