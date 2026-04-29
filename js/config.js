@@ -14,7 +14,7 @@ let autoSyncTimer = null;
 const QR_PARSERS = {
     standard: {
         name: 'standard',
-        pattern: /^([^|]+)\|(\d+)\|([^|]*)\|(.+)$/,
+        pattern: /^([^|]+)\|(\d+)\|([^|]*)\|([^|]+)/,
         extract: (match) => ({ 
             partNo: match[1].trim(), 
             qty: parseInt(match[2]) || 1, 

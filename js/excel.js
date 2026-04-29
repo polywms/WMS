@@ -178,18 +178,25 @@ function exportOffBsData() {
     const visibleData = offBsSession.filter(item => !hiddenBoxes.includes(item.box));
     if (visibleData.length === 0) { alert("Pastikan sudah mencentang Box di tombol Filter!"); return; }
     
-    const dataToExport = visibleData.map((item, index) => ({
-        "No": visibleData.length - index,
-        "Waktu Scan": formatExcelTime(item.time), // <--- BUG 1899 FIXED
-        "Kode Box/Colly": item.box,
-        "Part Number": item.partNo,
-        "QTY Fisik": item.qty,
-        "Doc Number (SJOB)": item.docNo,
-        "QR Text Raw": item.qr
-    }));
+    const dataToExport = visibleData.map((item, index) => {
+        // Lookup deskripsi part dari localItems
+        const masterItem = localItems.find(i => i.partNo.trim().toUpperCase() === item.partNo.trim().toUpperCase());
+        const deskripsi = masterItem ? masterItem.desc : '-';
+        
+        return {
+            "No": visibleData.length - index,
+            "Waktu Scan": formatExcelTime(item.time), // <--- BUG 1899 FIXED
+            "Kode Box/Colly": item.box,
+            "Part Number": item.partNo,
+            "Deskripsi Part": deskripsi,
+            "QTY Fisik": item.qty,
+            "Doc Number (SJOB)": item.docNo,
+            "QR Text Raw": item.qr
+        };
+    });
     
     const ws = XLSX.utils.json_to_sheet(dataToExport);
-    ws['!cols'] = [{wch: 5}, {wch: 22}, {wch: 25}, {wch: 25}, {wch: 10}, {wch: 35}, {wch: 60}];
+    ws['!cols'] = [{wch: 5}, {wch: 22}, {wch: 25}, {wch: 25}, {wch: 35}, {wch: 10}, {wch: 35}, {wch: 60}];
     const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Temp OFF BS");
     const dStr = new Date().toISOString().slice(0,10).replace(/-/g, ''); const tStr = new Date().toLocaleTimeString('id-ID', {hour: '2-digit', minute:'2-digit'}).replace(/:/g, '');
     XLSX.writeFile(wb, `Packing_OFFBS_${dStr}_${tStr}.xlsx`);
