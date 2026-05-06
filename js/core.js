@@ -79,6 +79,46 @@ function toggleMultiMode() {
     showToast("🔄 Auto-Buffer Mode Active");
 }
 
+function toggleWorkflowMode() {
+    const chk = document.getElementById('chkWorkflowMode');
+    workflowMode = chk.checked ? 'pindah_split' : 'simpan';
+    localStorage.setItem('wms_workflowMode', workflowMode);
+    
+    if (workflowMode === 'pindah_split') {
+        showToast("🔄 Mode: PINDAH/SPLIT (Transfer lokasi existing)");
+    } else {
+        showToast("💾 Mode: PENYIMPANAN (Simpan stok baru)");
+    }
+    feedback('success');
+}
+
+function toggleSimpanBufferMode() {
+    // js/core.js - toggleSimpanBufferMode()
+    // Tujuan: Toggle antara mode buffer (qty calculation) vs direct save
+    // State: useSimpanBuffer (global), wms_useSimpanBuffer (localStorage)
+    const chk = document.getElementById('chkSimpanBuffer');
+    useSimpanBuffer = chk.checked;
+    localStorage.setItem('wms_useSimpanBuffer', useSimpanBuffer.toString());
+    
+    if (useSimpanBuffer) {
+        // Mode Buffer ON - show buffer panel
+        showToast("📊 Mode Buffer AKTIF - Qty Calculation ON");
+        const statusPanel = document.getElementById('simpanStatusPanel');
+        if (statusPanel) statusPanel.style.display = 'block';
+    } else {
+        // Mode Buffer OFF - direct save mode
+        showToast("💾 Mode Direct Save AKTIF - Simpan langsung ke box");
+        // Clear buffer and direct box
+        clearSimpanBuffer();
+        activeDirectBox = null;
+        const statusPanel = document.getElementById('simpanStatusPanel');
+        if (statusPanel) statusPanel.style.display = 'none';
+    }
+    
+    feedback('success');
+    document.getElementById('mainInput').focus();
+}
+
 function toggleHistoryAccordion() {
     const accordion = document.getElementById('historyAccordion');
     const btn = document.getElementById('historyToggleBtn');
@@ -287,101 +327,193 @@ if (currentTab === 'packing') {
     const item = filteredItems.find(i => i.partNo.toUpperCase() === parsedCode);
     
     if (currentTab === 'simpan') {
-        if (isBox) {
-            // Set temporary target box for conflict detection
-            targetBufferBox = parsedCode;
-            
-            // Check if simpanBuffer has items that conflict with this box
-            const conflictedItems = simpanBuffer.filter(b => {
-                const lastBox = b.item.lastBox || '-';
-                // Conflict if: lastBox is not empty, not '-', and doesn't match target
-                return lastBox !== '-' && lastBox !== parsedCode;
-            });
-            
-            // If conflicts exist, show modal; otherwise save all directly
-            if (conflictedItems.length > 0) {
-                showConflictModal(conflictedItems);
-                return;
-            }
-            
-            // Safe to save: no conflicts - SAVE ALL ITEMS IN BUFFER to target box
-            if (simpanBuffer.length > 0) {
-                const boxCode = parsedCode;
-                let savedCount = 0;
-                let totalQtySaved = 0;
+        // ==========================================
+        // BRANCH: useSimpanBuffer TRUE = BUFFER MODE
+        // ==========================================
+        if (useSimpanBuffer) {
+            if (isBox) {
+                // Set temporary target box for conflict detection
+                targetBufferBox = parsedCode;
                 
-                // Save EACH item in buffer to the target box
-                simpanBuffer.forEach(bufferItem => {
-                    const item = bufferItem.item;
-                    const scannedQty = bufferItem.qty;
-                    
-                    // PROTEKSI: Cek apakah qty akan over dari sysQty
-                    const totalPhysical = Object.values(item.locations).reduce((a, b) => a + b, 0);
-                    if ((totalPhysical + scannedQty) > item.sysQty) {
-                        feedback('error');
-                        alert(`⚠️ OVER QTY!\n\nPart: ${item.partNo}\nTarget Sistem: ${item.sysQty}\nUdah Ada: ${totalPhysical}\nMau Tambah: ${scannedQty}\nTotal: ${totalPhysical + scannedQty}\n\nGunakan SPLIT jika perlu pindahkan ke box lain!`);
-                        return;  // Skip this item on qty violation
-                    }
-                    
-                    // Add or update location
-                    if (!item.locations[boxCode]) {
-                        item.locations[boxCode] = 0;
-                    }
-                    item.locations[boxCode] += scannedQty;
-                    item.lastBox = boxCode;  // Update lastBox tracking
-                    
-                    // Save to database
-                    saveDB(item);
-                    savedCount++;
-                    totalQtySaved += scannedQty;
-                    
-                    addHistoryLog(`${item.partNo} → ${boxCode}`, `+${scannedQty}`);
+                // Check if simpanBuffer has items that conflict with this box
+                const conflictedItems = simpanBuffer.filter(b => {
+                    const lastBox = b.item.lastBox || '-';
+                    // Conflict if: lastBox is not empty, not '-', and doesn't match target
+                    return lastBox !== '-' && lastBox !== parsedCode;
                 });
                 
-                // Show summary feedback
-                if (savedCount > 0) {
-                    feedback('success');
-                    if (typeof playChime === 'function') playChime();
-                    
-                    if (savedCount === 1) {
-                        showToast(`✅ ${simpanBuffer[0].item.partNo} (${totalQtySaved} pcs) masuk ke ${boxCode}!`);
-                    } else {
-                        showToast(`✅ ${savedCount} part (${totalQtySaved} pcs total) masuk ke ${boxCode}!`);
-                    }
-                    
-                    // Clear entire buffer and reset
-                    simpanBuffer = [];
-                    tempPart = null;
-                    targetBufferBox = null;
-                    clearSimpanBuffer();  // Clear UI
-                    renderSimpanList(true);
+                // If conflicts exist, show modal; otherwise save all directly
+                if (conflictedItems.length > 0) {
+                    showConflictModal(conflictedItems);
+                    return;
                 }
                 
+                // Safe to save: no conflicts - SAVE ALL ITEMS IN BUFFER to target box
+                if (simpanBuffer.length > 0) {
+                    const boxCode = parsedCode;
+                    let savedCount = 0;
+                    let totalQtySaved = 0;
+                    
+                    // Save EACH item in buffer to the target box
+                    simpanBuffer.forEach(bufferItem => {
+                        const item = bufferItem.item;
+                        const scannedQty = bufferItem.qty;
+                        
+                        // PROTEKSI: Cek apakah qty akan over dari sysQty
+                        const totalPhysical = Object.values(item.locations).reduce((a, b) => a + b, 0);
+                        if ((totalPhysical + scannedQty) > item.sysQty) {
+                            feedback('error');
+                            alert(`⚠️ OVER QTY!\n\nPart: ${item.partNo}\nTarget Sistem: ${item.sysQty}\nUdah Ada: ${totalPhysical}\nMau Tambah: ${scannedQty}\nTotal: ${totalPhysical + scannedQty}\n\nGunakan SPLIT jika perlu pindahkan ke box lain!`);
+                            return;  // Skip this item on qty violation
+                        }
+                        
+                        // Add or update location
+                        if (!item.locations[boxCode]) {
+                            item.locations[boxCode] = 0;
+                        }
+                        item.locations[boxCode] += scannedQty;
+                        item.lastBox = boxCode;  // Update lastBox tracking
+                        
+                        // Save to database
+                        saveDB(item);
+                        savedCount++;
+                        totalQtySaved += scannedQty;
+                        
+                        addHistoryLog(`${item.partNo} → ${boxCode}`, `+${scannedQty}`);
+                    });
+                    
+                    // Show summary feedback
+                    if (savedCount > 0) {
+                        feedback('success');
+                        if (typeof playChime === 'function') playChime();
+                        
+                        if (savedCount === 1) {
+                            showToast(`✅ ${simpanBuffer[0].item.partNo} (${totalQtySaved} pcs) masuk ke ${boxCode}!`);
+                        } else {
+                            showToast(`✅ ${savedCount} part (${totalQtySaved} pcs total) masuk ke ${boxCode}!`);
+                        }
+                        
+                        // Clear entire buffer and reset
+                        simpanBuffer = [];
+                        tempPart = null;
+                        targetBufferBox = null;
+                        clearSimpanBuffer();  // Clear UI
+                        renderSimpanList(true);
+                    }
+                    
+                    return;
+                }
+                
+                // No items in buffer but trying to scan box
+                feedback('error');
+                showToast("⚠️ Scan Part terlebih dahulu sebelum scan Box!");
+                return;
+                
+            } else if (item) {
+                // ==========================================
+                // JIKA SCAN PART -> AKUMULASI QTY (x1, x2)
+                // ==========================================
+                feedback('scan');
+                addToSimpanBuffer(item);
+                return;
+                
+            } else {
+                // ==========================================
+                // PART BARU
+                // ==========================================
+                if (confirm(`Kode "${parsedCode}" Baru. Buat Part?`)) {
+                    const newItem = createNewItem(parsedCode);
+                    addToSimpanBuffer(newItem);
+                }
                 return;
             }
-            
-            // No items in buffer but trying to scan box
-            feedback('error');
-            showToast("⚠️ Scan Part terlebih dahulu sebelum scan Box!");
-            return;
-            
-        } else if (item) {
-            // ==========================================
-            // JIKA SCAN PART -> AKUMULASI QTY (x1, x2)
-            // ==========================================
-            feedback('scan');
-            addToSimpanBuffer(item);
-            return;
-            
-        } else {
-            // ==========================================
-            // PART BARU
-            // ==========================================
-            if (confirm(`Kode "${parsedCode}" Baru. Buat Part?`)) {
-                const newItem = createNewItem(parsedCode);
-                addToSimpanBuffer(newItem);
+        } 
+        // ==========================================
+        // BRANCH: useSimpanBuffer FALSE = DIRECT SAVE
+        // ==========================================
+        else {
+            if (isBox) {
+                // Scan Box = Set active box target
+                activeDirectBox = parsedCode;
+                feedback('scan');
+                showToast(`📦 Box ${parsedCode} Aktif. Scan part untuk langsung simpan!`);
+                document.getElementById('mainInput').focus();
+                return;
+            } else if (item) {
+                // Scan Part = Add qty +1 directly to activeDirectBox
+                if (!activeDirectBox) {
+                    feedback('error');
+                    showToast("⚠️ Scan Box Tujuan terlebih dahulu!");
+                    document.getElementById('mainInput').focus();
+                    return;
+                }
+                
+                // PROTEKSI: Cek apakah qty akan over dari sysQty
+                const totalPhysical = Object.values(item.locations).reduce((a, b) => a + b, 0);
+                const scannedQty = 1; // Direct save: always qty 1 per scan
+                
+                if ((totalPhysical + scannedQty) > item.sysQty) {
+                    feedback('error');
+                    alert(`⚠️ OVER QTY!\n\nPart: ${item.partNo}\nTarget Sistem: ${item.sysQty}\nUdah Ada: ${totalPhysical}\nMau Tambah: ${scannedQty}\nTotal: ${totalPhysical + scannedQty}\n\nGunakan SPLIT jika perlu pindahkan ke box lain!`);
+                    return;
+                }
+                
+                // Add or update location
+                const boxCode = activeDirectBox;
+                if (!item.locations[boxCode]) {
+                    item.locations[boxCode] = 0;
+                }
+                item.locations[boxCode] += scannedQty;
+                item.lastBox = boxCode;
+                
+                // Save to database
+                saveDB(item);
+                
+                // Add to history log
+                addHistoryLog(`${item.partNo} → ${boxCode}`, `+${scannedQty}`);
+                
+                // Show feedback
+                feedback('success');
+                showToast(`✅ ${item.partNo} (+${scannedQty}) → ${boxCode}`);
+                
+                // Refresh UI
+                renderSimpanList(false);
+                document.getElementById('mainInput').focus();
+                return;
+                
+            } else {
+                // ==========================================
+                // PART BARU (Direct Save Mode)
+                // ==========================================
+                if (!activeDirectBox) {
+                    feedback('error');
+                    showToast("⚠️ Scan Box Tujuan terlebih dahulu!");
+                    return;
+                }
+                
+                if (confirm(`Kode "${parsedCode}" Baru. Buat Part dan simpan ke ${activeDirectBox}?`)) {
+                    const newItem = createNewItem(parsedCode);
+                    
+                    // Direct save to active box
+                    const boxCode = activeDirectBox;
+                    if (!newItem.locations[boxCode]) {
+                        newItem.locations[boxCode] = 0;
+                    }
+                    newItem.locations[boxCode] += 1;
+                    newItem.lastBox = boxCode;
+                    
+                    // Save to database
+                    saveDB(newItem);
+                    
+                    // Add to history
+                    addHistoryLog(`${newItem.partNo} → ${boxCode}`, `+1`);
+                    
+                    feedback('success');
+                    showToast(`✅ Part Baru ${parsedCode} (+1) → ${boxCode}`);
+                    renderSimpanList(false);
+                }
+                return;
             }
-            return;
         }
     }
     
@@ -556,12 +688,60 @@ function clearActivePart() {
 }
 
 function checkSimpanConflict(item, newBox) {
-    const existingLocs = Object.keys(item.locations); const oldState = JSON.parse(JSON.stringify(item.locations)); 
-    if (existingLocs.length === 0) { item.locations[newBox] = 0; saveDB(item); addHistoryLog(item.partNo, newBox); feedback('success'); showToast(`Lokasi diset: ${newBox}`); registerUndo('simpan_set', item.id, newBox, oldState); clearActivePart(); return; }
-    if (existingLocs.includes(newBox)) { showToast(`Part sudah ada di ${newBox}`); clearActivePart(); return; }
-    feedback('error'); simpanConflictData = { item, newBox, oldState }; 
-    document.getElementById('simpanConflictModal').style.display = 'flex';
-    document.getElementById('scmPart').innerText = item.partNo; document.getElementById('scmOldLoc').innerText = existingLocs.join(', '); document.getElementById('scmNewBox').innerText = newBox;
+    const existingLocs = Object.keys(item.locations); 
+    const oldState = JSON.parse(JSON.stringify(item.locations));
+    
+    // Kalau tidak ada lokasi existing, langsung set lokasi baru
+    if (existingLocs.length === 0) { 
+        item.locations[newBox] = 0; 
+        saveDB(item); 
+        addHistoryLog(item.partNo, newBox); 
+        feedback('success'); 
+        showToast(`Lokasi diset: ${newBox}`); 
+        registerUndo('simpan_set', item.id, newBox, oldState); 
+        clearActivePart(); 
+        return; 
+    }
+    
+    // Kalau lokasi baru sama dengan lokasi existing, skip
+    if (existingLocs.includes(newBox)) { 
+        showToast(`Part sudah ada di ${newBox}`); 
+        clearActivePart(); 
+        return; 
+    }
+    
+    // === WORKFLOW MODES ===
+    
+    // MODE 1: PENYIMPANAN (Normal) - Direct save without asking
+    if (workflowMode === 'simpan') {
+        // Auto-add ke lokasi baru tanpa tanya (assume split/tambah)
+        if (!item.locations[newBox]) item.locations[newBox] = 0;
+        const qty = simpanBuffer.length > 0 ? simpanBuffer[0].qty : 1;
+        item.locations[newBox] += qty;
+        
+        saveDB(item);
+        addHistoryLog(`${item.partNo} → ${newBox}`, `+${qty}`);
+        feedback('scan_saved');
+        showToast(`✅ Stok baru (+${qty}) ditambah ke ${newBox}`);
+        clearSimpanBuffer();
+        renderSimpanList(true);
+        return;
+    }
+    
+    // MODE 2: PINDAH/SPLIT - Show modal dengan pilihan
+    if (workflowMode === 'pindah_split') {
+        feedback('error'); 
+        const qty = simpanBuffer.length > 0 ? simpanBuffer[0].qty : 1;
+        simpanConflictData = { item, newBox, qty, oldState }; 
+        
+        // Tampilkan modal dengan pilihan move/split
+        document.getElementById('simpanConflictModal').style.display = 'flex';
+        document.getElementById('scmPart').innerText = item.partNo; 
+        document.getElementById('scmOldLoc').innerText = existingLocs.join(', '); 
+        document.getElementById('scmNewBox').innerText = newBox;
+        
+        return;
+    }
 }
 
 function executeSimpanAction(action) {
@@ -1014,6 +1194,7 @@ function switchTab(id) {
     if (currentTab === 'simpan' && currentTab !== id) {
         clearSimpanBuffer();
         targetBufferBox = null;
+        activeDirectBox = null;  // Reset direct box when leaving simpan tab
     }
     
     currentTab = id;
@@ -1447,6 +1628,15 @@ function renderSimpanBuffer() {
     const itemsContainer = document.getElementById('simpanBufferItemsContainer');
     const countDisplay = document.getElementById('simpanBufferCountDisplay');
     const smartPanel = document.getElementById('smartSuggestionPanel');
+    
+    // Hide panel entirely if buffer mode is OFF
+    if (!useSimpanBuffer) {
+        if (statusPanel) statusPanel.style.display = 'none';
+        if (itemsContainer) itemsContainer.innerHTML = '';
+        if (countDisplay) countDisplay.textContent = '0';
+        if (smartPanel) smartPanel.style.display = 'none';
+        return;
+    }
     
     if (!Array.isArray(simpanBuffer) || simpanBuffer.length === 0) {
         statusPanel.style.display = 'none';

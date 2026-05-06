@@ -86,6 +86,11 @@ let scanHistoryLog = []; // History log untuk display (Part >> Box)
 let lastOpnameScanId = null;
 let offBsSession = JSON.parse(localStorage.getItem('wms_off_bs') || '[]');
 let activeOffBsBox = null;
+let workflowMode = localStorage.getItem('wms_workflowMode') || 'simpan'; // 'simpan' atau 'pindah_split'
+
+// ===== SIMPAN BUFFER MODE (NEW - Toggle Qty Calculation) =====
+let useSimpanBuffer = localStorage.getItem('wms_useSimpanBuffer') !== 'false'; // Default true (buffer mode ON)
+let activeDirectBox = null; // Target box aktif untuk mode direct save (useSimpanBuffer = false)
 
 // ===== OPNAME BUFFER (Cashier Mode) =====
 let opnameBuffer = []; // Array of {item, qty} untuk accumulate parts

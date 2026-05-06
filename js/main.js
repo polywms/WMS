@@ -66,6 +66,51 @@ window.onload = async () => {
     // Initialize favicon
     if(typeof updateFavicon === 'function') updateFavicon(false);
     
+    // Initialize Workflow Mode toggle checkbox based on localStorage
+    const chkWorkflowMode = document.getElementById('chkWorkflowMode');
+    if (chkWorkflowMode) {
+        chkWorkflowMode.checked = (workflowMode === 'pindah_split');
+        const icon = document.getElementById('workflowModeIcon');
+        if (icon) {
+            if (workflowMode === 'pindah_split') {
+                icon.style.background = 'var(--active-color)';
+                icon.style.borderColor = 'var(--active-color)';
+                icon.style.color = 'white';
+                icon.title = 'Mode: Pindah/Split';
+            } else {
+                icon.style.background = 'white';
+                icon.style.borderColor = '#cbd5e1';
+                icon.style.color = 'var(--secondary)';
+                icon.title = 'Mode: Penyimpanan';
+            }
+        }
+    }
+    
+    // Initialize Simpan Buffer Mode toggle checkbox based on localStorage
+    const chkSimpanBuffer = document.getElementById('chkSimpanBuffer');
+    if (chkSimpanBuffer) {
+        chkSimpanBuffer.checked = useSimpanBuffer;  // Should be true by default
+        const bufferIcon = document.getElementById('bufferModeIcon');
+        if (bufferIcon) {
+            if (useSimpanBuffer) {
+                bufferIcon.style.background = 'var(--active-color)';
+                bufferIcon.style.borderColor = 'var(--active-color)';
+                bufferIcon.style.color = 'white';
+                bufferIcon.title = 'Mode Buffer: ON';
+            } else {
+                bufferIcon.style.background = 'white';
+                bufferIcon.style.borderColor = '#cbd5e1';
+                bufferIcon.style.color = 'var(--secondary)';
+                bufferIcon.title = 'Mode Buffer: OFF (Direct Save)';
+            }
+        }
+        // Ensure buffer panel visibility matches state
+        const statusPanel = document.getElementById('simpanStatusPanel');
+        if (statusPanel) {
+            statusPanel.style.display = useSimpanBuffer ? 'block' : 'none';
+        }
+    }
+    
     // Check for updates after 3 seconds
     setTimeout(checkForUpdates, 3000);
     

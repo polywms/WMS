@@ -95,6 +95,44 @@
                             ">
                             <div id="kbdIcon" style="width:40px; height:40px; background:white; color:var(--secondary); border:1px solid #cbd5e1; border-radius:8px; display:flex; justify-content:center; align-items:center; transition:0.2s; font-size:1.1rem; cursor:pointer;"><i class="fas fa-keyboard"></i></div>
                         </label>
+                        <!-- Workflow Mode Toggle: Simpan vs Pindah/Split -->
+                        <label style="cursor: pointer; margin: 0;" title="Toggle Workflow: Penyimpanan ↔ Pindah/Split">
+                            <input type="checkbox" id="chkWorkflowMode" style="display:none;" onchange="
+                            toggleWorkflowMode(); 
+                            const iconWF = document.getElementById('workflowModeIcon');
+                            if(this.checked) { 
+                                iconWF.style.background = 'var(--active-color)'; 
+                                iconWF.style.borderColor = 'var(--active-color)'; 
+                                iconWF.style.color = 'white';
+                                iconWF.title = 'Mode: Pindah/Split';
+                            } else { 
+                                iconWF.style.background = 'white'; 
+                                iconWF.style.borderColor = '#cbd5e1'; 
+                                iconWF.style.color = 'var(--secondary)';
+                                iconWF.title = 'Mode: Penyimpanan'; 
+                            }
+                            ">
+                            <div id="workflowModeIcon" style="width:40px; height:40px; background:white; color:var(--secondary); border:1px solid #cbd5e1; border-radius:8px; display:flex; justify-content:center; align-items:center; transition:0.2s; font-size:1rem; cursor:pointer;" title="Mode: Penyimpanan"><i class="fas fa-exchange-alt"></i></div>
+                        </label>
+                        <!-- Buffer Mode Toggle (Qty Calculation) -->
+                        <label style="cursor: pointer; margin: 0;" title="Toggle Mode Kalkulasi Qty (Buffer)">
+                            <input type="checkbox" id="chkSimpanBuffer" style="display:none;" checked onchange="
+                            toggleSimpanBufferMode(); 
+                            const iconBuf = document.getElementById('bufferModeIcon');
+                            if(this.checked) { 
+                                iconBuf.style.background = 'var(--active-color)'; 
+                                iconBuf.style.borderColor = 'var(--active-color)'; 
+                                iconBuf.style.color = 'white';
+                                iconBuf.title = 'Mode Buffer: ON';
+                            } else { 
+                                iconBuf.style.background = 'white'; 
+                                iconBuf.style.borderColor = '#cbd5e1'; 
+                                iconBuf.style.color = 'var(--secondary)';
+                                iconBuf.title = 'Mode Buffer: OFF (Direct Save)'; 
+                            }
+                            ">
+                            <div id="bufferModeIcon" style="width:40px; height:40px; background:var(--active-color); color:white; border:1px solid var(--active-color); border-radius:8px; display:flex; justify-content:center; align-items:center; transition:0.2s; font-size:1.1rem; cursor:pointer;" title="Mode Buffer: ON"><i class="fas fa-calculator"></i></div>
+                        </label>
                         <!-- Multi-Scan Toggle Hidden (Auto-Buffer Default) -->
                         <label style="cursor: pointer; margin: 0; display:none;">
                             <input type="checkbox" id="chkMultiScan" style="display:none;" onchange="toggleMultiMode()">
