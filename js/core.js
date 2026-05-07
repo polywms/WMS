@@ -76,7 +76,7 @@ function toggleKeyboardMode() {
 
 function toggleMultiMode() {
     // Auto-Buffer is default mode now - toggle disabled
-    showToast("🔄 Auto-Buffer Mode Active");
+    showToast("<i class=\"fas fa-sync\"></i> Auto-Buffer Mode Active");
 }
 
 function toggleWorkflowMode() {
@@ -85,9 +85,9 @@ function toggleWorkflowMode() {
     localStorage.setItem('wms_workflowMode', workflowMode);
     
     if (workflowMode === 'pindah_split') {
-        showToast("🔄 Mode: PINDAH/SPLIT (Transfer lokasi existing)");
+        showToast("<i class=\"fas fa-sync\"></i> Mode: PINDAH/SPLIT (Transfer lokasi existing)");
     } else {
-        showToast("💾 Mode: PENYIMPANAN (Simpan stok baru)");
+        showToast("<i class=\"fas fa-save\"></i> Mode: PENYIMPANAN (Simpan stok baru)");
     }
     feedback('success');
 }
@@ -102,12 +102,12 @@ function toggleSimpanBufferMode() {
     
     if (useSimpanBuffer) {
         // Mode Buffer ON - show buffer panel
-        showToast("📊 Mode Buffer AKTIF - Qty Calculation ON");
+        showToast("<i class=\"fas fa-calculator\"></i> Mode Buffer AKTIF - Qty Calculation ON");
         const statusPanel = document.getElementById('simpanStatusPanel');
         if (statusPanel) statusPanel.style.display = 'block';
     } else {
         // Mode Buffer OFF - direct save mode
-        showToast("💾 Mode Direct Save AKTIF - Simpan langsung ke box");
+        showToast("<i class=\"fas fa-save\"></i> Mode Direct Save AKTIF - Simpan langsung ke box");
         // Clear buffer and direct box
         clearSimpanBuffer();
         activeDirectBox = null;
@@ -156,7 +156,7 @@ function toggleOptionsAccordion() {
 function toggleOpnameMode() {
     isOpnameMode = document.getElementById('chkOpnameMode').checked;
     if (isOpnameMode) {
-        showToast("📊 Mode Opname Aktif - Input Qty setelah scan part");
+        showToast("<i class=\"fas fa-calculator\"></i> Mode Opname Aktif - Input Qty setelah scan part");
         feedback('success');
     } else {
         showToast("Mode Opname Non-aktif");
@@ -195,7 +195,7 @@ function renderHistoryLog() {
     
     container.innerHTML = scanHistoryLog.map(item => `
         <div style="padding:6px 8px; border-bottom:1px solid var(--border); font-size:0.85rem; line-height:1.3;">
-            <span style="color:var(--primary);">✓</span> <strong>${item.partNo}</strong> >> <strong>${item.box}</strong> <span style="color:var(--text-secondary); font-size:0.75rem;">${item.time}</span>
+            <span style="color:var(--primary);"><i class="fas fa-check"></i></span> <strong>${item.partNo}</strong> >> <strong>${item.box}</strong> <span style="color:var(--text-secondary); font-size:0.75rem;">${item.time}</span>
         </div>
     `).join('');
 }
@@ -260,7 +260,7 @@ if (currentTab === 'packing') {
         
         feedback('success');
         if (offBsItem) {
-            showToast(`✅ ${partNo} dipindah dari OFF BS → Colly!`);
+            showToast(`<i class="fas fa-check-circle"></i> ${partNo} dipindah dari OFF BS ke Colly!`);
         } else {
             showToast(`${partNo} Masuk Colly!`);
         }
@@ -363,7 +363,7 @@ if (currentTab === 'packing') {
                         const totalPhysical = Object.values(item.locations).reduce((a, b) => a + b, 0);
                         if ((totalPhysical + scannedQty) > item.sysQty) {
                             feedback('error');
-                            alert(`⚠️ OVER QTY!\n\nPart: ${item.partNo}\nTarget Sistem: ${item.sysQty}\nUdah Ada: ${totalPhysical}\nMau Tambah: ${scannedQty}\nTotal: ${totalPhysical + scannedQty}\n\nGunakan SPLIT jika perlu pindahkan ke box lain!`);
+                            alert(`PERINGATAN: OVER QTY!\n\nPart: ${item.partNo}\nTarget Sistem: ${item.sysQty}\nUdah Ada: ${totalPhysical}\nMau Tambah: ${scannedQty}\nTotal: ${totalPhysical + scannedQty}\n\nGunakan SPLIT jika perlu pindahkan ke box lain!`);
                             return;  // Skip this item on qty violation
                         }
                         
@@ -388,9 +388,9 @@ if (currentTab === 'packing') {
                         if (typeof playChime === 'function') playChime();
                         
                         if (savedCount === 1) {
-                            showToast(`✅ ${simpanBuffer[0].item.partNo} (${totalQtySaved} pcs) masuk ke ${boxCode}!`);
+                            showToast(`<i class="fas fa-check-circle"></i> ${simpanBuffer[0].item.partNo} (${totalQtySaved} pcs) masuk ke ${boxCode}!`);
                         } else {
-                            showToast(`✅ ${savedCount} part (${totalQtySaved} pcs total) masuk ke ${boxCode}!`);
+                            showToast(`<i class="fas fa-check-circle"></i> ${savedCount} part (${totalQtySaved} pcs total) masuk ke ${boxCode}!`);
                         }
                         
                         // Clear entire buffer and reset
@@ -406,7 +406,7 @@ if (currentTab === 'packing') {
                 
                 // No items in buffer but trying to scan box
                 feedback('error');
-                showToast("⚠️ Scan Part terlebih dahulu sebelum scan Box!");
+                showToast("<i class=\"fas fa-exclamation-triangle\"></i> Scan Part terlebih dahulu sebelum scan Box!");
                 return;
                 
             } else if (item) {
@@ -436,14 +436,14 @@ if (currentTab === 'packing') {
                 // Scan Box = Set active box target
                 activeDirectBox = parsedCode;
                 feedback('scan');
-                showToast(`📦 Box ${parsedCode} Aktif. Scan part untuk langsung simpan!`);
+                showToast(`<i class="fas fa-box"></i> ${parsedCode} Aktif. Scan part untuk langsung simpan!`);
                 document.getElementById('mainInput').focus();
                 return;
             } else if (item) {
                 // Scan Part = Add qty +1 directly to activeDirectBox
                 if (!activeDirectBox) {
                     feedback('error');
-                    showToast("⚠️ Scan Box Tujuan terlebih dahulu!");
+                    showToast("<i class=\"fas fa-exclamation-triangle\"></i> Scan Box Tujuan terlebih dahulu!");
                     document.getElementById('mainInput').focus();
                     return;
                 }
@@ -454,7 +454,7 @@ if (currentTab === 'packing') {
                 
                 if ((totalPhysical + scannedQty) > item.sysQty) {
                     feedback('error');
-                    alert(`⚠️ OVER QTY!\n\nPart: ${item.partNo}\nTarget Sistem: ${item.sysQty}\nUdah Ada: ${totalPhysical}\nMau Tambah: ${scannedQty}\nTotal: ${totalPhysical + scannedQty}\n\nGunakan SPLIT jika perlu pindahkan ke box lain!`);
+                    alert(`PERINGATAN: OVER QTY!\n\nPart: ${item.partNo}\nTarget Sistem: ${item.sysQty}\nUdah Ada: ${totalPhysical}\nMau Tambah: ${scannedQty}\nTotal: ${totalPhysical + scannedQty}\n\nGunakan SPLIT jika perlu pindahkan ke box lain!`);
                     return;
                 }
                 
@@ -474,7 +474,7 @@ if (currentTab === 'packing') {
                 
                 // Show feedback
                 feedback('success');
-                showToast(`✅ ${item.partNo} (+${scannedQty}) → ${boxCode}`);
+                showToast(`<i class="fas fa-check-circle"></i> ${item.partNo} (+${scannedQty}) -> ${boxCode}`);
                 
                 // Refresh UI
                 renderSimpanList(false);
@@ -487,7 +487,7 @@ if (currentTab === 'packing') {
                 // ==========================================
                 if (!activeDirectBox) {
                     feedback('error');
-                    showToast("⚠️ Scan Box Tujuan terlebih dahulu!");
+                    showToast("<i class=\"fas fa-exclamation-triangle\"></i> Scan Box Tujuan terlebih dahulu!");
                     return;
                 }
                 
@@ -509,7 +509,7 @@ if (currentTab === 'packing') {
                     addHistoryLog(`${newItem.partNo} → ${boxCode}`, `+1`);
                     
                     feedback('success');
-                    showToast(`✅ Part Baru ${parsedCode} (+1) → ${boxCode}`);
+                    showToast(`<i class="fas fa-check-circle"></i> Part Baru ${parsedCode} (+1) -> ${boxCode}`);
                     renderSimpanList(false);
                 }
                 return;
@@ -531,7 +531,7 @@ if (currentTab === 'packing') {
                     opnameBufferBox = parsedCode;
                     setOpnameBoxFilter(parsedCode);  // ← TAMBAHAN: Trigger filter update
                     feedback('scan');
-                    showToast(`📦 Box ditubah ke: ${parsedCode}`);
+                    showToast(`<i class="fas fa-box"></i> Diubah ke: ${parsedCode}`);
                     return;
                 }
             } else if (item) {
@@ -552,7 +552,7 @@ if (currentTab === 'packing') {
                 opnameBufferBox = parsedCode;
                 setOpnameBoxFilter(parsedCode);  // ← TAMBAHAN: Trigger filter + display
                 showOpnameBufferPanel();
-                showToast(`📦 Box ${parsedCode} set. Scan part untuk akumulasi qty...`);
+                showToast(`<i class="fas fa-box"></i> ${parsedCode} diset. Scan part untuk akumulasi qty...`);
                 return;
             } else if (item) {
                 feedback('scan');
@@ -722,7 +722,7 @@ function checkSimpanConflict(item, newBox) {
         saveDB(item);
         addHistoryLog(`${item.partNo} → ${newBox}`, `+${qty}`);
         feedback('scan_saved');
-        showToast(`✅ Stok baru (+${qty}) ditambah ke ${newBox}`);
+        showToast(`<i class="fas fa-check-circle"></i> Stok baru (+${qty}) ditambah ke ${newBox}`);
         clearSimpanBuffer();
         renderSimpanList(true);
         return;
@@ -772,13 +772,13 @@ function executeSimpanAction(action) {
         if (!item.locations[newBox]) item.locations[newBox] = 0;
         item.locations[newBox] += qty;
         
-        showToast(`✅ Pindah ${qty} pcs ke ${newBox}`); 
+        showToast(`<i class="fas fa-check-circle"></i> Pindah ${qty} pcs ke ${newBox}`); 
     } 
     else if (action === 'split') { 
         // LOGIKA TAMBAH (INBOUND): Biarkan rak lama utuh, tambah barang baru di rak baru
         if (!item.locations[newBox]) item.locations[newBox] = 0;
         item.locations[newBox] += qty;
-        showToast(`✅ Stok Baru (+${qty}) ditambah ke ${newBox}`); 
+        showToast(`<i class="fas fa-check-circle"></i> Stok Baru (+${qty}) ditambah ke ${newBox}`); 
     }
     
     // Simpan ke database dan bersihkan layar
@@ -802,10 +802,10 @@ function addToMultiBuffer(item) {
     const existing = multiBuffer.find(b => b.item.id === item.id);
     if (existing) {
         existing.qty++;
-        showToast(`${item.partNo} ➔ x ${existing.qty}`);
+        showToast(`${item.partNo} -> x ${existing.qty}`);
     } else {
         multiBuffer.push({ item: item, qty: 1 });
-        showToast(`${item.partNo} ➔ x 1`);
+        showToast(`${item.partNo} -> x 1`);
     }
     renderMultiBuffer(); 
     const row = document.getElementById(`simpan-row-${item.id}`); 
@@ -896,7 +896,7 @@ function processMultiBatchMove(box, actionType = 'move') {
     });
     
     feedback('success'); 
-    showToast(`✅ ${successCount} Item (${multiBuffer.reduce((a,b)=>a+b.qty, 0)} pcs) berhasil di-${actionType} ke ${box}`); 
+    showToast(`<i class="fas fa-check-circle"></i> ${successCount} Item (${multiBuffer.reduce((a,b)=>a+b.qty, 0)} pcs) berhasil di-${actionType} ke ${box}`); 
     clearMultiBuffer(); 
     renderSimpanList(false); 
 }
@@ -1012,24 +1012,24 @@ function closeOpnameConfirmModal() { document.getElementById('opnameConfirmModal
 function showOpnameInfo(item) { tempPart = item; document.getElementById('opnameInfoPanel').style.display = 'block'; document.getElementById('infoPartNo').innerText = item.partNo; document.getElementById('infoPartDesc').innerText = item.desc; document.getElementById('infoLocList').innerText = Object.entries(item.locations).map(([k,v])=>`${k} (${v})`).join(', ') || "Belum ada lokasi"; document.getElementById('opnameList').style.display = 'none'; }
 
 function clearOpname() {
-    if (confirm("⚠️ PERINGATAN!\n\nReset SEMUA HASIL OPNAME (Qty jadi 0)?")) {
+    if (confirm("PERINGATAN!\n\nReset SEMUA HASIL OPNAME (Qty jadi 0)?")) {
         if (prompt("Ketik kata 'RESET' untuk melanjutkan:") === "RESET") {
             const tx = db.transaction('items', 'readwrite'); const st = tx.objectStore('items'); let resetCount = 0;
             localItems.forEach(item => {
                 let hasChanges = false; for (let box in item.locations) { if (item.locations[box] > 0) { item.locations[box] = 0; hasChanges = true; } }
                 if (hasChanges) { st.put(item); resetCount++; }
             });
-            tx.oncomplete = () => { alert(`✅ Selesai!\n${resetCount} Part di-reset.`); location.reload(); }; tx.onerror = () => { alert('❌ Gagal mereset!'); };
+            tx.oncomplete = () => { alert(`SELESAI!\n${resetCount} Part di-reset.`); location.reload(); }; tx.onerror = () => { alert('GAGAL: Gagal mereset!'); };
         } else { alert('Batal mereset.'); }
     }
 }
 
 function resetCurrentBoxOpname() {
     if (!activeBoxFilter) return;
-    if (confirm(`⚠️ ULANG PERHITUNGAN BOX: ${activeBoxFilter}?`)) {
+    if (confirm(`PERINGATAN: ULANG PERHITUNGAN BOX: ${activeBoxFilter}?`)) {
         const tx = db.transaction('items', 'readwrite'); const st = tx.objectStore('items');
         localItems.forEach(item => { if (item.locations[activeBoxFilter] > 0) { item.locations[activeBoxFilter] = 0; st.put(item); } });
-        tx.oncomplete = () => { feedback('success'); showToast(`✅ Box ${activeBoxFilter} di-reset ke 0`); handleOpnameRender(); };
+        tx.oncomplete = () => { feedback('success'); showToast(`<i class="fas fa-check-circle"></i> Box ${activeBoxFilter} di-reset ke 0`); handleOpnameRender(); };
     }
 }
 
@@ -1170,7 +1170,7 @@ function renderSmartSuggestion(item) {
     panelEl.style.display = 'block';
     
     // Update header text
-    textEl.innerText = `💡 Ada ${siblings.length} Part Seri Serupa`;
+    textEl.innerHTML = `<i class="fas fa-lightbulb"></i> Ada ${siblings.length} Part Seri Serupa`;
     
     // Render siblings list
     let html = '';
@@ -1303,12 +1303,12 @@ function processOpnameBuffer(boxCode) {
     // Feedback
     feedback('success');
     playChime();
-    showToast(`✅ Box ${boxCode}: ${processedCount} part diproses!`);
+    showToast(`<i class="fas fa-box"></i> Box ${boxCode}: ${processedCount} part diproses!`);
 
     if (overQtyWarnings.length > 0) {
         const msg = overQtyWarnings.map(w => `${w.partNo}: ${w.total}/${w.target} (+${w.diff})`).join('\n');
         setTimeout(() => {
-            alert(`⚠️ PERHATIAN: Over Qty!\n\n${msg}`);
+            alert(`PERHATIAN: Over Qty!\n\n${msg}`);
         }, 500);
     }
 
@@ -1413,7 +1413,7 @@ function addToSimpanBuffer(item) {
         if (targetBufferBox && item.lastBox && item.lastBox !== '-' && item.lastBox !== targetBufferBox) {
             bufferItem.hasConflict = true;
             feedback('warning');  // Double-beep audio for conflict
-            showToast(`⚠️ ${item.partNo} - Awal: ${item.lastBox}, Target: ${targetBufferBox}`);
+            showToast(`<i class="fas fa-exclamation-triangle"></i> ${item.partNo} - Awal: ${item.lastBox}, Target: ${targetBufferBox}`);
         } else {
             showToast(`${item.partNo} ➔ +${scanQty} Scan`);
         }
@@ -1455,7 +1455,7 @@ function showConflictModal(conflictedItems) {
     const container = document.getElementById('conflictListContainer');
     
     if (!modal || !container) {
-        console.warn('❌ conflictModal atau conflictListContainer tidak ditemukan di HTML');
+        console.warn('<i class="fas fa-times-circle"></i> conflictModal atau conflictListContainer tidak ditemukan di HTML');
         return;
     }
     
@@ -1488,7 +1488,7 @@ function showConflictModal(conflictedItems) {
     const footer = document.createElement('div');
     footer.style.cssText = 'display:flex; gap:12px; margin-top:16px; padding-top:12px; border-top:1px solid #e2e8f0; justify-content:flex-end;';
     footer.innerHTML = `
-        <button onclick="forceSaveAllConflicts()" style="padding:8px 16px; background:#16a34a; color:white; border:none; border-radius:6px; cursor:pointer; font-weight:bold;">✅ Simpan Semua</button>
+        <button onclick="forceSaveAllConflicts()" style="padding:8px 16px; background:#16a34a; color:white; border:none; border-radius:6px; cursor:pointer; font-weight:bold;"><i class="fas fa-check-circle"></i> Simpan Semua</button>
         <button onclick="closeConflictModal()" style="padding:8px 16px; background:#6b7280; color:white; border:none; border-radius:6px; cursor:pointer;">Tutup</button>
     `;
     container.appendChild(footer);
@@ -1519,7 +1519,7 @@ function handleMove(partId, newBox) {
     // Save to database
     saveDB(item);
     feedback('success');
-    showToast(`✅ ${item.partNo} dipindah ke ${newBox}`);
+    showToast(`<i class="fas fa-check-circle"></i> ${item.partNo} dipindah ke ${newBox}`);
     
     // Refresh modal
     const remainingConflicts = simpanBuffer.filter(b => b.hasConflict);
@@ -1555,7 +1555,7 @@ function handleSplit(partId, newBox) {
     // Save to database
     saveDB(item);
     feedback('success');
-    showToast(`✅ ${item.partNo} di-split ke ${newBox} (total: ${Object.values(item.locations).reduce((a,b)=>a+b,0)} pcs)`);
+    showToast(`<i class="fas fa-check-circle"></i> ${item.partNo} di-split ke ${newBox} (total: ${Object.values(item.locations).reduce((a,b)=>a+b,0)} pcs)`);
     
     // Refresh modal
     const remainingConflicts = simpanBuffer.filter(b => b.hasConflict);
@@ -1576,7 +1576,7 @@ function handleCancel(partId) {
     
     simpanBuffer = simpanBuffer.filter(b => b.item.id !== partId);
     feedback('error');
-    showToast(`❌ ${bufferItem.item.partNo} dibatalkan dari buffer`);
+    showToast(`<i class="fas fa-times-circle"></i> ${bufferItem.item.partNo} dibatalkan dari buffer`);
     
     // Refresh modal
     const remainingConflicts = simpanBuffer.filter(b => b.hasConflict);
@@ -1626,7 +1626,7 @@ function forceSaveAllConflicts() {
     renderSimpanList(true);
     
     feedback('success');
-    showToast(`✅ Semua item tersimpan (${simpanBuffer.length} pcs)`);
+    showToast(`<i class="fas fa-check-circle"></i> Semua item tersimpan (${simpanBuffer.length} pcs)`);
 }
 
 function renderSimpanBuffer() {
@@ -1665,7 +1665,7 @@ function renderSimpanBuffer() {
         const dbQty = Object.values(item.locations).reduce((a, b) => a + b, 0);  // Existing DB qty
         const visualTotalQty = dbQty + scanCount;  // Total for UI display only
         const locList = Object.keys(item.locations || {}).join(', ') || 'Belum Box';
-        const conflictBadge = bufferItem.hasConflict ? '<span style="background: rgba(255, 255, 255, 0.3); padding: 2px 6px; border-radius: 4px; font-size: 0.75rem; font-weight: bold;">⚠️ Konflik</span>' : '';
+        const conflictBadge = bufferItem.hasConflict ? '<span style="background: rgba(255, 255, 255, 0.3); padding: 2px 6px; border-radius: 4px; font-size: 0.75rem; font-weight: bold;"><i class="fas fa-exclamation-triangle" style="margin-right: 4px;"></i> Konflik</span>' : '';
         
         // Tentukan status kuantitas dan class CSS berdasarkan visualTotalQty
         let statusClass = 'simpan-buffer-item';

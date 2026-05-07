@@ -3,11 +3,11 @@
 function handleImport(input) {
     const f = input.files[0]; 
     if(!f) return;
-    showLoading("📥 Import Stock", `Membaca file: ${f.name}`);
+    showLoading("<i class=\"fas fa-download\"></i> Import Stock", `Membaca file: ${f.name}`);
     const r = new FileReader();
     r.onload = async e => {
-        showLoading("📥 Import Stock", "Memproses data...");
-        updateSyncUI("🔄 Membaca Excel...");
+        showLoading("<i class=\"fas fa-download\"></i> Import Stock", "Memproses data...");
+        updateSyncUI("<i class=\"fas fa-spinner\" style=\"animation: spin 1s linear infinite;\"></i> Membaca Excel...");
         const wb = XLSX.read(e.target.result, {type:'array'});
         const json = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {defval:''});
         
@@ -63,12 +63,12 @@ function handleImport(input) {
         });
         
         tx.oncomplete = async () => {
-            showLoading("📥 Import Stock", "Mengirim ke cloud...");
-            updateSyncUI("🚀 Mengirim ke Cloud (Mohon Tunggu)...");
+            showLoading("<i class=\"fas fa-download\"></i> Import Stock", "Mengirim ke cloud...");
+            updateSyncUI("<i class=\"fas fa-paper-plane\"></i> Mengirim ke Cloud (Mohon Tunggu)...");
             try {
                 await fetch(API_URL, { method: "POST", redirect: "follow", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ action: "bulk_import", data: bulkDataToUpload, logs: [{ partNo: "SEMUA", action: "IMPORT EXCEL", detail: `Import ${bulkDataToUpload.length} Baris Data` }] }) });
                 hideLoading();
-                alert(`Import & Sync Selesai!\n✅ Data berhasil masuk Google Sheets.\n🛡️ ${rescuedCount} Part Temuan dipertahankan.\n🚫 ${fgSkippedCount} Baris 'FG' dibuang.`);
+                alert(`IMPORT & SYNC SELESAI!\nDATA BERHASIL MASUK GOOGLE SHEETS.\n${rescuedCount} Part Temuan dipertahankan.\n${fgSkippedCount} Baris 'FG' dibuang.`);
             } catch (err) { hideLoading(); alert(`Import Lokal Selesai, tapi GAGAL tersambung ke Cloud.`); }
             location.reload(); 
         };
@@ -77,7 +77,7 @@ function handleImport(input) {
 }
 
 function exportData() {
-    showLoading("📤 Export Data", "Mempersiapkan file...");
+    showLoading("<i class='fas fa-arrow-up'></i> Export Data", "Mempersiapkan file...");
     
     // ===== FLATTENED FORMAT: Satu baris per lokasi =====
     const flattenedData = [];
@@ -239,7 +239,7 @@ function exportLabelReport() {
 }
 
 function backupJson() {
-    showLoading("💾 Backup JSON", "Mempersiapkan file...");
+    showLoading("<i class='fas fa-save'></i> Backup JSON", "Mempersiapkan file...");
     const b = new Blob([JSON.stringify(localItems.map(i => ({ partNo: i.partNo, locations: i.locations, harga: i.harga || 0 })))], {type:'application/json'});
     const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = `Mapping_Lokasi_${new Date().toISOString().slice(0,10)}.json`; a.click();
     setTimeout(hideLoading, 500);
@@ -248,10 +248,10 @@ function backupJson() {
 function restoreJson(input) {
     const f = input.files[0]; if(!f) return;
     if(!confirm("Restore JSON akan menimpa LOKASI FISIK part.\nLanjutkan?")) { input.value = ''; return; }
-    showLoading("📂 Restore JSON", `Membaca file: ${f.name}`);
+    showLoading("<i class='fas fa-folder-open'></i> Restore JSON", `Membaca file: ${f.name}`);
     const r = new FileReader(); 
     r.onload = e => {
-        showLoading("📂 Restore JSON", "Memproses data...");
+        showLoading("<i class='fas fa-folder-open'></i> Restore JSON", "Memproses data...");
         const backupData = JSON.parse(e.target.result); const tx = db.transaction('items','readwrite'); const st = tx.objectStore('items'); 
         st.getAll().onsuccess = ev => {
             const currentItems = ev.target.result || []; let updateCount = 0;
@@ -264,7 +264,7 @@ function restoreJson(input) {
                     updateCount++; 
                 }
             });
-            tx.oncomplete = () => { hideLoading(); alert(`✅ Restore Selesai!\\n${updateCount} part di-update (termasuk harga).`); location.reload(); };
+            tx.oncomplete = () => { hideLoading(); alert(`RESTORE SELESAI!\\n${updateCount} part di-update (termasuk harga).`); location.reload(); };
         };
     }; r.readAsText(f);
 }
@@ -278,12 +278,12 @@ function handleImportHarga(input) {
     const f = input.files[0];
     if (!f) return;
     
-    showLoading("💰 Import Harga", `Membaca file: ${f.name}`);
+    showLoading("<i class='fas fa-tags'></i> Import Harga", `Membaca file: ${f.name}`);
     const r = new FileReader();
     r.onload = async e => {
         try {
-            showLoading("💰 Import Harga", "Memproses data...");
-            updateSyncUI("🔄 Membaca File Harga...");
+            showLoading("<i class='fas fa-tags'></i> Import Harga", "Memproses data...");
+            updateSyncUI("<i class=\"fas fa-spinner\" style=\"animation: spin 1s linear infinite;\"></i> Membaca File Harga...");
             
             const wb = XLSX.read(e.target.result, {type:'array'});
             const json = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {defval:''});
@@ -297,9 +297,9 @@ function handleImportHarga(input) {
             
             if (hargaData.length === 0) {
                 hideLoading();
-                alert("❌ Tidak ada data harga ditemukan di file!");
+                alert("PERINGATAN: Tidak ada data harga ditemukan di file!");
                 input.value = '';
-                updateSyncUI("🟢 Siap");
+                updateSyncUI("<i class=\"fas fa-circle\" style=\"color: #22c55e; font-size: 0.6rem; margin-right: 4px;\"></i> Siap");
                 return;
             }
             
@@ -331,8 +331,8 @@ function handleImportHarga(input) {
             });
             
             tx.oncomplete = async () => {
-                showLoading("💰 Import Harga", `Mengirim ${updatedCount} data ke cloud...`);
-                updateSyncUI("🚀 Mengirim Harga ke Cloud...");
+                showLoading("<i class='fas fa-tags'></i> Import Harga", `Mengirim ${updatedCount} data ke cloud...`);
+                updateSyncUI("<i class=\"fas fa-paper-plane\"></i> Mengirim Harga ke Cloud...");
                 
                 try {
                     // Kirim ke Google Apps Script
@@ -351,29 +351,29 @@ function handleImportHarga(input) {
                     hideLoading();
                     
                     if (result.status === "success") {
-                        alert(`✅ Import Harga Selesai!\\n\\n💰 ${updatedCount} Part berhasil di-update harganya\\n❌ ${notFoundCount} Part tidak ditemukan (diabaikan)\\n📤 Data sudah tersimpan lokal & cloud`);
+                        alert(`IMPORT HARGA SELESAI!\\n\\n${updatedCount} Part berhasil di-update harganya\\n${notFoundCount} Part tidak ditemukan (diabaikan)\\nData sudah tersimpan lokal & cloud`);
                     } else {
-                        alert(`⚠️ Import Lokal Selesai (${updatedCount} part)!\\nTapi upload ke cloud: ${result.message}`);
+                        alert(`PERHATIAN: Import Lokal Selesai (${updatedCount} part)!\\nTapi upload ke cloud: ${result.message}`);
                     }
                     
                     input.value = '';
-                    updateSyncUI("🟢 Siap");
+                    updateSyncUI("<i class=\"fas fa-circle\" style=\"color: #22c55e; font-size: 0.6rem; margin-right: 4px;\"></i> Siap");
                     location.reload();
                 } catch (err) {
                     hideLoading();
                     console.error('Import Harga Cloud Error:', err);
-                    alert(`✅ Harga sudah tersimpan lokal (${updatedCount} part)!\\n⚠️ Tapi gagal upload ke cloud: ${err.message}`);
+                    alert(` SUKSES: Harga sudah tersimpan lokal (${updatedCount} part)!\\nPERHATIAN: Tapi gagal upload ke cloud: ${err.message}`);
                     input.value = '';
-                    updateSyncUI("🟡 Warning");
+                    updateSyncUI("<i class=\"fas fa-exclamation-triangle\"></i> Warning");
                     setTimeout(() => location.reload(), 2000);
                 }
             };
         } catch (err) {
             hideLoading();
             console.error('Import Harga Error:', err);
-            alert(`❌ Gagal membaca file: ${err.message}`);
+            alert(`GAGAL: Gagal membaca file: ${err.message}`);
             input.value = '';
-            updateSyncUI("🔴 Error");
+            updateSyncUI("<i class=\"fas fa-times-circle\"></i> Error");
         }
     };
     
@@ -390,10 +390,10 @@ function handleImportOffBS(input) {
         return;
     }
     
-    showLoading("📥 Import OFF BS", `Membaca file: ${f.name}`);
+    showLoading("<i class=\"fas fa-download\"></i> Import OFF BS", `Membaca file: ${f.name}`);
     const r = new FileReader();
     r.onload = async e => {
-        updateSyncUI("🔄 Membaca File OFF BS...");
+        updateSyncUI("<i class=\"fas fa-spinner\" style=\"animation: spin 1s linear infinite;\"></i> Membaca File OFF BS...");
         
         try {
             const wb = XLSX.read(e.target.result, {type:'array'});
@@ -440,14 +440,14 @@ function handleImportOffBS(input) {
             
             if (offBsData.length === 0) {
                 hideLoading();
-                alert("❌ Tidak ada data RECEIPT yang ditemukan di file!");
+                alert("PERINGATAN: Tidak ada data RECEIPT yang ditemukan di file!");
                 input.value = '';
-                updateSyncUI("🟢 Siap");
+                updateSyncUI("<i class=\"fas fa-circle\" style=\"color: #22c55e; font-size: 0.6rem; margin-right: 4px;\"></i> Siap");
                 return;
             }
             
-            showLoading("📥 Import OFF BS", `Mengirim ${offBsData.length} baris ke cloud...`);
-            updateSyncUI(`🚀 Mengirim ${offBsData.length} Data OFF BS ke Cloud...`);
+            showLoading("<i class=\"fas fa-download\"></i> Import OFF BS", `Mengirim ${offBsData.length} baris ke cloud...`);
+            updateSyncUI(`<i class=\"fas fa-paper-plane\"></i> Mengirim ${offBsData.length} Data OFF BS ke Cloud...`);
             
             const response = await fetch(API_URL, {
                 method: "POST",
@@ -464,21 +464,21 @@ function handleImportOffBS(input) {
             
             if (result.status === "success") {
                 hideLoading();
-                alert(`✅ Import OFF BS Selesai!\n\n📊 Data yang diimpor: ${offBsData.length} baris\n💾 Sheet Master_Off_BS sudah diperbarui di Google Sheets`);
+                alert(`IMPORT OFF BS SELESAI!\\n\\nData yang diimpor: ${offBsData.length} baris\\nSheet Master_Off_BS sudah diperbarui di Google Sheets`);
                 input.value = '';
-                updateSyncUI("🟢 Siap");
+                updateSyncUI("<i class=\"fas fa-circle\" style=\"color: #22c55e; font-size: 0.6rem; margin-right: 4px;\"></i> Siap");
             } else {
                 hideLoading();
-                alert(`❌ Error: ${result.message}`);
+                alert(`GAGAL: ${result.message}`);
                 input.value = '';
-                updateSyncUI("🔴 Error");
+                updateSyncUI("<i class=\"fas fa-times-circle\"></i> Error");
             }
         } catch (err) {
             hideLoading();
             console.error('Import OFF BS Error:', err);
-            alert(`❌ Gagal membaca file atau mengirim ke cloud: ${err.message}`);
+            alert(`GAGAL: Gagal membaca file atau mengirim ke cloud: ${err.message}`);
             input.value = '';
-            updateSyncUI("🔴 Error");
+            updateSyncUI("<i class=\"fas fa-times-circle\"></i> Error");
         }
     };
     

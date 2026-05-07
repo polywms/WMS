@@ -8,7 +8,7 @@ let packingSession = JSON.parse(localStorage.getItem('wms_packing')) || [];
 let collyList = JSON.parse(localStorage.getItem('wms_colly_list')) || [];
 let activeColly = localStorage.getItem('wms_active_colly') || null;
 
-function updateSyncUI(text) { const el = document.getElementById('syncStatus'); if(el) el.innerText = text; }
+function updateSyncUI(text) { const el = document.getElementById('syncStatus'); if(el) el.innerHTML = text; }
 
 function initDB() {
     return new Promise(resolve => {
@@ -38,25 +38,25 @@ function loadDataFromLocal() {
 }
 
 async function fetchInitialDataFromCloud() {
-    if (!navigator.onLine) { updateSyncUI("🔴 Offline (Mode Lokal)"); loadDataFromLocal(); return; }
-    updateSyncUI("🟡 Menghubungkan ke Database...");
+    if (!navigator.onLine) { updateSyncUI("<i class=\"fas fa-circle\" style=\"color: #ef4444; font-size: 0.6rem; margin-right: 4px;\"></i> Offline (Mode Lokal)"); loadDataFromLocal(); return; }
+    updateSyncUI("<i class=\"fas fa-spinner\" style=\"animation: spin 1s linear infinite;\"></i> Menghubungkan ke Database...");
     try {
         const controller = new AbortController(); const timeoutId = setTimeout(() => controller.abort(), 30000); 
         const response = await fetch(API_URL, { redirect: "follow", signal: controller.signal }); clearTimeout(timeoutId); 
-        updateSyncUI("🔄 Menerima Data..."); const result = await response.json();
+updateSyncUI("<i class=\"fas fa-spinner\" style=\"animation: spin 1s linear infinite;\"></i> Menerima Data..."); const result = await response.json();
         
         if (result.status === "success") {
             if (result.data && Array.isArray(result.data)) {
                 if (result.data.length > 0) {
-                    updateSyncUI(`🔄 Memproses ${result.data.length} Item...`);
+                    updateSyncUI(`<i class=\"fas fa-spinner\" style=\"animation: spin 1s linear infinite;\"></i> Memproses ${result.data.length} Item...`);
                     const tx = db.transaction('items', 'readwrite'); const store = tx.objectStore('items');
                     store.clear(); result.data.forEach(item => store.add(item)); 
-                    tx.oncomplete = () => { updateSyncUI("🟢 Tersambung & Update"); loadDataFromLocal(); setTimeout(() => updateSyncUI("🟢 Online"), 3000); };
-                } else { updateSyncUI("🟢 Database Kosong"); loadDataFromLocal(); setTimeout(() => updateSyncUI("🟢 Online"), 3000); }
-            } else { updateSyncUI("🔴 Gagal (Data Rusak)"); loadDataFromLocal(); }
-        } else { updateSyncUI("🔴 Gagal (Error Script)"); loadDataFromLocal(); }
+                    tx.oncomplete = () => { updateSyncUI("<i class=\"fas fa-circle\" style=\"color: #22c55e; font-size: 0.6rem; margin-right: 4px;\"></i> Tersambung & Update"); loadDataFromLocal(); setTimeout(() => updateSyncUI("<i class=\"fas fa-circle\" style=\"color: #22c55e; font-size: 0.6rem; margin-right: 4px;\"></i> Online"), 3000); };
+                } else { updateSyncUI("<i class=\"fas fa-circle\" style=\"color: #22c55e; font-size: 0.6rem; margin-right: 4px;\"></i> Database Kosong"); loadDataFromLocal(); setTimeout(() => updateSyncUI("<i class=\"fas fa-circle\" style=\"color: #22c55e; font-size: 0.6rem; margin-right: 4px;\"></i> Online"), 3000); }
+            } else { updateSyncUI("<i class=\"fas fa-times-circle\"></i> Gagal (Data Rusak)"); loadDataFromLocal(); }
+         } else { updateSyncUI("<i class=\"fas fa-times-circle\"></i> Gagal (Error Script)"); loadDataFromLocal(); }
     } catch (error) {
-        if (error.name === 'AbortError') updateSyncUI("🔴 Timeout (Server Lambat)"); else updateSyncUI("🔴 Gagal Terhubung (Cek API)");
+         if (error.name === 'AbortError') updateSyncUI("<i class=\"fas fa-times-circle\"></i> Timeout (Server Lambat)"); else updateSyncUI("<i class=\"fas fa-times-circle\"></i> Gagal Terhubung (Cek API)");
         loadDataFromLocal(); 
     }
 }
@@ -67,8 +67,8 @@ function saveDB(item, actionName = "UPDATE", actionDetail = "") {
     
     // Prevent queue overflow - critical safeguard
     if (syncQueue.length >= MAX_QUEUE_SIZE) {
-        alert("⚠️ PERINGATAN SISTEM!\n\nQueue penyimpanan penuh (>500 items).\n\nTunggu koneksi stabil atau clear data manual.");
-        updateSyncUI("🔴 Queue PENUH!");
+         alert("PERINGATAN SISTEM!\n\nQueue penyimpanan penuh (>500 items).\n\nTunggu koneksi stabil atau clear data manual.");
+         updateSyncUI("<i class=\"fas fa-exclamation-triangle\"></i> Queue PENUH!");
         return;
     }
     
@@ -80,13 +80,13 @@ function saveDB(item, actionName = "UPDATE", actionDetail = "") {
     syncLogs.push({ partNo: item.partNo, action: actionName, detail: actionDetail || "Update Qty/Lokasi", timestamp: Date.now() });
     // Persist logs to localStorage (keep only last 100 logs to avoid overflow)
     localStorage.setItem('wms_syncLogs', JSON.stringify(syncLogs.slice(-100)));
-    updateSyncUI("🟡 Menunggu Sync...");
+     updateSyncUI("<i class=\"fas fa-spinner\" style=\"animation: spin 1s linear infinite;\"></i> Menunggu Sync...");
 }
 
 async function processSyncQueue() {
     if (isSyncing || (syncQueue.length === 0 && syncLogs.length === 0) || !navigator.onLine) return;
     isSyncing = true; 
-    updateSyncUI("🔄 Syncing...");
+updateSyncUI("<i class=\"fas fa-sync\"></i> Syncing...");
     
     try {
         let successCount = 0;
@@ -100,7 +100,7 @@ async function processSyncQueue() {
             batch.forEach(item => uniqueItemsMap[item.id] = item);
             
             const payload = { action: "sync", data: Object.values(uniqueItemsMap), logs: syncLogs, batch: batchNum };
-            updateSyncUI(`🔄 Syncing (Batch ${batchNum})...`);
+updateSyncUI(`<i class=\"fas fa-sync\"></i> Syncing (Batch ${batchNum})...`);
             
             const response = await fetch(API_URL, { 
                 method: "POST", 
@@ -115,7 +115,7 @@ async function processSyncQueue() {
             } else { 
                 // Revert batch if failed
                 syncQueue.unshift(...batch); 
-                updateSyncUI("🔴 Gagal Sync"); 
+                 updateSyncUI("<i class=\"fas fa-times-circle\"></i> Gagal Sync");
                 break;
             }
         }
@@ -125,10 +125,10 @@ async function processSyncQueue() {
             // Clear persisted queues on success
             localStorage.removeItem('wms_syncQueue');
             localStorage.removeItem('wms_syncLogs');
-            updateSyncUI("🟢 Tersimpan"); 
+             updateSyncUI("<i class=\"fas fa-check-circle\"></i> Tersimpan");
         }
     } catch (error) { 
-        updateSyncUI("🔴 Offline"); 
+         updateSyncUI("<i class=\"fas fa-circle\" style=\"color: #ef4444; font-size: 0.6rem; margin-right: 4px;\"></i> Offline");
     } finally { 
         isSyncing = false; 
     }
@@ -137,17 +137,17 @@ async function processSyncQueue() {
 async function triggerOffBsSync() {
     if (!navigator.onLine || isSyncing || typeof offBsSession === 'undefined') return;
     const unsyncedData = offBsSession.filter(i => !i.synced); if (unsyncedData.length === 0) return; 
-    isSyncing = true; updateSyncUI("🔄 Syncing OFF BS...");
+     isSyncing = true; updateSyncUI("<i class=\"fas fa-sync\"></i> Syncing OFF BS...");
     try {
         const response = await fetch(API_URL, { method: "POST", redirect: "follow", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ action: "sync_off_bs", data: unsyncedData }) });
         const result = await response.json();
         if (result.status === "success") {
             unsyncedData.forEach(u => u.synced = true); localStorage.setItem('wms_off_bs', JSON.stringify(offBsSession));
-            updateSyncUI("🟢 OFF BS Tersimpan");
+             updateSyncUI("<i class=\"fas fa-check-circle\"></i> OFF BS Tersimpan");
             if(currentTab === 'offbs') renderOffBsList(); 
-            if (result.duplicates > 0) alert(`⚠️ PERINGATAN SINKRONISASI!\n\n${result.duplicates} data ditolak oleh Cloud karena part dan dokumen sudah masuk Database sebelumnya.\n\nPart ditolak:\n${result.duplicateParts.join(', ')}`);
-        } else { updateSyncUI("🔴 Gagal Sync OFF BS"); }
-    } catch (err) { updateSyncUI("🔴 Offline"); } finally { isSyncing = false; }
+             if (result.duplicates > 0) alert(`PERINGATAN SINKRONISASI!\n\n${result.duplicates} data ditolak oleh Cloud karena part dan dokumen sudah masuk Database sebelumnya.\n\nPart ditolak:\n${result.duplicateParts.join(', ')}`);
+         } else { updateSyncUI("<i class=\"fas fa-times-circle\"></i> Gagal Sync OFF BS"); }
+     } catch (err) { updateSyncUI("<i class=\"fas fa-circle\" style=\"color: #ef4444; font-size: 0.6rem; margin-right: 4px;\"></i> Offline"); } finally { isSyncing = false; }
 }
 
 async function fetchCloudOffBs() {
@@ -181,7 +181,7 @@ function renderCloudAccordion(data) {
     let html = `
     <div style="margin-bottom: 15px;">
         <select id="cloudBoxFilter" onchange="filterCloudBoxes(this.value)" style="width:100%; padding:10px 12px; border-radius:8px; border:1px solid #cbd5e1; font-weight:bold; color:var(--text); background:white; font-size:0.9rem; outline:none;">
-            <option value="ALL">📦 -- Tampilkan Semua Box --</option>
+            <option value="ALL"><i class="fas fa-box" style="margin-right: 4px;"></i> -- Tampilkan Semua Box --</option>
             ${sortedBoxes.map(boxName => `<option value="${boxName}">Box: ${boxName}</option>`).join('')}
         </select>
     </div>
@@ -249,7 +249,7 @@ window.importCloudToLocal = function() {
     offBsSession.sort((a, b) => new Date(b.time) - new Date(a.time));
     if(typeof renderOffBsList === 'function') renderOffBsList();
     document.getElementById('cloudOffBsModal').style.display = 'none';
-    if(typeof showToast === 'function') showToast(importCount > 0 ? `✅ ${importCount} data ditarik!` : "ℹ️ Semua data sudah ada.");
+     if(typeof showToast === 'function') showToast(importCount > 0 ? `<i class="fas fa-check-circle"></i> ${importCount} data ditarik!` : "<i class=\"fas fa-info-circle\"></i> Semua data sudah ada.");
 };
 
 window.openOffBsFilterModal = function() {
@@ -377,7 +377,7 @@ window.renderCollyUI = function() {
         sel.innerHTML = '<option value="">-- Pilih Colly Tujuan --</option>';
         collyList.forEach(c => {
             const isSelected = (c === activeColly) ? 'selected' : '';
-            sel.innerHTML += `<option value="${c}" ${isSelected}>📦 ${c}</option>`;
+            sel.innerHTML += `<option value="${c}" ${isSelected}><i class="fas fa-box"></i> ${c}</option>`;
         });
     }
 
@@ -598,7 +598,7 @@ window.clearOffBsSession = function() {
         document.getElementById('activeOffBsBoxName').innerText = 'Belum Diset';
         renderOffBsList();
         
-        showToast("✅ Sesi OFF BS direset (local saja)");
+        showToast('<i class="fas fa-check-circle"></i> Sesi OFF BS direset (local saja)');
     }
 };
 
@@ -610,8 +610,8 @@ function updateFavicon(syncing) {
                     (() => { const f = document.createElement('link'); f.id = 'favicon'; f.rel = 'icon'; document.head.appendChild(f); return f; })();
     
     if (syncing) {
-        // Animated favicon showing upload (⬆️)
-        favicon.href = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle fill="%234f46e5" cx="50" cy="50" r="50"/><text x="50" y="60" font-size="60" text-anchor="middle" fill="white">⬆</text></svg>';
+        // Animated favicon showing upload
+        favicon.href = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle fill="%234f46e5" cx="50" cy="50" r="50"/><text x="50" y="60" font-size="60" text-anchor="middle" fill="white">↑</text></svg>';
     } else {
         // Default favicon
         favicon.href = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle fill="%2306b6d4" cx="50" cy="50" r="50"/><text x="50" y="65" font-size="50" text-anchor="middle" fill="white">W</text></svg>';
@@ -675,7 +675,7 @@ async function autoSyncOffBsWithCloud() {
             if (currentTab === 'offbs' && typeof renderOffBsList === 'function') {
                 renderOffBsList();
             }
-            console.log(`✅ Auto-synced OFF BS: deleted ${beforeCount - offBsSession.length} items from cloud`);
+            console.log(`[Synced] Auto-synced OFF BS: deleted ${beforeCount - offBsSession.length} items from cloud`);
         }
         
         lastCloudSyncTime = Date.now();
@@ -712,7 +712,7 @@ async function autoSyncPackingWithCloud() {
             if (currentTab === 'packing' && typeof renderPackingList === 'function') {
                 renderPackingList();
             }
-            console.log(`✅ Auto-synced PACKING: deleted ${beforeCount - packingSession.length} items from cloud`);
+            console.log(`[Synced] Auto-synced PACKING: deleted ${beforeCount - packingSession.length} items from cloud`);
         }
     } catch (error) {
         console.error('Auto-sync PACKING error:', error);

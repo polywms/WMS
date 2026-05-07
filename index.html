@@ -18,7 +18,7 @@
         <header>
             <h1>𝄃𝄃𝄂𝄂 WMS Magelang</h1>
             <div style="display:flex; align-items:center; gap:10px;">
-                <span id="syncStatus" style="font-size:0.75rem; background:rgba(0,0,0,0.2); padding:3px 8px; border-radius:10px;">🟢 Online</span>
+                <span id="syncStatus" style="font-size:0.75rem; background:rgba(0,0,0,0.2); padding:3px 8px; border-radius:10px; display: flex; align-items: center; gap: 4px;"><i class="fas fa-circle" style="color: #22c55e; font-size: 0.6rem;"></i><span style="font-size:0.7rem;">Online</span></span>
                 <button class="header-btn" onclick="toggleMenu()"><i class="fas fa-bars"></i></button>
             </div>
         </header>
@@ -200,7 +200,7 @@
             <div id="tab-opname" class="tab-content">
                 <!-- Active Box Display (Horizontal Layout) -->
                 <div id="opnameBoxInfo" style="background:#f0fdf4; border:1px solid #86efac; border-radius:6px; padding:8px 12px; margin-bottom:12px; display:none; text-align:center; flex-direction: row; align-items: center; justify-content: center; gap: 8px; white-space: nowrap;">
-                    <span style="font-size:0.75rem; color:#166534; font-weight:bold; text-transform:uppercase;">📦 Box:</span>
+                    <span style="font-size:0.75rem; color:#166534; font-weight:bold; text-transform:uppercase;"><i class="fas fa-box" style="margin-right: 4px;"></i> Box:</span>
                     <div id="opnameBoxName" style="font-size:1rem; color:#14532d; font-weight:bold;">-</div>
                 </div>
                 <div id="activeBoxPanel" class="status-panel" style="background:#f0fdf4; border-color:#86efac; display:none; padding:15px 20px; flex-direction: row; align-items: center; justify-content: space-between; overflow-x: auto; gap: 15px;">
@@ -367,56 +367,70 @@
                         </button>
                     </div>
                     
-                    <!-- Import Section -->
+                    <!-- Import Section (Flat Design 3 Buttons) -->
                     <div class="settings-section">
                         <div class="settings-section-title">
                             <i class="fas fa-download"></i>
                             <span>Impor Data</span>
                         </div>
-                        <div style="display: flex; gap: 10px;">
-                            <button class="btn btn-success" onclick="document.getElementById('fileInput').click()" style="flex: 1; padding: 10px; font-size: 0.85rem;">📥 Data Stock</button>
-                            <button class="btn btn-success" onclick="document.getElementById('offBsFileInput').click()" style="flex: 1; padding: 10px; font-size: 0.85rem;">📥 Data OFF BS</button>
-                            <button class="btn btn-primary" onclick="document.getElementById('hargaFileInput').click()" style="flex: 1; padding: 10px; font-size: 0.85rem;">💰 Data Harga</button>
+                        <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                            <button style="flex: 1; display: flex; align-items: center; background-color: #0ea5e9; color: white; border: none; border-radius: 6px; padding: 12px 8px; cursor: pointer;" onclick="document.getElementById('fileInput').click()">
+                                <i class="fas fa-boxes" style="font-size: 1.5rem; flex-shrink: 0; width: 30px; text-align: center;"></i>
+                                <span style="flex: 1; text-align: center; line-height: 1.2; font-size: 0.8rem; font-weight: bold;">DATA<br>STOCK</span>
+                            </button>
+                            <button style="flex: 1; display: flex; align-items: center; background-color: #10b981; color: white; border: none; border-radius: 6px; padding: 12px 8px; cursor: pointer;" onclick="document.getElementById('offBsFileInput').click()">
+                                <i class="fas fa-recycle" style="font-size: 1.5rem; flex-shrink: 0; width: 30px; text-align: center;"></i>
+                                <span style="flex: 1; text-align: center; line-height: 1.2; font-size: 0.8rem; font-weight: bold;">DATA<br>OFF BS</span>
+                            </button>
+                            <button style="flex: 1; display: flex; align-items: center; background-color: #8b5cf6; color: white; border: none; border-radius: 6px; padding: 12px 8px; cursor: pointer;" onclick="document.getElementById('hargaFileInput').click()">
+                                <i class="fas fa-tags" style="font-size: 1.5rem; flex-shrink: 0; width: 30px; text-align: center;"></i>
+                                <span style="flex: 1; text-align: center; line-height: 1.2; font-size: 0.8rem; font-weight: bold;">DATA<br>HARGA</span>
+                            </button>
                         </div>
                         <input type="file" id="fileInput" hidden accept=".xlsx,.csv" onchange="handleImport(this)">
                         <input type="file" id="offBsFileInput" hidden accept=".xlsx,.csv" onchange="handleImportOffBS(this)">
                         <input type="file" id="hargaFileInput" hidden accept=".xlsx,.csv" onchange="handleImportHarga(this)">
                     </div>
                     
-                    <!-- Export Section -->
+                    <!-- Export Section (Flat Design 3 Buttons) -->
                     <div class="settings-section">
                         <div class="settings-section-title">
                             <i class="fas fa-upload"></i>
                             <span>Ekspor Data</span>
                         </div>
-                        <div style="display: flex; gap: 10px;">
-                            <button class="btn btn-warning" onclick="exportData()" style="flex: 1; padding: 10px; font-size: 0.85rem;">📤 Export Excel</button>
-                            <button class="btn btn-info" onclick="backupJson()" style="flex: 1; padding: 10px; font-size: 0.85rem;">💾 Backup JSON</button>
-                            <button class="btn btn-outline" onclick="document.getElementById('jsonInput').click()" style="flex: 1; padding: 10px; font-size: 0.85rem; border-color: #8b5cf6; color: #8b5cf6;">📂 Restore JSON</button>
+                        <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                            <button style="flex: 1; display: flex; align-items: center; background-color: #f59e0b; color: white; border: none; border-radius: 6px; padding: 12px 8px; cursor: pointer;" onclick="exportData()">
+                                <i class="fas fa-file-excel" style="font-size: 1.5rem; flex-shrink: 0; width: 30px; text-align: center;"></i>
+                                <span style="flex: 1; text-align: center; line-height: 1.2; font-size: 0.8rem; font-weight: bold;">EXPORT<br>EXCEL</span>
+                            </button>
+                            <button style="flex: 1; display: flex; align-items: center; background-color: #64748b; color: white; border: none; border-radius: 6px; padding: 12px 8px; cursor: pointer;" onclick="backupJson()">
+                                <i class="fas fa-save" style="font-size: 1.5rem; flex-shrink: 0; width: 30px; text-align: center;"></i>
+                                <span style="flex: 1; text-align: center; line-height: 1.2; font-size: 0.8rem; font-weight: bold;">BACKUP<br>JSON</span>
+                            </button>
+                            <button style="flex: 1; display: flex; align-items: center; background-color: #f8fafc; color: #475569; border: 1px solid #cbd5e1; border-radius: 6px; padding: 12px 8px; cursor: pointer;" onclick="document.getElementById('jsonInput').click()">
+                                <i class="fas fa-folder-open" style="font-size: 1.5rem; flex-shrink: 0; width: 30px; text-align: center;"></i>
+                                <span style="flex: 1; text-align: center; line-height: 1.2; font-size: 0.8rem; font-weight: bold;">RESTORE<br>JSON</span>
+                            </button>
                         </div>
                         <input type="file" id="jsonInput" hidden accept=".json" onchange="restoreJson(this)">
                     </div>
                     
-                    <!-- Reset Section -->
+                    <!-- Reset Section (Flat Design 2 Buttons) -->
                     <div class="settings-section">
                         <div class="settings-section-title">
                             <i class="fas fa-tools"></i>
                             <span>Utilitas</span>
                         </div>
-                        <button class="settings-item settings-item-warning" onclick="if(confirm('Reset data Opname? Tindakan ini tidak dapat dibatalkan.')) clearOpname()">
-                            <div class="settings-item-content">
-                                <div class="settings-item-title">Reset Opname</div>
-                                <div class="settings-item-desc">Hapus semua data opname</div>
-                            </div>
-                            <i class="fas fa-chevron-right"></i>
-                        </button>
-                        <button class="settings-item settings-item-danger" onclick="if(confirm('Reset SEMUA data? Tindakan ini tidak dapat dibatalkan!')) clearData()">
-                            <div class="settings-item-content">
-                                <div class="settings-item-title">Reset Database</div>
-                                <div class="settings-item-desc">Hapus semua data di aplikasi</div>
-                            </div>
-                            <i class="fas fa-chevron-right"></i>
-                        </button>
+                        <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                            <button style="flex: 1; display: flex; align-items: center; background-color: #f59e0b; color: white; border: none; border-radius: 6px; padding: 12px 8px; cursor: pointer;" onclick="if(confirm('Reset data Opname? Tindakan ini tidak dapat dibatalkan.')) clearOpname()">
+                                <i class="fas fa-undo" style="font-size: 1.5rem; flex-shrink: 0; width: 30px; text-align: center;"></i>
+                                <span style="flex: 1; text-align: center; line-height: 1.2; font-size: 0.8rem; font-weight: bold;">RESET<br>OPNAME</span>
+                            </button>
+                            <button style="flex: 1; display: flex; align-items: center; background-color: #ef4444; color: white; border: none; border-radius: 6px; padding: 12px 8px; cursor: pointer;" onclick="if(confirm('Reset SEMUA data? Tindakan ini tidak dapat dibatalkan!')) clearData()">
+                                <i class="fas fa-trash" style="font-size: 1.5rem; flex-shrink: 0; width: 30px; text-align: center;"></i>
+                                <span style="flex: 1; text-align: center; line-height: 1.2; font-size: 0.8rem; font-weight: bold;">RESET<br>DATABASE</span>
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -487,27 +501,45 @@
         <div class="overlay" id="menuModal" onclick="if(event.target===this) toggleMenu()">
             <div class="modal">
                 <h2>Menu</h2>
-                <button class="btn btn-outline" onclick="toggleDarkMode()">Ganti Tema</button><hr>
+                <button class="btn btn-outline" onclick="toggleDarkMode()"><i class="fas fa-adjust"></i> Ganti Tema</button><hr>
                 
-                <!-- Import/Export Section (Side by Side - Updated) -->
-                <div style="display: flex; gap: 10px; margin-bottom: 10px;">
-                    <button class="btn btn-success" onclick="document.getElementById('fileInput').click()" style="flex: 1;">📥 Data Stock</button>
-                    <button class="btn btn-success" onclick="document.getElementById('offBsFileInput').click()" style="flex: 1;">📥 Data OFF BS</button>
-                    <button class="btn btn-primary" onclick="document.getElementById('hargaFileInput').click()" style="flex: 1;">💰 Data Harga</button>
+                <!-- Import Section (Flat Design 3 Buttons) -->
+                <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                    <button style="flex: 1; display: flex; align-items: center; background-color: #0ea5e9; color: white; border: none; border-radius: 6px; padding: 12px 8px; cursor: pointer;" onclick="document.getElementById('fileInput').click()">
+                        <i class="fas fa-boxes" style="font-size: 1.5rem; flex-shrink: 0; width: 30px; text-align: center;"></i>
+                        <span style="flex: 1; text-align: center; line-height: 1.2; font-size: 0.8rem; font-weight: bold;">DATA<br>STOCK</span>
+                    </button>
+                    <button style="flex: 1; display: flex; align-items: center; background-color: #10b981; color: white; border: none; border-radius: 6px; padding: 12px 8px; cursor: pointer;" onclick="document.getElementById('offBsFileInput').click()">
+                        <i class="fas fa-recycle" style="font-size: 1.5rem; flex-shrink: 0; width: 30px; text-align: center;"></i>
+                        <span style="flex: 1; text-align: center; line-height: 1.2; font-size: 0.8rem; font-weight: bold;">DATA<br>OFF BS</span>
+                    </button>
+                    <button style="flex: 1; display: flex; align-items: center; background-color: #8b5cf6; color: white; border: none; border-radius: 6px; padding: 12px 8px; cursor: pointer;" onclick="document.getElementById('hargaFileInput').click()">
+                        <i class="fas fa-tags" style="font-size: 1.5rem; flex-shrink: 0; width: 30px; text-align: center;"></i>
+                        <span style="flex: 1; text-align: center; line-height: 1.2; font-size: 0.8rem; font-weight: bold;">DATA<br>HARGA</span>
+                    </button>
                 </div>
                 <input type="file" id="fileInput" hidden accept=".xlsx,.csv" onchange="handleImport(this)">
                 <input type="file" id="offBsFileInput" hidden accept=".xlsx,.csv" onchange="handleImportOffBS(this)">
                 <input type="file" id="hargaFileInput" hidden accept=".xlsx,.csv" onchange="handleImportHarga(this)"><hr>
                 
-                <!-- Export/Backup Section (Side by Side - Updated) -->
-                <div style="display: flex; gap: 10px; margin-bottom: 10px;">
-                    <button class="btn btn-warning" onclick="exportData()" style="flex: 1;">📤 Export Excel</button>
-                    <button class="btn btn-info" onclick="backupJson()" style="flex: 1;">💾 Backup JSON</button>
-                    <button class="btn btn-outline" onclick="document.getElementById('jsonInput').click()" style="flex: 1; border-color: #8b5cf6; color: #8b5cf6;">📂 Restore JSON</button>
+                <!-- Export Section (Flat Design 3 Buttons) -->
+                <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                    <button style="flex: 1; display: flex; align-items: center; background-color: #f59e0b; color: white; border: none; border-radius: 6px; padding: 12px 8px; cursor: pointer;" onclick="exportData()">
+                        <i class="fas fa-file-excel" style="font-size: 1.5rem; flex-shrink: 0; width: 30px; text-align: center;"></i>
+                        <span style="flex: 1; text-align: center; line-height: 1.2; font-size: 0.8rem; font-weight: bold;">EXPORT<br>EXCEL</span>
+                    </button>
+                    <button style="flex: 1; display: flex; align-items: center; background-color: #64748b; color: white; border: none; border-radius: 6px; padding: 12px 8px; cursor: pointer;" onclick="backupJson()">
+                        <i class="fas fa-save" style="font-size: 1.5rem; flex-shrink: 0; width: 30px; text-align: center;"></i>
+                        <span style="flex: 1; text-align: center; line-height: 1.2; font-size: 0.8rem; font-weight: bold;">BACKUP<br>JSON</span>
+                    </button>
+                    <button style="flex: 1; display: flex; align-items: center; background-color: #f8fafc; color: #475569; border: 1px solid #cbd5e1; border-radius: 6px; padding: 12px 8px; cursor: pointer;" onclick="document.getElementById('jsonInput').click()">
+                        <i class="fas fa-folder-open" style="font-size: 1.5rem; flex-shrink: 0; width: 30px; text-align: center;"></i>
+                        <span style="flex: 1; text-align: center; line-height: 1.2; font-size: 0.8rem; font-weight: bold;">RESTORE<br>JSON</span>
+                    </button>
                 </div>
                 <input type="file" id="jsonInput" hidden accept=".json" onchange="restoreJson(this)"><hr>
                 
-                <!-- Reset Section (Side by Side) -->
+                <!-- Reset Section -->
                 <div style="display: flex; gap: 10px;">
                     <button class="btn btn-warning" onclick="clearOpname()" style="flex: 1;"><i class="fas fa-undo"></i> Reset Opname</button>
                     <button class="btn btn-danger" onclick="clearData()" style="flex: 1;"><i class="fas fa-trash"></i> Reset DB</button>
