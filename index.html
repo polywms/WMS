@@ -372,20 +372,14 @@
                             <i class="fas fa-download"></i>
                             <span>Impor Data</span>
                         </div>
-                        <button class="settings-item" onclick="document.getElementById('fileInput').click()">
-                            <div class="settings-item-content">
-                                <div class="settings-item-title">Impor Stock</div>
-                                <div class="settings-item-desc">Impor data stok dari file Excel/CSV</div>
-                            </div>
-                            <i class="fas fa-chevron-right"></i>
-                        </button>
-                        <button class="settings-item" onclick="document.getElementById('offBsFileInput').click()">
-                            <div class="settings-item-content">
-                                <div class="settings-item-title">Impor OFF BS</div>
-                                <div class="settings-item-desc">Impor data OFF BS dari file Excel/CSV</div>
-                            </div>
-                            <i class="fas fa-chevron-right"></i>
-                        </button>
+                        <div style="display: flex; gap: 10px;">
+                            <button class="btn btn-success" onclick="document.getElementById('fileInput').click()" style="flex: 1; padding: 10px; font-size: 0.85rem;">📥 Data Stock</button>
+                            <button class="btn btn-success" onclick="document.getElementById('offBsFileInput').click()" style="flex: 1; padding: 10px; font-size: 0.85rem;">📥 Data OFF BS</button>
+                            <button class="btn btn-primary" onclick="document.getElementById('hargaFileInput').click()" style="flex: 1; padding: 10px; font-size: 0.85rem;">💰 Data Harga</button>
+                        </div>
+                        <input type="file" id="fileInput" hidden accept=".xlsx,.csv" onchange="handleImport(this)">
+                        <input type="file" id="offBsFileInput" hidden accept=".xlsx,.csv" onchange="handleImportOffBS(this)">
+                        <input type="file" id="hargaFileInput" hidden accept=".xlsx,.csv" onchange="handleImportHarga(this)">
                     </div>
                     
                     <!-- Export Section -->
@@ -394,27 +388,12 @@
                             <i class="fas fa-upload"></i>
                             <span>Ekspor Data</span>
                         </div>
-                        <button class="settings-item" onclick="exportData()">
-                            <div class="settings-item-content">
-                                <div class="settings-item-title">Ekspor Excel</div>
-                                <div class="settings-item-desc">Unduh semua data ke file Excel</div>
-                            </div>
-                            <i class="fas fa-chevron-right"></i>
-                        </button>
-                        <button class="settings-item" onclick="backupJson()">
-                            <div class="settings-item-content">
-                                <div class="settings-item-title">Backup JSON</div>
-                                <div class="settings-item-desc">Cadangkan data ke file JSON</div>
-                            </div>
-                            <i class="fas fa-chevron-right"></i>
-                        </button>
-                        <button class="settings-item" onclick="document.getElementById('jsonInput').click()">
-                            <div class="settings-item-content">
-                                <div class="settings-item-title">Pulihkan JSON</div>
-                                <div class="settings-item-desc">Pulihkan data dari file JSON</div>
-                            </div>
-                            <i class="fas fa-chevron-right"></i>
-                        </button>
+                        <div style="display: flex; gap: 10px;">
+                            <button class="btn btn-warning" onclick="exportData()" style="flex: 1; padding: 10px; font-size: 0.85rem;">📤 Export Excel</button>
+                            <button class="btn btn-info" onclick="backupJson()" style="flex: 1; padding: 10px; font-size: 0.85rem;">💾 Backup JSON</button>
+                            <button class="btn btn-outline" onclick="document.getElementById('jsonInput').click()" style="flex: 1; padding: 10px; font-size: 0.85rem; border-color: #8b5cf6; color: #8b5cf6;">📂 Restore JSON</button>
+                        </div>
+                        <input type="file" id="jsonInput" hidden accept=".json" onchange="restoreJson(this)">
                     </div>
                     
                     <!-- Reset Section -->
@@ -509,19 +488,21 @@
                 <h2>Menu</h2>
                 <button class="btn btn-outline" onclick="toggleDarkMode()">Ganti Tema</button><hr>
                 
-                <!-- Import/Export Section (Side by Side) -->
+                <!-- Import/Export Section (Side by Side - Updated) -->
                 <div style="display: flex; gap: 10px; margin-bottom: 10px;">
-                    <button class="btn btn-success" onclick="document.getElementById('fileInput').click()" style="flex: 1;">📥 Import Stock</button>
-                    <button class="btn btn-success" onclick="document.getElementById('offBsFileInput').click()" style="flex: 1;">📥 Import OFF BS</button>
-                    <button class="btn btn-primary" onclick="exportData()" style="flex: 1;">📤 Export</button>
+                    <button class="btn btn-success" onclick="document.getElementById('fileInput').click()" style="flex: 1;">📥 Data Stock</button>
+                    <button class="btn btn-success" onclick="document.getElementById('offBsFileInput').click()" style="flex: 1;">📥 Data OFF BS</button>
+                    <button class="btn btn-primary" onclick="document.getElementById('hargaFileInput').click()" style="flex: 1;">💰 Data Harga</button>
                 </div>
                 <input type="file" id="fileInput" hidden accept=".xlsx,.csv" onchange="handleImport(this)">
-                <input type="file" id="offBsFileInput" hidden accept=".xlsx,.csv" onchange="handleImportOffBS(this)"><hr>
+                <input type="file" id="offBsFileInput" hidden accept=".xlsx,.csv" onchange="handleImportOffBS(this)">
+                <input type="file" id="hargaFileInput" hidden accept=".xlsx,.csv" onchange="handleImportHarga(this)"><hr>
                 
-                <!-- Backup/Restore Section (Side by Side) -->
+                <!-- Export/Backup Section (Side by Side - Updated) -->
                 <div style="display: flex; gap: 10px; margin-bottom: 10px;">
-                    <button class="btn btn-warning" onclick="backupJson()" style="flex: 1;">💾 Backup JSON</button>
-                    <button class="btn btn-warning" onclick="document.getElementById('jsonInput').click()" style="flex: 1;">📂 Restore JSON</button>
+                    <button class="btn btn-warning" onclick="exportData()" style="flex: 1;">📤 Export Excel</button>
+                    <button class="btn btn-info" onclick="backupJson()" style="flex: 1;">💾 Backup JSON</button>
+                    <button class="btn btn-outline" onclick="document.getElementById('jsonInput').click()" style="flex: 1; border-color: #8b5cf6; color: #8b5cf6;">📂 Restore JSON</button>
                 </div>
                 <input type="file" id="jsonInput" hidden accept=".json" onchange="restoreJson(this)"><hr>
                 

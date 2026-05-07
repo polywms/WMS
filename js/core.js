@@ -902,7 +902,7 @@ function processMultiBatchMove(box, actionType = 'move') {
 }
 
 function createNewItem(code) {
-    const item = { id: Date.now(), partNo: code, desc: "PART BARU", locType: document.getElementById('filterLoc').value, techName: document.getElementById('filterTech').value, locations: {}, sysQty: 0, raw: {}, lastOpnameDate: '', lastBox: '-' };
+    const item = { id: Date.now(), partNo: code, desc: "PART BARU", locType: document.getElementById('filterLoc').value, techName: document.getElementById('filterTech').value, locations: {}, sysQty: 0, raw: {}, lastOpnameDate: '', lastBox: '-', harga: 0 };
     localItems.push(item); filteredItems.push(item); return item;
 }
 
@@ -1048,6 +1048,9 @@ function renderDataList(reset = false) {
         let color = total!==i.sysQty ? 'var(--danger)' : (total>0 ? 'var(--opname)' : 'var(--text)');
         let cardStyle = i.desc === 'PART BARU' ? 'border-left: 5px solid #ca8a04; background:#fffbeb;' : '';
         
+        // Format harga sebagai Rupiah
+        const hargaFormatted = (i.harga || 0) > 0 ? new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(i.harga || 0) : '-';
+        
         html += `<div class="item-card" id="data-row-${i.id}" onclick="openEditModal(${i.id})" style="${cardStyle}">
             <div style="flex:1;">
                 <div style="display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:4px;">
@@ -1056,7 +1059,10 @@ function renderDataList(reset = false) {
                     ${locBadges ? `<div style="display:flex; gap:4px; margin-left:auto; flex-wrap:wrap;">${locBadges}</div>` : ''}
                 </div>
                 <div style="font-size:0.8rem; color:var(--secondary); margin-bottom:4px;">${i.desc}</div>
-                <div style="font-size:0.75rem; color:#666;"><i class="fas fa-calendar-alt"></i> Opname: ${opnameDate}</div>
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+                    <div style="font-size:0.75rem; color:#666;"><i class="fas fa-calendar-alt"></i> Opname: ${opnameDate}</div>
+                    <div style="font-size:0.9rem; font-weight:bold; color:#10b981; background:#f0fdf4; padding:4px 8px; border-radius:6px; white-space:nowrap;">${hargaFormatted}</div>
+                </div>
             </div>
         </div>`;
     });

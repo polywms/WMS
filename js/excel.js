@@ -95,7 +95,8 @@ function exportData() {
                     'Nama Teknisi': item.techName || '',
                     'Qty Sistem': item.sysQty || 0,
                     'Lokasi': lokasi,
-                    'Qty Hitung': qty
+                    'Qty Hitung': qty,
+                    'Harga': item.harga || 0
                 });
             });
         } else {
@@ -107,7 +108,8 @@ function exportData() {
                 'Nama Teknisi': item.techName || '',
                 'Qty Sistem': item.sysQty || 0,
                 'Lokasi': '',
-                'Qty Hitung': ''
+                'Qty Hitung': '',
+                'Harga': item.harga || 0
             });
         }
     });
@@ -123,6 +125,7 @@ function exportData() {
                     'Part Number': item.partNo,
                     'Lokasi Ditemukan': lokasi,
                     'Qty Ditemukan': qty,
+                    'Harga': item.harga || 0,
                     'Tanggal Ditemukan': item.lastOpnameDate || '-'
                 });
             });
@@ -131,6 +134,7 @@ function exportData() {
                 'Part Number': item.partNo,
                 'Lokasi Ditemukan': '',
                 'Qty Ditemukan': '',
+                'Harga': item.harga || 0,
                 'Tanggal Ditemukan': item.lastOpnameDate || '-'
             });
         }
@@ -236,7 +240,7 @@ function exportLabelReport() {
 
 function backupJson() {
     showLoading("💾 Backup JSON", "Mempersiapkan file...");
-    const b = new Blob([JSON.stringify(localItems.map(i => ({ partNo: i.partNo, locations: i.locations })))], {type:'application/json'});
+    const b = new Blob([JSON.stringify(localItems.map(i => ({ partNo: i.partNo, locations: i.locations, harga: i.harga || 0 })))], {type:'application/json'});
     const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = `Mapping_Lokasi_${new Date().toISOString().slice(0,10)}.json`; a.click();
     setTimeout(hideLoading, 500);
 }
@@ -253,11 +257,127 @@ function restoreJson(input) {
             const currentItems = ev.target.result || []; let updateCount = 0;
             backupData.forEach(backupItem => {
                 const existingItem = currentItems.find(i => i.partNo === backupItem.partNo);
-                if (existingItem) { existingItem.locations = backupItem.locations || {}; st.put(existingItem); updateCount++; }
+                if (existingItem) { 
+                    existingItem.locations = backupItem.locations || {};
+                    if (backupItem.harga !== undefined) { existingItem.harga = backupItem.harga; }
+                    st.put(existingItem); 
+                    updateCount++; 
+                }
             });
-            tx.oncomplete = () => { hideLoading(); alert(`✅ Restore Selesai!\n${updateCount} part di-update.`); location.reload(); };
+            tx.oncomplete = () => { hideLoading(); alert(`✅ Restore Selesai!\\n${updateCount} part di-update (termasuk harga).`); location.reload(); };
         };
     }; r.readAsText(f);
+}
+
+// ===== IMPORT HARGA FILE =====
+// js/excel.js - handleImportHarga(input)
+// Tujuan: Baca file Excel berisi kolom "Nomor Gudang", "Nama Sparepart", "Harga"
+// Cari part di localItems, update properti harga, simpan ke IndexedDB & kirim ke cloud
+// Side Effect: Modifikasi item.harga, saveDB(), POST ke API_URL dengan action "import_harga"
+function handleImportHarga(input) {
+    const f = input.files[0];
+    if (!f) return;
+    
+    showLoading("💰 Import Harga", `Membaca file: ${f.name}`);
+    const r = new FileReader();
+    r.onload = async e => {
+        try {
+            showLoading("💰 Import Harga", "Memproses data...");
+            updateSyncUI("🔄 Membaca File Harga...");
+            
+            const wb = XLSX.read(e.target.result, {type:'array'});
+            const json = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {defval:''});
+            
+            // Parse data dari Excel: header adalah "Nomor Gudang", "Nama Sparepart", "Harga"
+            const hargaData = json.map(row => ({
+                partNo: String(row['Nomor Gudang'] || row['Part Number'] || row['Part'] || '').trim(),
+                desc: String(row['Nama Sparepart'] || row['Deskripsi'] || '').trim(),
+                harga: parseInt(row['Harga'] || row['Price'] || 0) || 0
+            })).filter(d => d.partNo); // Hanya ambil yang ada partNo-nya
+            
+            if (hargaData.length === 0) {
+                hideLoading();
+                alert("❌ Tidak ada data harga ditemukan di file!");
+                input.value = '';
+                updateSyncUI("🟢 Siap");
+                return;
+            }
+            
+            // Proses update harga di localItems
+            let updatedCount = 0;
+            let notFoundCount = 0;
+            const updatedParts = [];
+            
+            const tx = db.transaction('items', 'readwrite');
+            const st = tx.objectStore('items');
+            
+            hargaData.forEach(harItem => {
+                // Cari part di localItems berdasarkan partNo
+                const foundItem = localItems.find(i => i.partNo.trim().toUpperCase() === harItem.partNo.toUpperCase());
+                
+                if (foundItem) {
+                    // Update harga
+                    foundItem.harga = harItem.harga;
+                    st.put(foundItem);
+                    updatedCount++;
+                    updatedParts.push({
+                        partNo: foundItem.partNo,
+                        harga: harItem.harga,
+                        desc: foundItem.desc
+                    });
+                } else {
+                    notFoundCount++; // Abaikan, tidak ada di database lokal
+                }
+            });
+            
+            tx.oncomplete = async () => {
+                showLoading("💰 Import Harga", `Mengirim ${updatedCount} data ke cloud...`);
+                updateSyncUI("🚀 Mengirim Harga ke Cloud...");
+                
+                try {
+                    // Kirim ke Google Apps Script
+                    const response = await fetch(API_URL, {
+                        method: "POST",
+                        redirect: "follow",
+                        headers: { "Content-Type": "text/plain;charset=utf-8" },
+                        body: JSON.stringify({
+                            action: "import_harga",
+                            data: updatedParts,
+                            timestamp: Date.now()
+                        })
+                    });
+                    
+                    const result = await response.json();
+                    hideLoading();
+                    
+                    if (result.status === "success") {
+                        alert(`✅ Import Harga Selesai!\\n\\n💰 ${updatedCount} Part berhasil di-update harganya\\n❌ ${notFoundCount} Part tidak ditemukan (diabaikan)\\n📤 Data sudah tersimpan lokal & cloud`);
+                    } else {
+                        alert(`⚠️ Import Lokal Selesai (${updatedCount} part)!\\nTapi upload ke cloud: ${result.message}`);
+                    }
+                    
+                    input.value = '';
+                    updateSyncUI("🟢 Siap");
+                    location.reload();
+                } catch (err) {
+                    hideLoading();
+                    console.error('Import Harga Cloud Error:', err);
+                    alert(`✅ Harga sudah tersimpan lokal (${updatedCount} part)!\\n⚠️ Tapi gagal upload ke cloud: ${err.message}`);
+                    input.value = '';
+                    updateSyncUI("🟡 Warning");
+                    setTimeout(() => location.reload(), 2000);
+                }
+            };
+        } catch (err) {
+            hideLoading();
+            console.error('Import Harga Error:', err);
+            alert(`❌ Gagal membaca file: ${err.message}`);
+            input.value = '';
+            updateSyncUI("🔴 Error");
+        }
+    };
+    
+    r.readAsArrayBuffer(f);
 }
 
 // ===== IMPORT OFF BS FILE =====
