@@ -1,3 +1,36 @@
+/**
+ * ========================================
+ * CORE LOGIC - WMS Magelang V6
+ * ========================================
+ * 
+ * Tujuan: Main controller untuk routing scan berdasarkan tab aktif
+ * Caller: main.js (via window.onload), UI events (onclick), keyboard (onkeydown)
+ * Dependensi: database.js (saveDB), utils.js (feedback), config.js (QR_PARSERS)
+ * 
+ * Main Functions:
+ * - processScan(code) — Route scan per currentTab
+ * - selectPartSimpan(item) — Tampilkan detail part di panel
+ * - addToSimpanBuffer(item) — Add ke buffer + tampilkan detail
+ * - clearActivePart() — Clear detail part + buffer
+ * - renderSimpanList/handleOpnameRender/renderDataList — Per-tab UI renders
+ * 
+ * Side Effects: 
+ * - DOM update (#simpanList, #activePartDetailsPanel, #activePartNo/Desc/Loc)
+ * - localStorage write (multiBuffer, offBsSession, packingSession)
+ * - IndexedDB write via saveDB()
+ * - Google Sheets sync via processSyncQueue()
+ * 
+ * Recent Changes (2026-05-09):
+ * - RESTORED: Active Part Details Panel (#activePartDetailsPanel)
+ *   - Shows part number, description, current locations when part is selected
+ *   - Auto-triggers when user scans part in SIMPAN tab
+ *   - Displays progress badge (Terisi: X/Y) and label issues if any
+ * - Updated selectPartSimpan() to display detail panel
+ * - Updated clearActivePart() to hide detail panel
+ * - Updated addToSimpanBuffer() to show detail panel on scan
+ * ========================================
+ */
+
 // js/core.js
 
 // ===== QR CODE PARSER =====
@@ -631,6 +664,8 @@ function selectPartSimpan(item) {
     if (!Array.isArray(simpanBuffer)) simpanBuffer = [];
     simpanBuffer = []; // Kosongkan buffer karena cuma dilihat, belum di-scan
     
+    // Show detail panel
+    document.getElementById('activePartDetailsPanel').style.display = 'block';
     document.getElementById('simpanStatusPanel').style.display = 'block';
     
     // Hitung total tersimpan untuk tampilan "Hanya Dilihat"
@@ -663,6 +698,7 @@ function clearActivePart() {
     tempPart = null; 
     // Clear simpanBuffer when clearing active part
     clearSimpanBuffer();
+    document.getElementById('activePartDetailsPanel').style.display = 'none';
     document.getElementById('simpanStatusPanel').style.display = 'none';
     document.querySelectorAll('.item-card').forEach(el => el.classList.remove('selected'));
     // Reset Smart Suggestion Panel
@@ -1375,6 +1411,28 @@ function addToSimpanBuffer(item) {
     const existing = simpanBuffer.find(b => b.item.id === item.id);
     
     tempPart = item;
+    
+    // Show detail panel
+    const detailPanel = document.getElementById('activePartDetailsPanel');
+    if (detailPanel) {
+        detailPanel.style.display = 'block';
+        
+        // Update detail panel content
+        const qtyTersimpan = Object.values(item.locations).reduce((a,b)=>a+b, 0);
+        let color = qtyTersimpan >= item.sysQty ? '#16a34a' : '#ea580c';
+        let progressBadge = `<span style="font-size:0.85rem; color:${color}; background:#f8fafc; padding:2px 8px; border-radius:6px; border:1px solid #cbd5e1; margin-left:8px; font-weight:bold;">Terisi: ${qtyTersimpan}/${item.sysQty}</span>`;
+        document.getElementById('activePartNo').innerHTML = item.partNo + progressBadge;
+        
+        let issueWarning = '';
+        if (item.labelIssues && (item.labelIssues.DAMAGED > 0 || item.labelIssues.NO_LABEL > 0)) {
+            let t = [];
+            if (item.labelIssues.NO_LABEL > 0) t.push(`${item.labelIssues.NO_LABEL} Tanpa Label`);
+            if (item.labelIssues.DAMAGED > 0) t.push(`${item.labelIssues.DAMAGED} Label Rusak`);
+            issueWarning = `<br><span style="color:var(--danger); font-weight:bold; font-size:0.8rem;"><i class="fas fa-exclamation-triangle"></i> Catatan: ${t.join(' | ')}</span>`;
+        }
+        document.getElementById('activePartDesc').innerHTML = item.desc + issueWarning;
+        document.getElementById('activePartLoc').innerText = Object.keys(item.locations).join(', ') || 'Belum ada';
+    }
     
     // Tampilkan deskripsi & peringatan (untuk info saja, tidak update panel lagi)
     let issueWarning = '';

@@ -727,7 +727,17 @@ XLSX.writeFile(wb, "filename.xlsx");
 
 ## Risks / Blind Spots (Continuously Updated)
 
-**Latest Improvements** (2026-04-22):
+**Latest Improvements** (2026-05-09):
+- ✅ **RESTORED: Active Part Details Panel** (UI Feature Recovery)
+  - Added `#activePartDetailsPanel` to display part info when scanned
+  - Shows: Part No, Description, Current Locations, Progress Badge (Terisi: X/Y)
+  - Triggers automatically in SIMPAN tab when user scans part
+  - Displays label issues (Tanpa Label, Label Rusak) if applicable
+  - Integration points: selectPartSimpan(), addToSimpanBuffer(), clearActivePart()
+  - HTML: index.html (scanner-bar section)
+  - JS: core.js (updated 3 functions + new header documentation)
+
+**Previous Improvements** (2026-04-22):
 - ✅ **Data Persistence on Refresh**: syncQueue & syncLogs now persisted to localStorage, survive page refresh
 - ✅ **Qty Overflow Protection**: Added check in SIMPAN tab to prevent scanning more than sysQty (matches OFF BS logic)
 - ✅ **Opname Filter Logic Fixed**: Rewritten handleOpnameRender() for correct box filtering:
@@ -738,7 +748,8 @@ XLSX.writeFile(wb, "filename.xlsx");
 - ✅ **Redundant Function Removed**: Obsolete processSimpanBuffer() deleted
 - ✅ **Buffer Validation Added**: All buffers (multiBuffer, simpanBuffer, opnameBuffer) now validated as arrays
 
-**Status**: 8 critical improvements implemented since 2026-04-21:
+**Status**: 9 critical improvements implemented:
+- ✅ Active Part Details Panel restore (2026-05-09)
 - ✅ Batch sync queue (MAX_SYNC_BATCH=100, MAX_QUEUE_SIZE=500)
 - ✅ Auto SW cache versioning with user prompt
 - ✅ Modular QR parser (configurable in config.js)
