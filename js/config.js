@@ -90,7 +90,7 @@ let workflowMode = localStorage.getItem('wms_workflowMode') || 'simpan'; // 'sim
 
 // ===== SIMPAN BUFFER MODE (NEW - Toggle Qty Calculation) =====
 let useSimpanBuffer = localStorage.getItem('wms_useSimpanBuffer') !== 'false'; // Default true (buffer mode ON)
-let activeDirectBox = null; // Target box aktif untuk mode direct save (useSimpanBuffer = false)
+let activeDirectPart = null; // Target part aktif untuk mode direct save (useSimpanBuffer = false)
 
 // ===== OPNAME BUFFER (Cashier Mode) =====
 let opnameBuffer = []; // Array of {item, qty} untuk accumulate parts

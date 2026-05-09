@@ -76,7 +76,7 @@ function toggleKeyboardMode() {
 
 function toggleMultiMode() {
     // Auto-Buffer is default mode now - toggle disabled
-    showToast("<i class=\"fas fa-sync\"></i> Auto-Buffer Mode Active");
+    showToast('<i class="fas fa-sync"></i> Auto-Buffer Mode Active');
 }
 
 function toggleWorkflowMode() {
@@ -85,9 +85,9 @@ function toggleWorkflowMode() {
     localStorage.setItem('wms_workflowMode', workflowMode);
     
     if (workflowMode === 'pindah_split') {
-        showToast("<i class=\"fas fa-sync\"></i> Mode: PINDAH/SPLIT (Transfer lokasi existing)");
+        showToast('<i class="fas fa-sync"></i> Mode: PINDAH/SPLIT (Transfer lokasi existing)');
     } else {
-        showToast("<i class=\"fas fa-save\"></i> Mode: PENYIMPANAN (Simpan stok baru)");
+        showToast('<i class="fas fa-save"></i> Mode: PENYIMPANAN (Simpan stok baru)');
     }
     feedback('success');
 }
@@ -102,15 +102,15 @@ function toggleSimpanBufferMode() {
     
     if (useSimpanBuffer) {
         // Mode Buffer ON - show buffer panel
-        showToast("<i class=\"fas fa-calculator\"></i> Mode Buffer AKTIF - Qty Calculation ON");
+        showToast('<i class="fas fa-calculator"></i> Mode Buffer AKTIF - Qty Calculation ON');
         const statusPanel = document.getElementById('simpanStatusPanel');
         if (statusPanel) statusPanel.style.display = 'block';
     } else {
         // Mode Buffer OFF - direct save mode
-        showToast("<i class=\"fas fa-save\"></i> Mode Direct Save AKTIF - Simpan langsung ke box");
-        // Clear buffer and direct box
+        showToast('<i class="fas fa-save"></i> Mode Direct Save AKTIF - Simpan langsung ke box');
+        // Clear buffer and direct part
         clearSimpanBuffer();
-        activeDirectBox = null;
+        activeDirectPart = null;
         const statusPanel = document.getElementById('simpanStatusPanel');
         if (statusPanel) statusPanel.style.display = 'none';
     }
@@ -156,7 +156,7 @@ function toggleOptionsAccordion() {
 function toggleOpnameMode() {
     isOpnameMode = document.getElementById('chkOpnameMode').checked;
     if (isOpnameMode) {
-        showToast("<i class=\"fas fa-calculator\"></i> Mode Opname Aktif - Input Qty setelah scan part");
+        showToast('<i class="fas fa-calculator"></i> Mode Opname Aktif - Input Qty setelah scan part');
         feedback('success');
     } else {
         showToast("Mode Opname Non-aktif");
@@ -406,7 +406,7 @@ if (currentTab === 'packing') {
                 
                 // No items in buffer but trying to scan box
                 feedback('error');
-                showToast("<i class=\"fas fa-exclamation-triangle\"></i> Scan Part terlebih dahulu sebelum scan Box!");
+                showToast('<i class="fas fa-exclamation-triangle"></i> Scan Part terlebih dahulu sebelum scan Box!');
                 return;
                 
             } else if (item) {
@@ -430,27 +430,24 @@ if (currentTab === 'packing') {
         } 
         // ==========================================
         // BRANCH: useSimpanBuffer FALSE = DIRECT SAVE
+        // NEW LOGIC: Scan Part -> Scan Box
         // ==========================================
         else {
             if (isBox) {
-                // Scan Box = Set active box target
-                activeDirectBox = parsedCode;
-                feedback('scan');
-                showToast(`<i class="fas fa-box"></i> ${parsedCode} Aktif. Scan part untuk langsung simpan!`);
-                document.getElementById('mainInput').focus();
-                return;
-            } else if (item) {
-                // Scan Part = Add qty +1 directly to activeDirectBox
-                if (!activeDirectBox) {
+                // Scan Box = Process saved part (activeDirectPart) into this box
+                if (!activeDirectPart) {
                     feedback('error');
-                    showToast("<i class=\"fas fa-exclamation-triangle\"></i> Scan Box Tujuan terlebih dahulu!");
+                    showToast('<i class="fas fa-exclamation-triangle"></i> Scan Part terlebih dahulu sebelum scan Box!');
                     document.getElementById('mainInput').focus();
                     return;
                 }
                 
+                const item = activeDirectPart;
+                const boxCode = parsedCode;
+                const scannedQty = 1; // Direct save: always qty 1 per scan
+                
                 // PROTEKSI: Cek apakah qty akan over dari sysQty
                 const totalPhysical = Object.values(item.locations).reduce((a, b) => a + b, 0);
-                const scannedQty = 1; // Direct save: always qty 1 per scan
                 
                 if ((totalPhysical + scannedQty) > item.sysQty) {
                     feedback('error');
@@ -459,7 +456,6 @@ if (currentTab === 'packing') {
                 }
                 
                 // Add or update location
-                const boxCode = activeDirectBox;
                 if (!item.locations[boxCode]) {
                     item.locations[boxCode] = 0;
                 }
@@ -476,8 +472,19 @@ if (currentTab === 'packing') {
                 feedback('success');
                 showToast(`<i class="fas fa-check-circle"></i> ${item.partNo} (+${scannedQty}) -> ${boxCode}`);
                 
+                // Reset active part
+                activeDirectPart = null;
+                
                 // Refresh UI
                 renderSimpanList(false);
+                document.getElementById('mainInput').focus();
+                return;
+                
+            } else if (item) {
+                // Scan Part = Save to activeDirectPart, minta scan Box
+                activeDirectPart = item;
+                feedback('scan');
+                showToast(`<i class="fas fa-box"></i> ${item.partNo} Dipilih. Scan Box tujuan untuk simpan!`);
                 document.getElementById('mainInput').focus();
                 return;
                 
@@ -485,32 +492,12 @@ if (currentTab === 'packing') {
                 // ==========================================
                 // PART BARU (Direct Save Mode)
                 // ==========================================
-                if (!activeDirectBox) {
-                    feedback('error');
-                    showToast("<i class=\"fas fa-exclamation-triangle\"></i> Scan Box Tujuan terlebih dahulu!");
-                    return;
-                }
-                
-                if (confirm(`Kode "${parsedCode}" Baru. Buat Part dan simpan ke ${activeDirectBox}?`)) {
+                if (confirm(`Kode "${parsedCode}" Baru. Buat Part?`)) {
                     const newItem = createNewItem(parsedCode);
-                    
-                    // Direct save to active box
-                    const boxCode = activeDirectBox;
-                    if (!newItem.locations[boxCode]) {
-                        newItem.locations[boxCode] = 0;
-                    }
-                    newItem.locations[boxCode] += 1;
-                    newItem.lastBox = boxCode;
-                    
-                    // Save to database
-                    saveDB(newItem);
-                    
-                    // Add to history
-                    addHistoryLog(`${newItem.partNo} → ${boxCode}`, `+1`);
-                    
+                    activeDirectPart = newItem;
                     feedback('success');
-                    showToast(`<i class="fas fa-check-circle"></i> Part Baru ${parsedCode} (+1) -> ${boxCode}`);
-                    renderSimpanList(false);
+                    showToast(`<i class="fas fa-box"></i> Part Baru ${parsedCode} Dibuat. Scan Box tujuan!`);
+                    document.getElementById('mainInput').focus();
                 }
                 return;
             }
@@ -1200,7 +1187,7 @@ function switchTab(id) {
     if (currentTab === 'simpan' && currentTab !== id) {
         clearSimpanBuffer();
         targetBufferBox = null;
-        activeDirectBox = null;  // Reset direct box when leaving simpan tab
+        activeDirectPart = null;  // Reset direct part when leaving simpan tab
     }
     
     currentTab = id;

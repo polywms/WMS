@@ -38,25 +38,25 @@ function loadDataFromLocal() {
 }
 
 async function fetchInitialDataFromCloud() {
-    if (!navigator.onLine) { updateSyncUI("<i class=\"fas fa-circle\" style=\"color: #ef4444; font-size: 0.6rem; margin-right: 4px;\"></i> Offline (Mode Lokal)"); loadDataFromLocal(); return; }
-    updateSyncUI("<i class=\"fas fa-spinner fa-spin\"></i> Menghubungkan ke Database...");
+    if (!navigator.onLine) { updateSyncUI('<i class="fas fa-circle" style="color: #ef4444; font-size: 0.6rem; margin-right: 4px;"></i> Offline (Mode Lokal)'); loadDataFromLocal(); return; }
+    updateSyncUI('<i class="fas fa-spinner fa-spin"></i> Menghubungkan ke Database...');
     try {
         const controller = new AbortController(); const timeoutId = setTimeout(() => controller.abort(), 30000); 
         const response = await fetch(API_URL, { redirect: "follow", signal: controller.signal }); clearTimeout(timeoutId); 
-updateSyncUI("<i class=\"fas fa-spinner fa-spin\"></i> Menerima Data..."); const result = await response.json();
+updateSyncUI('<i class="fas fa-spinner fa-spin"></i> Menerima Data...'); const result = await response.json();
         
         if (result.status === "success") {
             if (result.data && Array.isArray(result.data)) {
                 if (result.data.length > 0) {
-                    updateSyncUI(`<i class=\"fas fa-spinner fa-spin\"></i> Memproses ${result.data.length} Item...`);
+                    updateSyncUI(`<i class="fas fa-spinner fa-spin"></i> Memproses ${result.data.length} Item...`);
                     const tx = db.transaction('items', 'readwrite'); const store = tx.objectStore('items');
                     store.clear(); result.data.forEach(item => store.add(item)); 
-                    tx.oncomplete = () => { updateSyncUI("<i class=\"fas fa-circle\" style=\"color: #22c55e; font-size: 0.6rem; margin-right: 4px;\"></i> Tersambung & Update"); loadDataFromLocal(); setTimeout(() => updateSyncUI("<i class=\"fas fa-circle\" style=\"color: #22c55e; font-size: 0.6rem; margin-right: 4px;\"></i> Online"), 3000); };
-                } else { updateSyncUI("<i class=\"fas fa-circle\" style=\"color: #22c55e; font-size: 0.6rem; margin-right: 4px;\"></i> Database Kosong"); loadDataFromLocal(); setTimeout(() => updateSyncUI("<i class=\"fas fa-circle\" style=\"color: #22c55e; font-size: 0.6rem; margin-right: 4px;\"></i> Online"), 3000); }
-            } else { updateSyncUI("<i class=\"fas fa-times-circle\"></i> Gagal (Data Rusak)"); loadDataFromLocal(); }
-         } else { updateSyncUI("<i class=\"fas fa-times-circle\"></i> Gagal (Error Script)"); loadDataFromLocal(); }
+                    tx.oncomplete = () => { updateSyncUI('<i class="fas fa-circle" style="color: #22c55e; font-size: 0.6rem; margin-right: 4px;"></i> Tersambung & Update'); loadDataFromLocal(); setTimeout(() => updateSyncUI('<i class="fas fa-circle" style="color: #22c55e; font-size: 0.6rem; margin-right: 4px;"></i> Online'), 3000); };
+                } else { updateSyncUI('<i class="fas fa-circle" style="color: #22c55e; font-size: 0.6rem; margin-right: 4px;"></i> Database Kosong'); loadDataFromLocal(); setTimeout(() => updateSyncUI('<i class="fas fa-circle" style="color: #22c55e; font-size: 0.6rem; margin-right: 4px;"></i> Online'), 3000); }
+            } else { updateSyncUI('<i class="fas fa-times-circle"></i> Gagal (Data Rusak)'); loadDataFromLocal(); }
+         } else { updateSyncUI('<i class="fas fa-times-circle"></i> Gagal (Error Script)'); loadDataFromLocal(); }
     } catch (error) {
-         if (error.name === 'AbortError') updateSyncUI("<i class=\"fas fa-times-circle\"></i> Timeout (Server Lambat)"); else updateSyncUI("<i class=\"fas fa-times-circle\"></i> Gagal Terhubung (Cek API)");
+         if (error.name === 'AbortError') updateSyncUI('<i class="fas fa-times-circle"></i> Timeout (Server Lambat)'); else updateSyncUI('<i class="fas fa-times-circle"></i> Gagal Terhubung (Cek API)');
         loadDataFromLocal(); 
     }
 }
@@ -68,7 +68,7 @@ function saveDB(item, actionName = "UPDATE", actionDetail = "") {
     // Prevent queue overflow - critical safeguard
     if (syncQueue.length >= MAX_QUEUE_SIZE) {
          alert("PERINGATAN SISTEM!\n\nQueue penyimpanan penuh (>500 items).\n\nTunggu koneksi stabil atau clear data manual.");
-         updateSyncUI("<i class=\"fas fa-exclamation-triangle\"></i> Queue PENUH!");
+         updateSyncUI('<i class="fas fa-exclamation-triangle"></i> Queue PENUH!');
         return;
     }
     
@@ -80,13 +80,13 @@ function saveDB(item, actionName = "UPDATE", actionDetail = "") {
     syncLogs.push({ partNo: item.partNo, action: actionName, detail: actionDetail || "Update Qty/Lokasi", timestamp: Date.now() });
     // Persist logs to localStorage (keep only last 100 logs to avoid overflow)
     localStorage.setItem('wms_syncLogs', JSON.stringify(syncLogs.slice(-100)));
-     updateSyncUI("<i class=\"fas fa-spinner fa-spin\"></i> Menunggu Sync...");
+     updateSyncUI('<i class="fas fa-spinner fa-spin"></i> Menunggu Sync...');
 }
 
 async function processSyncQueue() {
     if (isSyncing || (syncQueue.length === 0 && syncLogs.length === 0) || !navigator.onLine) return;
     isSyncing = true; 
-updateSyncUI("<i class=\"fas fa-sync\"></i> Syncing...");
+updateSyncUI('<i class="fas fa-sync"></i> Syncing...');
     
     try {
         let successCount = 0;
@@ -100,7 +100,7 @@ updateSyncUI("<i class=\"fas fa-sync\"></i> Syncing...");
             batch.forEach(item => uniqueItemsMap[item.id] = item);
             
             const payload = { action: "sync", data: Object.values(uniqueItemsMap), logs: syncLogs, batch: batchNum };
-updateSyncUI(`<i class=\"fas fa-sync\"></i> Syncing (Batch ${batchNum})...`);
+updateSyncUI(`<i class="fas fa-sync"></i> Syncing (Batch ${batchNum})...`);
             
             const response = await fetch(API_URL, { 
                 method: "POST", 
@@ -115,7 +115,7 @@ updateSyncUI(`<i class=\"fas fa-sync\"></i> Syncing (Batch ${batchNum})...`);
             } else { 
                 // Revert batch if failed
                 syncQueue.unshift(...batch); 
-                 updateSyncUI("<i class=\"fas fa-times-circle\"></i> Gagal Sync");
+                 updateSyncUI('<i class="fas fa-times-circle"></i> Gagal Sync');
                 break;
             }
         }
@@ -125,10 +125,10 @@ updateSyncUI(`<i class=\"fas fa-sync\"></i> Syncing (Batch ${batchNum})...`);
             // Clear persisted queues on success
             localStorage.removeItem('wms_syncQueue');
             localStorage.removeItem('wms_syncLogs');
-             updateSyncUI("<i class=\"fas fa-check-circle\"></i> Tersimpan");
+             updateSyncUI('<i class="fas fa-check-circle"></i> Tersimpan');
         }
     } catch (error) { 
-         updateSyncUI("<i class=\"fas fa-circle\" style=\"color: #ef4444; font-size: 0.6rem; margin-right: 4px;\"></i> Offline");
+         updateSyncUI('<i class="fas fa-circle" style="color: #ef4444; font-size: 0.6rem; margin-right: 4px;"></i> Offline');
     } finally { 
         isSyncing = false; 
     }
@@ -137,17 +137,17 @@ updateSyncUI(`<i class=\"fas fa-sync\"></i> Syncing (Batch ${batchNum})...`);
 async function triggerOffBsSync() {
     if (!navigator.onLine || isSyncing || typeof offBsSession === 'undefined') return;
     const unsyncedData = offBsSession.filter(i => !i.synced); if (unsyncedData.length === 0) return; 
-     isSyncing = true; updateSyncUI("<i class=\"fas fa-sync\"></i> Syncing OFF BS...");
+     isSyncing = true; updateSyncUI('<i class="fas fa-sync"></i> Syncing OFF BS...');
     try {
         const response = await fetch(API_URL, { method: "POST", redirect: "follow", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ action: "sync_off_bs", data: unsyncedData }) });
         const result = await response.json();
         if (result.status === "success") {
             unsyncedData.forEach(u => u.synced = true); localStorage.setItem('wms_off_bs', JSON.stringify(offBsSession));
-             updateSyncUI("<i class=\"fas fa-check-circle\"></i> OFF BS Tersimpan");
+             updateSyncUI('<i class="fas fa-check-circle"></i> OFF BS Tersimpan');
             if(currentTab === 'offbs') renderOffBsList(); 
              if (result.duplicates > 0) alert(`PERINGATAN SINKRONISASI!\n\n${result.duplicates} data ditolak oleh Cloud karena part dan dokumen sudah masuk Database sebelumnya.\n\nPart ditolak:\n${result.duplicateParts.join(', ')}`);
-         } else { updateSyncUI("<i class=\"fas fa-times-circle\"></i> Gagal Sync OFF BS"); }
-     } catch (err) { updateSyncUI("<i class=\"fas fa-circle\" style=\"color: #ef4444; font-size: 0.6rem; margin-right: 4px;\"></i> Offline"); } finally { isSyncing = false; }
+         } else { updateSyncUI('<i class="fas fa-times-circle"></i> Gagal Sync OFF BS'); }
+     } catch (err) { updateSyncUI('<i class="fas fa-circle" style="color: #ef4444; font-size: 0.6rem; margin-right: 4px;"></i> Offline'); } finally { isSyncing = false; }
 }
 
 async function fetchCloudOffBs() {
@@ -249,7 +249,7 @@ window.importCloudToLocal = function() {
     offBsSession.sort((a, b) => new Date(b.time) - new Date(a.time));
     if(typeof renderOffBsList === 'function') renderOffBsList();
     document.getElementById('cloudOffBsModal').style.display = 'none';
-     if(typeof showToast === 'function') showToast(importCount > 0 ? `<i class="fas fa-check-circle"></i> ${importCount} data ditarik!` : "<i class=\"fas fa-info-circle\"></i> Semua data sudah ada.");
+     if(typeof showToast === 'function') showToast(importCount > 0 ? `<i class="fas fa-check-circle"></i> ${importCount} data ditarik!` : '<i class="fas fa-info-circle"></i> Semua data sudah ada.');
 };
 
 window.openOffBsFilterModal = function() {
