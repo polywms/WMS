@@ -7,7 +7,7 @@ function handleImport(input) {
     const r = new FileReader();
     r.onload = async e => {
         showLoading("<i class=\"fas fa-download\"></i> Import Stock", "Memproses data...");
-        updateSyncUI("<i class=\"fas fa-spinner\" style=\"animation: spin 1s linear infinite;\"></i> Membaca Excel...");
+        updateSyncUI("<i class=\"fas fa-spinner fa-spin\"></i> Membaca Excel...");
         const wb = XLSX.read(e.target.result, {type:'array'});
         const json = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {defval:''});
         
@@ -283,7 +283,7 @@ function handleImportHarga(input) {
     r.onload = async e => {
         try {
             showLoading("<i class='fas fa-tags'></i> Import Harga", "Memproses data...");
-            updateSyncUI("<i class=\"fas fa-spinner\" style=\"animation: spin 1s linear infinite;\"></i> Membaca File Harga...");
+            updateSyncUI("<i class=\"fas fa-spinner fa-spin\"></i> Membaca File Harga...");
             
             const wb = XLSX.read(e.target.result, {type:'array'});
             const json = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {defval:''});
@@ -393,7 +393,7 @@ function handleImportOffBS(input) {
     showLoading("<i class=\"fas fa-download\"></i> Import OFF BS", `Membaca file: ${f.name}`);
     const r = new FileReader();
     r.onload = async e => {
-        updateSyncUI("<i class=\"fas fa-spinner\" style=\"animation: spin 1s linear infinite;\"></i> Membaca File OFF BS...");
+        updateSyncUI("<i class=\"fas fa-spinner fa-spin\"></i> Membaca File OFF BS...");
         
         try {
             const wb = XLSX.read(e.target.result, {type:'array'});

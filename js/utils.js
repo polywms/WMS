@@ -126,8 +126,8 @@ function toggleDarkMode() {
 function showLoading(text = "Memproses...", subtext = "") {
     const modal = document.getElementById('loadingModal');
     if(!modal) return;
-    document.getElementById('loadingText').innerText = text;
-    document.getElementById('loadingSubtext').innerText = subtext;
+    document.getElementById('loadingText').innerHTML = text;
+    document.getElementById('loadingSubtext').innerHTML = subtext;
     modal.style.display = 'flex';
 }
 

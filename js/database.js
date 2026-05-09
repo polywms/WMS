@@ -39,16 +39,16 @@ function loadDataFromLocal() {
 
 async function fetchInitialDataFromCloud() {
     if (!navigator.onLine) { updateSyncUI("<i class=\"fas fa-circle\" style=\"color: #ef4444; font-size: 0.6rem; margin-right: 4px;\"></i> Offline (Mode Lokal)"); loadDataFromLocal(); return; }
-    updateSyncUI("<i class=\"fas fa-spinner\" style=\"animation: spin 1s linear infinite;\"></i> Menghubungkan ke Database...");
+    updateSyncUI("<i class=\"fas fa-spinner fa-spin\"></i> Menghubungkan ke Database...");
     try {
         const controller = new AbortController(); const timeoutId = setTimeout(() => controller.abort(), 30000); 
         const response = await fetch(API_URL, { redirect: "follow", signal: controller.signal }); clearTimeout(timeoutId); 
-updateSyncUI("<i class=\"fas fa-spinner\" style=\"animation: spin 1s linear infinite;\"></i> Menerima Data..."); const result = await response.json();
+updateSyncUI("<i class=\"fas fa-spinner fa-spin\"></i> Menerima Data..."); const result = await response.json();
         
         if (result.status === "success") {
             if (result.data && Array.isArray(result.data)) {
                 if (result.data.length > 0) {
-                    updateSyncUI(`<i class=\"fas fa-spinner\" style=\"animation: spin 1s linear infinite;\"></i> Memproses ${result.data.length} Item...`);
+                    updateSyncUI(`<i class=\"fas fa-spinner fa-spin\"></i> Memproses ${result.data.length} Item...`);
                     const tx = db.transaction('items', 'readwrite'); const store = tx.objectStore('items');
                     store.clear(); result.data.forEach(item => store.add(item)); 
                     tx.oncomplete = () => { updateSyncUI("<i class=\"fas fa-circle\" style=\"color: #22c55e; font-size: 0.6rem; margin-right: 4px;\"></i> Tersambung & Update"); loadDataFromLocal(); setTimeout(() => updateSyncUI("<i class=\"fas fa-circle\" style=\"color: #22c55e; font-size: 0.6rem; margin-right: 4px;\"></i> Online"), 3000); };
@@ -80,7 +80,7 @@ function saveDB(item, actionName = "UPDATE", actionDetail = "") {
     syncLogs.push({ partNo: item.partNo, action: actionName, detail: actionDetail || "Update Qty/Lokasi", timestamp: Date.now() });
     // Persist logs to localStorage (keep only last 100 logs to avoid overflow)
     localStorage.setItem('wms_syncLogs', JSON.stringify(syncLogs.slice(-100)));
-     updateSyncUI("<i class=\"fas fa-spinner\" style=\"animation: spin 1s linear infinite;\"></i> Menunggu Sync...");
+     updateSyncUI("<i class=\"fas fa-spinner fa-spin\"></i> Menunggu Sync...");
 }
 
 async function processSyncQueue() {
