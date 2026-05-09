@@ -102,7 +102,7 @@ function scrollToTop() {
 
 function showToast(m) { 
     const t = document.getElementById('toast'); 
-    t.innerText = m; 
+    t.innerHTML = m; 
     t.classList.add('show'); 
     setTimeout(() => t.classList.remove('show'), 3000); 
 }
