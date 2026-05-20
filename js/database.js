@@ -34,6 +34,8 @@ function loadDataFromLocal() {
         if(currentTab === 'opname' && typeof handleOpnameRender === 'function') handleOpnameRender();
         if(currentTab === 'simpan' && typeof renderSimpanList === 'function') renderSimpanList(true);
         if(currentTab === 'data' && typeof renderDataList === 'function') renderDataList(true);
+        if(currentTab === 'packing' && typeof renderPackingList === 'function') { renderCollyUI(); renderPackingList(); }
+        if(currentTab === 'offbs' && typeof renderOffBsList === 'function') renderOffBsList();
     };
 }
 

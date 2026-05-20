@@ -1258,6 +1258,15 @@ function switchTab(id) {
     
     document.getElementById('scrollTopBtn').style.display = 'none';
     
+    // Render tab-specific content when switching tabs
+    if (id === 'packing' && typeof renderPackingList === 'function') {
+        renderCollyUI();
+        renderPackingList();
+    }
+    if (id === 'offbs' && typeof renderOffBsList === 'function') {
+        renderOffBsList();
+    }
+    
     // Close sidebar drawer after selection
     toggleMenu();
 }
