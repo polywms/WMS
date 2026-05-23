@@ -154,32 +154,25 @@
                 </div>
                 
                 <!-- Active Part Details Panel -->
-                <div id="activePartDetailsPanel" class="status-panel" style="background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); border: 1px solid #0ea5e9; display: none; padding: 12px 16px; margin-top: 10px; border-radius: 8px;">
-                    <div style="margin-bottom: 10px;">
-                        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-                            <div style="flex: 1;">
-                                <div style="font-size: 0.7rem; color: #0369a1; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px;">Nomor Part</div>
-                                <div id="activePartNo" style="font-size: 1.1rem; color: #0c4a6e; font-weight: bold; word-break: break-word;"></div>
-                            </div>
-                            <button onclick="clearActivePart()" style="flex-shrink: 0; width: 32px; height: 32px; background: rgba(6, 182, 212, 0.2); color: #0891b2; border: 1px solid #06b6d4; border-radius: 6px; display: flex; justify-content: center; align-items: center; cursor: pointer; transition: 0.2s;" title="Bersihkan pilihan">
-                                <i class="fas fa-times" style="font-size: 0.9rem;"></i>
-                            </button>
+                <div id="activePartDetailsPanel" class="status-panel" style="background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); border: 1px solid #0ea5e9; display: none; padding: 10px 12px; margin-top: 10px; border-radius: 6px;">
+                    <!-- Row 1: Part Number + Lokasi + Close -->
+                    <div style="display: flex; align-items: flex-start; gap: 10px; margin-bottom: 8px;">
+                        <div style="flex: 1;">
+                            <div id="activePartNo" style="font-size: 0.95rem; color: #0c4a6e; font-weight: bold; word-break: break-word; line-height: 1.3;"></div>
                         </div>
-                    </div>
-                    <div style="background: rgba(255,255,255,0.7); padding: 8px 10px; border-radius: 6px; margin-bottom: 10px; border-left: 3px solid #0ea5e9;">
-                        <div style="font-size: 0.75rem; color: #0369a1; font-weight: bold; margin-bottom: 3px;">DESKRIPSI</div>
-                        <div id="activePartDesc" style="font-size: 0.9rem; color: #0c4a6e; line-height: 1.3;"></div>
-                    </div>
-                    <div style="background: rgba(255,255,255,0.7); padding: 8px 10px; border-radius: 6px; border-left: 3px solid #10b981; margin-bottom: 10px;">
-                        <div style="font-size: 0.75rem; color: #047857; font-weight: bold; margin-bottom: 4px;"><i class="fas fa-map-marker-alt"></i> LOKASI TERSIMPAN</div>
-                        <div id="activePartLoc" style="font-size: 0.9rem; color: #065f46; font-weight: 500; word-break: break-word; line-height: 1.4;"></div>
-                    </div>
-                    <div style="background: rgba(255,255,255,0.7); padding: 8px 10px; border-radius: 6px; border-left: 3px solid #f59e0b;">
-                        <div style="font-size: 0.75rem; color: #92400e; font-weight: bold; margin-bottom: 4px;"><i class="fas fa-history"></i> RIWAYAT LOKASI</div>
-                        <div id="activePartLocHistory" style="font-size: 0.85rem; color: #78350f; word-break: break-word; line-height: 1.4; max-height: 120px; overflow-y: auto;">
-                            <span style="color: #b45309; font-size: 0.8rem;">—</span>
+                        <div style="text-align: right; flex: 0 0 auto;">
+                            <div style="font-size: 0.65rem; color: #0369a1; font-weight: bold; text-transform: uppercase; margin-bottom: 2px;">Lokasi</div>
+                            <div id="activePartLoc" style="font-size: 0.8rem; color: #0c4a6e; font-weight: 600; word-break: break-word;"></div>
                         </div>
+                        <button onclick="clearActivePart()" style="flex-shrink: 0; width: 28px; height: 28px; background: rgba(6, 182, 212, 0.2); color: #0891b2; border: 1px solid #06b6d4; border-radius: 4px; display: flex; justify-content: center; align-items: center; cursor: pointer; padding: 0; font-size: 0.9rem;" title="Bersihkan">×</button>
                     </div>
+                    <!-- Row 2: Description (smaller text) -->
+                    <div style="font-size: 0.75rem; color: #0c4a6e; margin-bottom: 8px; line-height: 1.3;">
+                        <span id="activePartDesc"></span>
+                    </div>
+                    <!-- Row 3: Similar Parts -->
+                    <div style="font-size: 0.75rem; color: #0369a1; font-weight: bold; text-transform: uppercase; margin-bottom: 4px; letter-spacing: 0.5px;">Bagian Serupa</div>
+                    <div id="activeSimilarParts" style="font-size: 0.8rem; color: #0c4a6e; max-height: 100px; overflow-y: auto; line-height: 1.4;"></div>
                 </div>
                 
                 <div style="display:flex; justify-content:flex-end; margin-top:10px; align-items:center;">
@@ -189,22 +182,7 @@
                     </label>
                 </div>
                 
-                <!-- Simpan Status Panel (Multi-Line Buffer Items) -->
-                <div id="simpanStatusPanel" style="display: none; background: linear-gradient(90deg, var(--primary) 0%, var(--primary-dark) 100%); padding: 0; border-top: none; width: calc(100% + 32px); margin-left: -16px; margin-right: -16px; box-sizing: border-box; z-index: 99;">
-                    <!-- Header -->
-                    <div style="padding: 10px 16px; border-bottom: 1px solid rgba(255,255,255,0.1); display: flex; justify-content: space-between; align-items: center; color: white;">
-                        <div style="display: flex; align-items: center; gap: 8px; font-size: 0.85rem; font-weight: bold;">
-                            <i class="fas fa-layer-group"></i>
-                            <span>Buffer: <span id="simpanBufferCountDisplay">0</span> items</span>
-                        </div>
-                        <button onclick="clearSimpanBuffer()" style="background: rgba(255,255,255,0.2); color: white; border: none; padding: 4px 10px; border-radius: 4px; font-size: 0.75rem; cursor: pointer; font-weight: bold; transition: 0.2s;" title="Clear semua buffer">Clear All</button>
-                    </div>
-                    <!-- Items Container (Scrollable) -->
-                    <div id="simpanBufferItemsContainer" style="max-height: 200px; overflow-y: auto; padding: 8px 16px; display: flex; flex-direction: column; gap: 8px;"></div>
-                </div>
-            </div>
-            
-            <div id="tab-simpan" class="tab-content active">
+                <div id="tab-simpan" class="tab-content active">
                 <div id="multiScanPanel" class="multi-panel" style="display:none;">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
                         <b style="color:var(--purple);"><i class="fas fa-layer-group"></i> Buffer: <span id="multiCount">0</span> items</b>

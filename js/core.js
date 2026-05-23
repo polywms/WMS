@@ -134,18 +134,14 @@ function toggleSimpanBufferMode() {
     localStorage.setItem('wms_useSimpanBuffer', useSimpanBuffer.toString());
     
     if (useSimpanBuffer) {
-        // Mode Buffer ON - show buffer panel
+        // Mode Buffer ON
         showToast('<i class="fas fa-calculator"></i> Mode Buffer AKTIF - Qty Calculation ON');
-        const statusPanel = document.getElementById('simpanStatusPanel');
-        if (statusPanel) statusPanel.style.display = 'block';
     } else {
         // Mode Buffer OFF - direct save mode
         showToast('<i class="fas fa-save"></i> Mode Direct Save AKTIF - Simpan langsung ke box');
         // Clear buffer and direct part
         clearSimpanBuffer();
         activeDirectPart = null;
-        const statusPanel = document.getElementById('simpanStatusPanel');
-        if (statusPanel) statusPanel.style.display = 'none';
     }
     
     feedback('success');
@@ -655,6 +651,34 @@ function renderSimpanList(reset = true) {
     });
 }
 
+function getSimilarParts(partNo) {
+    /**
+     * Extract base pattern from partNo (misal: KV-033663-00D → KV-033663)
+     * Return array of similar parts dengan format:
+     * [{ partNo: "KV-033663-00A", locations: "A2-01, B1-02" }, ...]
+     */
+    if (!partNo || !localItems) return [];
+    
+    // Extract pattern: misal KV-033663-00D → KV-033663
+    // Assuming format: PREFIX-XXXXXX-00X (hapus suffix akhir setelah "-00")
+    const parts = partNo.split('-');
+    const basePattern = parts.length >= 2 ? `${parts[0]}-${parts[1]}` : partNo;
+    
+    // Cari semua part yang match pattern, exclude yang sekarang
+    const similar = localItems
+        .filter(item => {
+            const itemBase = item.partNo.split('-').slice(0, 2).join('-');
+            return itemBase === basePattern && item.partNo !== partNo;
+        })
+        .map(item => ({
+            partNo: item.partNo,
+            locations: Object.keys(item.locations).join(', ') || '(belum disimpan)'
+        }))
+        .sort((a, b) => a.partNo.localeCompare(b.partNo));
+    
+    return similar;
+}
+
 function getPartLocationHistory(partNo) {
     // Ambil history lokasi dari scanHistoryLog berdasarkan partNo
     // Return: array unique locations dalam urutan terbaru
@@ -676,63 +700,60 @@ function getPartLocationHistory(partNo) {
 }
 
 function selectPartSimpan(item) {
-    // Legacy function for single-scan mode; auto-buffer always active now
-    // This function is not called anymore but kept for backward compatibility
-    
+    // Display detail panel for selected part
     tempPart = item;
-    // Validate simpanBuffer and clear it
-    if (!Array.isArray(simpanBuffer)) simpanBuffer = [];
-    simpanBuffer = []; // Kosongkan buffer karena cuma dilihat, belum di-scan
     
-    // Show detail panel
+    // Show detail panel (compact layout)
     document.getElementById('activePartDetailsPanel').style.display = 'block';
-    document.getElementById('simpanStatusPanel').style.display = 'block';
     
-    // Hitung total tersimpan untuk tampilan "Hanya Dilihat"
+    // Hitung total tersimpan
     const qtyTersimpan = Object.values(item.locations).reduce((a,b)=>a+b, 0);
     let color = qtyTersimpan >= item.sysQty ? '#16a34a' : '#ea580c';
-    let progressBadge = `<span style="font-size:0.85rem; color:${color}; background:#f8fafc; padding:2px 8px; border-radius:6px; border:1px solid #cbd5e1; margin-left:8px; font-weight:bold;">Terisi: ${qtyTersimpan}/${item.sysQty}</span>`;
+    let progressBadge = `<span style="font-size:0.75rem; color:${color}; margin-left:4px; font-weight:bold;">${qtyTersimpan}/${item.sysQty}</span>`;
     
-    // Taruh menyamping di sebelah Nama Part
+    // Display: Part Number + Progress
     document.getElementById('activePartNo').innerHTML = item.partNo + progressBadge;
     
+    // Display: Description (compact)
+    let desc = item.desc;
     let issueWarning = '';
     if (item.labelIssues && (item.labelIssues.DAMAGED > 0 || item.labelIssues.NO_LABEL > 0)) {
         let t = [];
-        if (item.labelIssues.NO_LABEL > 0) t.push(`${item.labelIssues.NO_LABEL} Tanpa Label`);
-        if (item.labelIssues.DAMAGED > 0) t.push(`${item.labelIssues.DAMAGED} Label Rusak`);
-        issueWarning = `<br><span style="color:var(--danger); font-weight:bold; font-size:0.8rem;"><i class="fas fa-exclamation-triangle"></i> Catatan: ${t.join(' | ')}</span>`;
+        if (item.labelIssues.NO_LABEL > 0) t.push(`Tanpa Label: ${item.labelIssues.NO_LABEL}`);
+        if (item.labelIssues.DAMAGED > 0) t.push(`Rusak: ${item.labelIssues.DAMAGED}`);
+        issueWarning = ` | ⚠️ ${t.join(' | ')}`;
     }
-    document.getElementById('activePartDesc').innerHTML = item.desc + issueWarning;
-    document.getElementById('activePartLoc').innerText = Object.keys(item.locations).join(', ') || 'Belum ada';
+    document.getElementById('activePartDesc').innerHTML = desc + issueWarning;
     
-    // Tampilkan riwayat lokasi
-    const locHistory = getPartLocationHistory(item.partNo);
-    const historyHtml = locHistory.length === 0 
-        ? '<span style="color: #b45309; font-size: 0.8rem;">— Belum ada riwayat</span>'
-        : locHistory.map((entry, idx) => `
-            <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 4px; padding-bottom: 4px; border-bottom: 1px solid rgba(180, 83, 9, 0.2);">
-                <span style="background: #fef3c7; color: #92400e; padding: 2px 6px; border-radius: 4px; font-size: 0.75rem; font-weight: bold; white-space: nowrap;">${idx + 1}.</span>
-                <span style="font-weight: 600; color: #92400e;">${entry.box}</span>
-                <span style="color: #b45309; font-size: 0.75rem; margin-left: auto;">${new Date(entry.time).toLocaleString('id-ID')}</span>
+    // Display: Current Locations (mepet kanan)
+    document.getElementById('activePartLoc').innerText = Object.keys(item.locations).join(', ') || '(belum)';
+    
+    // Tampilkan bagian serupa (replace riwayat lokasi)
+    const similar = getSimilarParts(item.partNo);
+    let similarHtml = '';
+    if (similar.length === 0) {
+        similarHtml = '<span style="color: #6b7280; font-size: 0.75rem;">— Tidak ada bagian serupa</span>';
+    } else {
+        similarHtml = similar.map(s => `
+            <div style="margin-bottom: 3px;">
+                <span style="font-weight: 600;">${s.partNo}</span> 
+                <span style="color: #6b7280; font-size: 0.75rem;">[${s.locations}]</span>
             </div>
         `).join('');
-    document.getElementById('activePartLocHistory').innerHTML = historyHtml;
+    }
+    document.getElementById('activeSimilarParts').innerHTML = similarHtml;
     
+    // Highlight selected row in list
     document.querySelectorAll('.item-card').forEach(el => { el.classList.remove('selected'); el.classList.remove('row-flash'); });
     const row = document.getElementById(`simpan-row-${item.id}`);
     if(row) { row.classList.add('selected'); row.classList.add('row-flash'); row.scrollIntoView({behavior:'smooth', block:'center'}); }
     
     if(typeof renderSmartSuggestion === 'function') renderSmartSuggestion(item);
-    renderSimpanBuffer();
 }
 
 function clearActivePart() {
     tempPart = null; 
-    // Clear simpanBuffer when clearing active part
-    clearSimpanBuffer();
     document.getElementById('activePartDetailsPanel').style.display = 'none';
-    document.getElementById('simpanStatusPanel').style.display = 'none';
     document.querySelectorAll('.item-card').forEach(el => el.classList.remove('selected'));
     // Reset Smart Suggestion Panel
     const panelEl = document.getElementById('smartSuggestionPanel');
@@ -1454,65 +1475,60 @@ function addToSimpanBuffer(item) {
     
     tempPart = item;
     
-    // Show detail panel
-    const detailPanel = document.getElementById('activePartDetailsPanel');
-    if (detailPanel) {
-        detailPanel.style.display = 'block';
-        
-        // Update detail panel content
-        const qtyTersimpan = Object.values(item.locations).reduce((a,b)=>a+b, 0);
-        let color = qtyTersimpan >= item.sysQty ? '#16a34a' : '#ea580c';
-        let progressBadge = `<span style="font-size:0.85rem; color:${color}; background:#f8fafc; padding:2px 8px; border-radius:6px; border:1px solid #cbd5e1; margin-left:8px; font-weight:bold;">Terisi: ${qtyTersimpan}/${item.sysQty}</span>`;
-        document.getElementById('activePartNo').innerHTML = item.partNo + progressBadge;
-        
-        let issueWarning = '';
-        if (item.labelIssues && (item.labelIssues.DAMAGED > 0 || item.labelIssues.NO_LABEL > 0)) {
-            let t = [];
-            if (item.labelIssues.NO_LABEL > 0) t.push(`${item.labelIssues.NO_LABEL} Tanpa Label`);
-            if (item.labelIssues.DAMAGED > 0) t.push(`${item.labelIssues.DAMAGED} Label Rusak`);
-            issueWarning = `<br><span style="color:var(--danger); font-weight:bold; font-size:0.8rem;"><i class="fas fa-exclamation-triangle"></i> Catatan: ${t.join(' | ')}</span>`;
-        }
-        document.getElementById('activePartDesc').innerHTML = item.desc + issueWarning;
-        document.getElementById('activePartLoc').innerText = Object.keys(item.locations).join(', ') || 'Belum ada';
-        
-        // Tampilkan riwayat lokasi
-        const locHistory = getPartLocationHistory(item.partNo);
-        const historyHtml = locHistory.length === 0 
-            ? '<span style="color: #b45309; font-size: 0.8rem;">— Belum ada riwayat</span>'
-            : locHistory.map((entry, idx) => `
-                <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 4px; padding-bottom: 4px; border-bottom: 1px solid rgba(180, 83, 9, 0.2);">
-                    <span style="background: #fef3c7; color: #92400e; padding: 2px 6px; border-radius: 4px; font-size: 0.75rem; font-weight: bold; white-space: nowrap;">${idx + 1}.</span>
-                    <span style="font-weight: 600; color: #92400e;">${entry.box}</span>
-                    <span style="color: #b45309; font-size: 0.75rem; margin-left: auto;">${new Date(entry.time).toLocaleString('id-ID')}</span>
-                </div>
-            `).join('');
-        document.getElementById('activePartLocHistory').innerHTML = historyHtml;
-    }
+    // Show detail panel (compact layout)
+    document.getElementById('activePartDetailsPanel').style.display = 'block';
     
-    // Tampilkan deskripsi & peringatan (untuk info saja, tidak update panel lagi)
+    // Hitung total tersimpan
+    const qtyTersimpan = Object.values(item.locations).reduce((a,b)=>a+b, 0);
+    let color = qtyTersimpan >= item.sysQty ? '#16a34a' : '#ea580c';
+    let progressBadge = `<span style="font-size:0.75rem; color:${color}; margin-left:4px; font-weight:bold;">${qtyTersimpan}/${item.sysQty}</span>`;
+    
+    // Display: Part Number + Progress
+    document.getElementById('activePartNo').innerHTML = item.partNo + progressBadge;
+    
+    // Display: Description (compact)
+    let desc = item.desc;
     let issueWarning = '';
     if (item.labelIssues && (item.labelIssues.DAMAGED > 0 || item.labelIssues.NO_LABEL > 0)) {
         let t = [];
-        if (item.labelIssues.NO_LABEL > 0) t.push(`${item.labelIssues.NO_LABEL} Tanpa Label`);
-        if (item.labelIssues.DAMAGED > 0) t.push(`${item.labelIssues.DAMAGED} Label Rusak`);
-        issueWarning = `${t.join(' | ')}`;
+        if (item.labelIssues.NO_LABEL > 0) t.push(`Tanpa Label: ${item.labelIssues.NO_LABEL}`);
+        if (item.labelIssues.DAMAGED > 0) t.push(`Rusak: ${item.labelIssues.DAMAGED}`);
+        issueWarning = ` | ⚠️ ${t.join(' | ')}`;
     }
-
-    // Tambah atau Update Qty Buffer - PURE SCAN COUNT ONLY (bukan DB qty)
+    document.getElementById('activePartDesc').innerHTML = desc + issueWarning;
+    
+    // Display: Current Locations (mepet kanan)
+    document.getElementById('activePartLoc').innerText = Object.keys(item.locations).join(', ') || '(belum)';
+    
+    // Tampilkan bagian serupa
+    const similar = getSimilarParts(item.partNo);
+    let similarHtml = '';
+    if (similar.length === 0) {
+        similarHtml = '<span style="color: #6b7280; font-size: 0.75rem;">— Tidak ada bagian serupa</span>';
+    } else {
+        similarHtml = similar.map(s => `
+            <div style="margin-bottom: 3px;">
+                <span style="font-weight: 600;">${s.partNo}</span> 
+                <span style="color: #6b7280; font-size: 0.75rem;">[${s.locations}]</span>
+            </div>
+        `).join('');
+    }
+    document.getElementById('activeSimilarParts').innerHTML = similarHtml;
+    
+    // Tambah atau Update Qty Buffer - PURE SCAN COUNT ONLY
     let scanQty;
     if (existing) {
-        existing.qty++;  // Increment qty jika item sudah ada di buffer (pure scan count)
+        existing.qty++;
         scanQty = existing.qty;
         showToast(`${item.partNo} ➔ +${existing.qty} Scan`);
     } else {
-        // NEW: Buffer qty = PURE SCAN COUNT ONLY (tidak termasuk DB qty)
-        scanQty = 1;  // Hanya 1 scan untuk item baru
+        scanQty = 1;
         const bufferItem = { item: item, qty: scanQty, hasConflict: false };
         
-        // NEW: Detect conflict - compare item.lastBox vs targetBufferBox
+        // Detect conflict - compare item.lastBox vs targetBufferBox
         if (targetBufferBox && item.lastBox && item.lastBox !== '-' && item.lastBox !== targetBufferBox) {
             bufferItem.hasConflict = true;
-            feedback('warning');  // Double-beep audio for conflict
+            feedback('warning');
             showToast(`<i class="fas fa-exclamation-triangle"></i> ${item.partNo} - Awal: ${item.lastBox}, Target: ${targetBufferBox}`);
         } else {
             showToast(`${item.partNo} ➔ +${scanQty} Scan`);
@@ -1527,11 +1543,11 @@ function addToSimpanBuffer(item) {
     
     // Logika audio feedback berdasarkan total qty
     if (visualTotalQty < item.sysQty) {
-        feedback('scan_normal');  // Beep standar, qty masih kurang
+        feedback('scan_normal');
     } else if (visualTotalQty === item.sysQty) {
-        feedback('scan_complete');  // Nada "Ding ding ting", qty pas sempurna
+        feedback('scan_complete');
     } else {
-        feedback('scan_over');  // Nada error, qty berlebih
+        feedback('scan_over');
     }
     
     // Highlight di List
@@ -1539,8 +1555,6 @@ function addToSimpanBuffer(item) {
     const row = document.getElementById(`simpan-row-${item.id}`);
     if(row) { row.classList.add('selected'); row.classList.add('row-flash'); row.scrollIntoView({behavior:'smooth', block:'center'}); }
 
-    // Update UI Panel
-    renderSimpanBuffer();
     if(typeof renderSmartSuggestion === 'function') renderSmartSuggestion(item);
 }
 
@@ -1730,72 +1744,8 @@ function forceSaveAllConflicts() {
 }
 
 function renderSimpanBuffer() {
-    const statusPanel = document.getElementById('simpanStatusPanel');
-    const itemsContainer = document.getElementById('simpanBufferItemsContainer');
-    const countDisplay = document.getElementById('simpanBufferCountDisplay');
-    const smartPanel = document.getElementById('smartSuggestionPanel');
-    
-    // Hide panel entirely if buffer mode is OFF
-    if (!useSimpanBuffer) {
-        if (statusPanel) statusPanel.style.display = 'none';
-        if (itemsContainer) itemsContainer.innerHTML = '';
-        if (countDisplay) countDisplay.textContent = '0';
-        if (smartPanel) smartPanel.style.display = 'none';
-        return;
-    }
-    
-    if (!Array.isArray(simpanBuffer) || simpanBuffer.length === 0) {
-        statusPanel.style.display = 'none';
-        if (itemsContainer) itemsContainer.innerHTML = '';
-        if (countDisplay) countDisplay.textContent = '0';
-        // Hide smart suggestion panel when buffer is empty
-        if (smartPanel) smartPanel.style.display = 'none';
-        return;
-    }
-    
-    // Tampilkan panel
-    statusPanel.style.display = 'block';
-    if (countDisplay) countDisplay.textContent = simpanBuffer.length;
-    
-    // Render semua items di buffer
-    let html = '';
-    simpanBuffer.forEach((bufferItem, index) => {
-        const item = bufferItem.item;
-        const scanCount = bufferItem.qty;  // Pure scan count (not including DB qty)
-        const dbQty = Object.values(item.locations).reduce((a, b) => a + b, 0);  // Existing DB qty
-        const visualTotalQty = dbQty + scanCount;  // Total for UI display only
-        const locList = Object.keys(item.locations || {}).join(', ') || 'Belum Box';
-        const conflictBadge = bufferItem.hasConflict ? '<span style="background: rgba(255, 255, 255, 0.3); padding: 2px 6px; border-radius: 4px; font-size: 0.75rem; font-weight: bold;"><i class="fas fa-exclamation-triangle" style="margin-right: 4px;"></i> Konflik</span>' : '';
-        
-        // Tentukan status kuantitas dan class CSS berdasarkan visualTotalQty
-        let statusClass = 'simpan-buffer-item';
-        if (visualTotalQty < item.sysQty) {
-            statusClass += ' buffer-kurang';
-        } else if (visualTotalQty === item.sysQty) {
-            statusClass += ' buffer-pas';
-        } else {
-            statusClass += ' buffer-lebih';
-        }
-        
-        html += `
-            <div class="${statusClass}">
-                <div class="simpan-buffer-item-info">
-                    <span class="simpan-buffer-item-part">${item.partNo}</span>
-                    <button class="simpan-buffer-item-qty-edit" onclick="editBufferQty(${item.id})" title="Klik untuk edit jumlah scan">
-                        x${visualTotalQty}/${item.sysQty} <i class="fas fa-pencil-alt"></i>
-                    </button>
-                    <span class="simpan-buffer-item-desc" title="${item.desc}">${item.desc}</span>
-                    ${conflictBadge}
-                </div>
-                <span class="simpan-buffer-item-location" title="Lokasi Box">${locList}</span>
-                <button class="simpan-buffer-item-remove" onclick="removeFromSimpanBuffer(${item.id})" title="Hapus dari buffer">
-                    <i class="fas fa-times"></i>
-                </button>
-            </div>
-        `;
-    });
-    
-    if (itemsContainer) itemsContainer.innerHTML = html;
+    // Function disabled: simpanStatusPanel has been removed from HTML
+    // Kept for backward compatibility (no-op)
 }
 
 function editBufferQty(itemId) {
@@ -1870,15 +1820,7 @@ function clearSimpanBuffer() {
     simpanBufferBox = null;
     tempPart = null;
     
-    const statusPanel = document.getElementById('simpanStatusPanel');
-    const itemsContainer = document.getElementById('simpanBufferItemsContainer');
-    const countDisplay = document.getElementById('simpanBufferCountDisplay');
     const smartPanel = document.getElementById('smartSuggestionPanel');
-    
-    if (statusPanel) statusPanel.style.display = 'none';
-    if (itemsContainer) itemsContainer.innerHTML = '';
-    if (countDisplay) countDisplay.textContent = '0';
-    // Hide smart suggestion panel when buffer is cleared
     if (smartPanel) smartPanel.style.display = 'none';
     
     document.querySelectorAll('.item-card').forEach(el => el.classList.remove('selected'));
