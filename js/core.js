@@ -7,16 +7,16 @@
  * Caller: main.js (via window.onload), UI events (onclick), keyboard (onkeydown)
  * Dependensi: database.js (saveDB), utils.js (feedback), config.js (QR_PARSERS)
  * 
- * SIMPAN Tab (Penyimpanan): **DISPLAY-ONLY MODE** (2026-05-23)
- * - NO qty increment, NO buffer accumulation
- * - Scan part = Select & show detail panel (read-only stok dari database)
+ * SIMPAN Tab (Penyimpanan): Save part to box (location-only, no qty tracking)
+ * - Scan part → Select & show detail panel (display existing locations from DB)
+ * - Scan box → Save part to box (set location flag, no qty increment)
  * - Display: Part No, Description, Current Locations (existing dari item.locations)
- * - Similar parts list, Label issues tracking
- * - No saveDB, no addHistoryLog, no qty validation
+ * - Similar parts list, Label issues tracking (read-only)
+ * - NO progress badge (X/Y), NO qty validation, NO accumulation messages
  * 
  * Main Functions:
  * - processScan(code) — Route scan per currentTab
- * - updateActivePartPanel(item) — Display part detail (read-only)
+ * - updateActivePartPanel(item) — Display part detail (location-only view)
  * - selectPartSimpan(item) — Select part dari list
  * - getSimilarParts(partNo) — Find parts dengan nomor gudang sama
  * - clearActivePart() — Hide panel + reset selection
@@ -26,19 +26,19 @@
  * - OPNAME: Inventory check dengan buffer
  * - DATA: Search/view semua parts dengan edit capability
  * - OFF BS: Off-balance-sheet tracking dengan cloud sync
- * - PACKING: Shipment/colly management\n * 
+ * - PACKING: Shipment/colly management
+ * 
  * Side Effects: 
  * - DOM update (#simpanList, #activePartDetailsPanel)
- * - localStorage read/write (currentTab, simpanMode - not used in SIMPAN tab anymore)
- * - IndexedDB read via loadDataFromLocal() (SIMPAN tab read-only, no writes)
- * - Google Sheets sync via processSyncQueue() (other tabs only)
+ * - localStorage read (currentTab)
+ * - IndexedDB write via saveDB() (SIMPAN tab: location save only)
+ * - Google Sheets sync via processSyncQueue()
  * 
  * Recent Changes (2026-05-23):
- * - REFACTORED: SIMPAN tab to display-only mode (no qty modification)
- * - REMOVED: All qty increment, overflow checks, saveDB calls from SIMPAN
- * - REMOVED: simpanMode logic, multiScanBuffer, buffer-related functions (disabled)
- * - SIMPLIFIED: processScan() SIMPAN branch to only select & display
- * - KEPT: Full read of item.locations, similar parts, label issues (for visibility)
+ * - REFACTORED: SIMPAN tab to location-only mode (no qty tracking)
+ * - REMOVED: All qty calculations, progress badge (X/Y), overflow checks
+ * - KEPT: saveDB() and addHistoryLog() for location recording
+ * - SIMPLIFIED: processScan() SIMPAN branch - part→detail, box→save location
  * ========================================
  */
 
@@ -121,19 +121,6 @@ function toggleKeyboardMode() {
 function toggleMultiMode() {
     // Auto-Buffer is default mode now - toggle disabled
     showToast('<i class="fas fa-sync"></i> Auto-Buffer Mode Active');
-}
-
-function toggleWorkflowMode() {
-    const chk = document.getElementById('chkWorkflowMode');
-    workflowMode = chk.checked ? 'pindah_split' : 'simpan';
-    localStorage.setItem('wms_workflowMode', workflowMode);
-    
-    if (workflowMode === 'pindah_split') {
-        showToast('<i class="fas fa-sync"></i> Mode: PINDAH/SPLIT (Transfer lokasi existing)');
-    } else {
-        showToast('<i class="fas fa-save"></i> Mode: PENYIMPANAN (Simpan stok baru)');
-    }
-    feedback('success');
 }
 
 function toggleMultipleScanMode() {
@@ -363,12 +350,44 @@ if (currentTab === 'packing') {
     
     if (currentTab === 'simpan') {
         // ==========================================
-        // SIMPAN TAB: DISPLAY ONLY (Read stok dari database)
-        // NO QTY INCREMENT - HANYA UNTUK VIEWING
+        // SIMPAN TAB: Save part to box (location only, no qty)
         // ==========================================
         
-        if (item) {
-            // Scan part = Select and display detail (read-only)
+        if (isBox) {
+            // Scan Box = Save part to location with conflict detection
+            const activeItem = tempPart;
+            if (!activeItem) {
+                feedback('error');
+                showToast('Scan Part terlebih dahulu sebelum scan Box!');
+                return;
+            }
+            
+            const boxCode = parsedCode.toUpperCase();
+            const existingLocations = Object.keys(activeItem.locations);
+            
+            // Case 1: Part belum pernah tersimpan → Direct save
+            if (existingLocations.length === 0) {
+                activeItem.locations[boxCode] = 1;
+                activeItem.lastBox = boxCode;
+                saveDB(activeItem);
+                addHistoryLog(activeItem.partNo, boxCode);
+                
+                feedback('success');
+                showToast(`✓ ${activeItem.partNo} → ${boxCode}`);
+                
+                tempPart = null;
+                clearActivePart();
+                renderSimpanList(false);
+                return;
+            }
+            
+            // Case 2: Part sudah ada lokasi lain → Show SPLIT/MOVE modal
+            showSimpanConflictModal(activeItem, boxCode);
+            return;
+            
+        } else if (item) {
+            // Scan part = Select and display detail
+            tempPart = item;
             updateActivePartPanel(item);
             feedback('scan');
             showToast(`📦 ${item.partNo}`);
@@ -820,53 +839,117 @@ function checkSimpanConflict(item, newBox) {
     }
 }
 
-function executeSimpanAction(action) {
-    if (!simpanConflictData) return; 
-    const { item, newBox, qty } = simpanConflictData; 
+function showSimpanConflictModal(item, newBox) {
+    // Store current conflict context
+    simpanConflictData = { item, newBox };
     
-    if (action === 'move') { 
-        // LOGIKA PINDAH: Kurangi dari rak lama sejumlah qty yang di-scan
-        let sisaPindah = qty;
-        for (let loc in item.locations) {
-            if (sisaPindah <= 0) break;
-            if (item.locations[loc] > 0) {
-                if (item.locations[loc] >= sisaPindah) {
-                    item.locations[loc] -= sisaPindah;
-                    sisaPindah = 0;
-                } else {
-                    sisaPindah -= item.locations[loc];
-                    item.locations[loc] = 0;
-                }
-            }
-        }
-        // Bersihkan data rak lama jika stoknya habis jadi 0
-        for (let loc in item.locations) {
-            if (item.locations[loc] <= 0) delete item.locations[loc];
-        }
-        
-        // Pindahkan ke rak baru
-        if (!item.locations[newBox]) item.locations[newBox] = 0;
-        item.locations[newBox] += qty;
-        
-        showToast(`<i class="fas fa-check-circle"></i> Pindah ${qty} pcs ke ${newBox}`); 
-    } 
-    else if (action === 'split') { 
-        // LOGIKA TAMBAH (INBOUND): Biarkan rak lama utuh, tambah barang baru di rak baru
-        if (!item.locations[newBox]) item.locations[newBox] = 0;
-        item.locations[newBox] += qty;
-        showToast(`<i class="fas fa-check-circle"></i> Stok Baru (+${qty}) ditambah ke ${newBox}`); 
-    }
+    // Display modal with part info
+    document.getElementById('simpanConflictModal').style.display = 'flex';
+    document.getElementById('scmPart').innerText = item.partNo;
+    document.getElementById('scmOldLoc').innerText = Object.keys(item.locations).join(', ');
+    document.getElementById('scmNewBox').innerText = newBox;
     
-    // Simpan ke database dan bersihkan layar
-    saveDB(item); 
-    addHistoryLog(`${item.partNo} → ${newBox}`, action === 'move' ? `Pindah ${qty}` : `Tambah ${qty}`); 
-    feedback('scan_saved'); 
-    closeSimpanConflictModal(); 
-    clearSimpanBuffer(); 
-    renderSimpanList(true); 
+    feedback('error');
 }
 
-function closeSimpanConflictModal() { document.getElementById('simpanConflictModal').style.display = 'none'; simpanConflictData = null; document.getElementById('mainInput').focus(); }
+function executeSimpanAction(action) {
+    if (!simpanConflictData) return;
+    const { item, newBox } = simpanConflictData;
+    const oldLocs = Object.keys(item.locations);
+    
+    if (action === 'move') {
+        // MOVE: Replace old location(s) with new one
+        // Delete all old locations
+        oldLocs.forEach(loc => delete item.locations[loc]);
+        // Add new location
+        item.locations[newBox] = 1;
+        
+        showToast(`✓ ${item.partNo} dipindah ke ${newBox}`);
+    } else if (action === 'split') {
+        // SPLIT: Keep old locations, add new one
+        if (!item.locations[newBox]) {
+            item.locations[newBox] = 1;
+        }
+        
+        showToast(`✓ ${item.partNo} disimpan di ${newBox} (+ lokasi lama)`);
+    }
+    
+    // Save and record
+    item.lastBox = newBox;
+    saveDB(item);
+    addHistoryLog(item.partNo, `${action === 'move' ? 'PINDAH' : 'SPLIT'} ke ${newBox}`);
+    feedback('success');
+    
+    // Clean up UI
+    closeSimpanConflictModal();
+    tempPart = null;
+    clearActivePart();
+    renderSimpanList(false);
+}
+
+function closeSimpanConflictModal() {
+    document.getElementById('simpanConflictModal').style.display = 'none';
+    simpanConflictData = null;
+    document.getElementById('mainInput').focus();
+}
+
+// === OLD FUNCTIONS (KEPT FOR REFERENCE, NOT USED) ===
+function checkSimpanConflict(item, newBox) {
+    const existingLocs = Object.keys(item.locations); 
+    const oldState = JSON.parse(JSON.stringify(item.locations));
+    
+    // Kalau tidak ada lokasi existing, langsung set lokasi baru
+    if (existingLocs.length === 0) { 
+        item.locations[newBox] = 0; 
+        saveDB(item); 
+        addHistoryLog(item.partNo, newBox); 
+        feedback('success'); 
+        showToast(`Lokasi diset: ${newBox}`); 
+        registerUndo('simpan_set', item.id, newBox, oldState); 
+        clearActivePart(); 
+        return; 
+    }
+    
+    // Kalau lokasi baru sama dengan lokasi existing, skip
+    if (existingLocs.includes(newBox)) { 
+        showToast(`Part sudah ada di ${newBox}`); 
+        clearActivePart(); 
+        return; 
+    }
+    
+    // === WORKFLOW MODES ===
+    
+    // MODE 1: PENYIMPANAN (Normal) - Direct save without asking
+    if (workflowMode === 'simpan') {
+        // Auto-add ke lokasi baru tanpa tanya (assume split/tambah)
+        if (!item.locations[newBox]) item.locations[newBox] = 0;
+        const qty = simpanBuffer.length > 0 ? simpanBuffer[0].qty : 1;
+        item.locations[newBox] += qty;
+        
+        saveDB(item);
+        addHistoryLog(`${item.partNo} → ${newBox}`, `+${qty}`);
+        feedback('scan_saved');
+        showToast(`<i class="fas fa-check-circle"></i> Stok baru (+${qty}) ditambah ke ${newBox}`);
+        clearSimpanBuffer();
+        renderSimpanList(true);
+        return;
+    }
+    
+    // MODE 2: PINDAH/SPLIT - Show modal dengan pilihan
+    if (workflowMode === 'pindah_split') {
+        feedback('error'); 
+        const qty = simpanBuffer.length > 0 ? simpanBuffer[0].qty : 1;
+        simpanConflictData = { item, newBox, qty, oldState }; 
+        
+        // Tampilkan modal dengan pilihan move/split
+        document.getElementById('simpanConflictModal').style.display = 'flex';
+        document.getElementById('scmPart').innerText = item.partNo; 
+        document.getElementById('scmOldLoc').innerText = existingLocs.join(', '); 
+        document.getElementById('scmNewBox').innerText = newBox;
+        
+        return;
+    }
+}
 
 function addToMultiBuffer(item) {
     // Validate multiBuffer exists

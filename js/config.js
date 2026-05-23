@@ -111,7 +111,6 @@ let scanHistoryLog = []; // History log untuk display (Part >> Box)
 let lastOpnameScanId = null;
 let offBsSession = JSON.parse(localStorage.getItem('wms_off_bs') || '[]');
 let activeOffBsBox = null;
-let workflowMode = localStorage.getItem('wms_workflowMode') || 'simpan'; // 'simpan' atau 'pindah_split'
 
 // ===== SIMPAN SINGLE vs MULTIPLE MODE (NEW) =====
 let simpanMode = localStorage.getItem('wms_simpanMode') || 'single'; // 'single' atau 'multiple'

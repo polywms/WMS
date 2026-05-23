@@ -66,25 +66,6 @@ window.onload = async () => {
     // Initialize favicon
     if(typeof updateFavicon === 'function') updateFavicon(false);
     
-    // Initialize Workflow Mode toggle checkbox based on localStorage
-    const chkWorkflowMode = document.getElementById('chkWorkflowMode');
-    if (chkWorkflowMode) {
-        chkWorkflowMode.checked = (workflowMode === 'pindah_split');
-        const icon = document.getElementById('workflowModeIcon');
-        if (icon) {
-            if (workflowMode === 'pindah_split') {
-                icon.style.background = 'var(--active-color)';
-                icon.style.borderColor = 'var(--active-color)';
-                icon.style.color = 'white';
-                icon.title = 'Mode: Pindah/Split';
-            } else {
-                icon.style.background = 'white';
-                icon.style.borderColor = '#cbd5e1';
-                icon.style.color = 'var(--secondary)';
-                icon.title = 'Mode: Penyimpanan';
-            }
-        }
-    }
     
     // Initialize Simpan Buffer Mode toggle checkbox based on localStorage
     const chkSimpanBuffer = document.getElementById('chkSimpanBuffer');

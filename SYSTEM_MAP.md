@@ -727,29 +727,35 @@ XLSX.writeFile(wb, "filename.xlsx");
 
 ## Risks / Blind Spots (Continuously Updated)
 
-**Latest Improvements** (2026-05-23 - CURRENT):
+**Latest Improvements** (2026-05-23 - CURRENT SESSION v2):
 
-**MAJOR REFACTOR: SIMPAN Tab to Display-Only Mode (2026-05-23)**
-- ✅ **Eliminated ALL Qty Calculations**: Removed progress badge (X/Y), no more "+1 qty per scan"
-- ✅ **Display-Only Workflow**: SIMPAN tab now read-only for viewing existing stok from database
-  - Scan part = Select & show detail panel (read-only)
-  - Display: Part No, Description, Current Locations (from item.locations)
-  - No buffer, no saveDB, no addHistoryLog, no qty validation
-- ✅ **Removed Qty Modifications**:
-  - Removed all saveDB() calls from SIMPAN processScan branch
-  - Removed all qty overflow checks (totalQty + 1 > sysQty)
-  - Removed addHistoryLog calls (no action recorded)
-  - Removed SINGLE/MULTIPLE mode logic (simpanMode toggle now unused in SIMPAN tab)
-- ✅ **Simplified processScan() SIMPAN Branch**:
-  - Only logic: `if (item) { updateActivePartPanel() }` — select & display
-  - Box scans ignored (no box filter logic)
-  - Part baru creation removed (read-only only)
-- ✅ **Kept Display Features**:
-  - Similar parts list (getSimilarParts)
-  - Label issues tracking (DAMAGED, NO_LABEL)
-  - All read-only, no writes to database
-- **Impact**: SIMPAN tab now purely for viewing warehouse inventory, NOT for data entry/modification
-- **Database Safety**: Only reads from localItems.locations, no modifications from this tab
+**SMART CONFLICT DETECTION: SPLIT/MOVE Modal (2026-05-23 v2)**
+- ✅ **Removed workflowMode toggle**: Deleted workflowMode variable and toggle UI
+- ✅ **Implemented Smart Conflict Detection**:
+  - When part already has location(s), show modal with SPLIT/MOVE options
+  - SPLIT: Keep existing location, add new one (location array grows)
+  - MOVE: Replace old location with new one (transfer operation)
+- ✅ **New Functions**:
+  - `showSimpanConflictModal(item, newBox)`: Display conflict modal with existing locations
+  - Updated `executeSimpanAction(action)`: Handle SPLIT/MOVE without quantity logic
+  - `closeSimpanConflictModal()`: Close modal and reset state
+- ✅ **Updated processScan() SIMPAN Branch**:
+  - If part has NO locations → Direct save (implicit: locations[box] = 1)
+  - If part HAS locations → Show conflict modal for user decision
+- ✅ **Removed**:
+  - `toggleWorkflowMode()` function
+  - workflowMode localStorage initialization in main.js
+  - workflowMode variable from config.js
+  - Workflow mode checkbox from HTML (#chkWorkflowMode)
+  - workflowModeIcon element from HTML
+- ✅ **Kept for Reference**: Old `checkSimpanConflict()` function (not used, but kept as reference)
+- **UI**: Modal shows: "Part X sudah ada di: [old locs], Target baru: [new box]" with PINDAH/SPLIT buttons
+- **Impact**: Intelligent location handling - users can choose to add location (SPLIT) or transfer (MOVE)
+
+**PREVIOUS: Location-Only Mode (2026-05-23 v1)**
+- ✅ **Removed All Qty Tracking**: No progress badge (X/Y), no "+1" messages, no qty validation
+- ✅ **Location-Only Workflow**: Scan part → Select & display detail panel → Scan box → Save location
+- ✅ **No qty increment**: saveDB() records location only, qty always implicit
 
 **Previous Session (2026-05-09):**
 
