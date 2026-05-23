@@ -385,6 +385,8 @@ if (currentTab === 'packing') {
             if (existingLocations.includes(boxCode)) {
                 feedback('scan');
                 showToast(`Part sudah ada di ${boxCode}`);
+                clearActivePart();  // Hide panel setelah scan box yang sama
+                renderSimpanList(false);
                 return;
             }
             
@@ -849,6 +851,9 @@ function checkSimpanConflict(item, newBox) {
 function showSimpanConflictModal(item, newBox) {
     // Store current conflict context
     simpanConflictData = { item, newBox };
+    
+    // Hide active part panel sebelum buka modal
+    clearActivePart();
     
     // Display modal with part info
     document.getElementById('simpanConflictModal').style.display = 'flex';
