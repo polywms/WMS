@@ -512,6 +512,7 @@ if (currentTab === 'packing') {
             } else if (item) {
                 // Scan Part = Save to activeDirectPart, minta scan Box
                 activeDirectPart = item;
+                updateActivePartPanel(item);  // Show panel saat scan part
                 feedback('scan');
                 showToast(`<i class="fas fa-box"></i> ${item.partNo} Dipilih. Scan Box tujuan untuk simpan!`);
                 document.getElementById('mainInput').focus();
@@ -524,6 +525,7 @@ if (currentTab === 'packing') {
                 if (confirm(`Kode "${parsedCode}" Baru. Buat Part?`)) {
                     const newItem = createNewItem(parsedCode);
                     activeDirectPart = newItem;
+                    updateActivePartPanel(newItem);  // Show panel untuk part baru
                     feedback('success');
                     showToast(`<i class="fas fa-box"></i> Part Baru ${parsedCode} Dibuat. Scan Box tujuan!`);
                     document.getElementById('mainInput').focus();
@@ -679,31 +681,16 @@ function getSimilarParts(partNo) {
     return similar;
 }
 
-function getPartLocationHistory(partNo) {
-    // Ambil history lokasi dari scanHistoryLog berdasarkan partNo
-    // Return: array unique locations dalam urutan terbaru
-    if (!Array.isArray(scanHistoryLog)) return [];
+function updateActivePartPanel(item) {
+    /**
+     * Helper function: Update dan show activePartDetailsPanel
+     * Dipanggil dari semua workflow yang scan part di SIMPAN tab
+     */
+    if (!item) return;
     
-    const history = scanHistoryLog
-        .filter(log => log.partNo === partNo)
-        .map(log => ({ box: log.box, time: log.time }));
-    
-    // Get unique boxes, keeping most recent one first
-    const seen = new Set();
-    const unique = history.filter(item => {
-        if (seen.has(item.box)) return false;
-        seen.add(item.box);
-        return true;
-    });
-    
-    return unique;
-}
-
-function selectPartSimpan(item) {
-    // Display detail panel for selected part
     tempPart = item;
     
-    // Show detail panel (compact layout)
+    // Show detail panel
     document.getElementById('activePartDetailsPanel').style.display = 'block';
     
     // Hitung total tersimpan
@@ -725,10 +712,10 @@ function selectPartSimpan(item) {
     }
     document.getElementById('activePartDesc').innerHTML = desc + issueWarning;
     
-    // Display: Current Locations (mepet kanan)
+    // Display: Current Locations
     document.getElementById('activePartLoc').innerText = Object.keys(item.locations).join(', ') || '(belum)';
     
-    // Tampilkan bagian serupa (replace riwayat lokasi)
+    // Tampilkan bagian serupa
     const similar = getSimilarParts(item.partNo);
     let similarHtml = '';
     if (similar.length === 0) {
@@ -747,7 +734,33 @@ function selectPartSimpan(item) {
     document.querySelectorAll('.item-card').forEach(el => { el.classList.remove('selected'); el.classList.remove('row-flash'); });
     const row = document.getElementById(`simpan-row-${item.id}`);
     if(row) { row.classList.add('selected'); row.classList.add('row-flash'); row.scrollIntoView({behavior:'smooth', block:'center'}); }
+}
+
+function getSimilarParts(partNo) {
+
+function getPartLocationHistory(partNo) {
+    // Ambil history lokasi dari scanHistoryLog berdasarkan partNo
+    // Return: array unique locations dalam urutan terbaru
+    if (!Array.isArray(scanHistoryLog)) return [];
     
+    const history = scanHistoryLog
+        .filter(log => log.partNo === partNo)
+        .map(log => ({ box: log.box, time: log.time }));
+    
+    // Get unique boxes, keeping most recent one first
+    const seen = new Set();
+    const unique = history.filter(item => {
+        if (seen.has(item.box)) return false;
+        seen.add(item.box);
+        return true;
+    });
+    
+    return unique;
+}
+
+function selectPartSimpan(item) {
+    // Display detail panel for selected part (when user clicks part in list)
+    updateActivePartPanel(item);
     if(typeof renderSmartSuggestion === 'function') renderSmartSuggestion(item);
 }
 
@@ -1473,49 +1486,10 @@ function addToSimpanBuffer(item) {
     // Cek apakah item sudah ada di buffer
     const existing = simpanBuffer.find(b => b.item.id === item.id);
     
-    tempPart = item;
+    // Update dan tampilkan panel
+    updateActivePartPanel(item);
     
-    // Show detail panel (compact layout)
-    document.getElementById('activePartDetailsPanel').style.display = 'block';
-    
-    // Hitung total tersimpan
-    const qtyTersimpan = Object.values(item.locations).reduce((a,b)=>a+b, 0);
-    let color = qtyTersimpan >= item.sysQty ? '#16a34a' : '#ea580c';
-    let progressBadge = `<span style="font-size:0.75rem; color:${color}; margin-left:4px; font-weight:bold;">${qtyTersimpan}/${item.sysQty}</span>`;
-    
-    // Display: Part Number + Progress
-    document.getElementById('activePartNo').innerHTML = item.partNo + progressBadge;
-    
-    // Display: Description (compact)
-    let desc = item.desc;
-    let issueWarning = '';
-    if (item.labelIssues && (item.labelIssues.DAMAGED > 0 || item.labelIssues.NO_LABEL > 0)) {
-        let t = [];
-        if (item.labelIssues.NO_LABEL > 0) t.push(`Tanpa Label: ${item.labelIssues.NO_LABEL}`);
-        if (item.labelIssues.DAMAGED > 0) t.push(`Rusak: ${item.labelIssues.DAMAGED}`);
-        issueWarning = ` | ⚠️ ${t.join(' | ')}`;
-    }
-    document.getElementById('activePartDesc').innerHTML = desc + issueWarning;
-    
-    // Display: Current Locations (mepet kanan)
-    document.getElementById('activePartLoc').innerText = Object.keys(item.locations).join(', ') || '(belum)';
-    
-    // Tampilkan bagian serupa
-    const similar = getSimilarParts(item.partNo);
-    let similarHtml = '';
-    if (similar.length === 0) {
-        similarHtml = '<span style="color: #6b7280; font-size: 0.75rem;">— Tidak ada bagian serupa</span>';
-    } else {
-        similarHtml = similar.map(s => `
-            <div style="margin-bottom: 3px;">
-                <span style="font-weight: 600;">${s.partNo}</span> 
-                <span style="color: #6b7280; font-size: 0.75rem;">[${s.locations}]</span>
-            </div>
-        `).join('');
-    }
-    document.getElementById('activeSimilarParts').innerHTML = similarHtml;
-    
-    // Tambah atau Update Qty Buffer - PURE SCAN COUNT ONLY
+    // Tambah atau Update Qty Buffer
     let scanQty;
     if (existing) {
         existing.qty++;
@@ -1525,7 +1499,7 @@ function addToSimpanBuffer(item) {
         scanQty = 1;
         const bufferItem = { item: item, qty: scanQty, hasConflict: false };
         
-        // Detect conflict - compare item.lastBox vs targetBufferBox
+        // Detect conflict
         if (targetBufferBox && item.lastBox && item.lastBox !== '-' && item.lastBox !== targetBufferBox) {
             bufferItem.hasConflict = true;
             feedback('warning');
@@ -1537,11 +1511,11 @@ function addToSimpanBuffer(item) {
         simpanBuffer.push(bufferItem);
     }
     
-    // Hitung visualTotalQty untuk menentukan audio feedback
+    // Hitung visualTotalQty untuk audio feedback
     const existingQtyInDB = Object.values(item.locations).reduce((a, b) => a + b, 0);
     const visualTotalQty = existingQtyInDB + scanQty;
     
-    // Logika audio feedback berdasarkan total qty
+    // Audio feedback
     if (visualTotalQty < item.sysQty) {
         feedback('scan_normal');
     } else if (visualTotalQty === item.sysQty) {
@@ -1550,11 +1524,6 @@ function addToSimpanBuffer(item) {
         feedback('scan_over');
     }
     
-    // Highlight di List
-    document.querySelectorAll('.item-card').forEach(el => { el.classList.remove('selected'); el.classList.remove('row-flash'); });
-    const row = document.getElementById(`simpan-row-${item.id}`);
-    if(row) { row.classList.add('selected'); row.classList.add('row-flash'); row.scrollIntoView({behavior:'smooth', block:'center'}); }
-
     if(typeof renderSmartSuggestion === 'function') renderSmartSuggestion(item);
 }
 
