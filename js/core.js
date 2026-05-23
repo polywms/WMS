@@ -655,6 +655,26 @@ function renderSimpanList(reset = true) {
     });
 }
 
+function getPartLocationHistory(partNo) {
+    // Ambil history lokasi dari scanHistoryLog berdasarkan partNo
+    // Return: array unique locations dalam urutan terbaru
+    if (!Array.isArray(scanHistoryLog)) return [];
+    
+    const history = scanHistoryLog
+        .filter(log => log.partNo === partNo)
+        .map(log => ({ box: log.box, time: log.time }));
+    
+    // Get unique boxes, keeping most recent one first
+    const seen = new Set();
+    const unique = history.filter(item => {
+        if (seen.has(item.box)) return false;
+        seen.add(item.box);
+        return true;
+    });
+    
+    return unique;
+}
+
 function selectPartSimpan(item) {
     // Legacy function for single-scan mode; auto-buffer always active now
     // This function is not called anymore but kept for backward compatibility
@@ -685,6 +705,19 @@ function selectPartSimpan(item) {
     }
     document.getElementById('activePartDesc').innerHTML = item.desc + issueWarning;
     document.getElementById('activePartLoc').innerText = Object.keys(item.locations).join(', ') || 'Belum ada';
+    
+    // Tampilkan riwayat lokasi
+    const locHistory = getPartLocationHistory(item.partNo);
+    const historyHtml = locHistory.length === 0 
+        ? '<span style="color: #b45309; font-size: 0.8rem;">— Belum ada riwayat</span>'
+        : locHistory.map((entry, idx) => `
+            <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 4px; padding-bottom: 4px; border-bottom: 1px solid rgba(180, 83, 9, 0.2);">
+                <span style="background: #fef3c7; color: #92400e; padding: 2px 6px; border-radius: 4px; font-size: 0.75rem; font-weight: bold; white-space: nowrap;">${idx + 1}.</span>
+                <span style="font-weight: 600; color: #92400e;">${entry.box}</span>
+                <span style="color: #b45309; font-size: 0.75rem; margin-left: auto;">${new Date(entry.time).toLocaleString('id-ID')}</span>
+            </div>
+        `).join('');
+    document.getElementById('activePartLocHistory').innerHTML = historyHtml;
     
     document.querySelectorAll('.item-card').forEach(el => { el.classList.remove('selected'); el.classList.remove('row-flash'); });
     const row = document.getElementById(`simpan-row-${item.id}`);
@@ -1441,6 +1474,19 @@ function addToSimpanBuffer(item) {
         }
         document.getElementById('activePartDesc').innerHTML = item.desc + issueWarning;
         document.getElementById('activePartLoc').innerText = Object.keys(item.locations).join(', ') || 'Belum ada';
+        
+        // Tampilkan riwayat lokasi
+        const locHistory = getPartLocationHistory(item.partNo);
+        const historyHtml = locHistory.length === 0 
+            ? '<span style="color: #b45309; font-size: 0.8rem;">— Belum ada riwayat</span>'
+            : locHistory.map((entry, idx) => `
+                <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 4px; padding-bottom: 4px; border-bottom: 1px solid rgba(180, 83, 9, 0.2);">
+                    <span style="background: #fef3c7; color: #92400e; padding: 2px 6px; border-radius: 4px; font-size: 0.75rem; font-weight: bold; white-space: nowrap;">${idx + 1}.</span>
+                    <span style="font-weight: 600; color: #92400e;">${entry.box}</span>
+                    <span style="color: #b45309; font-size: 0.75rem; margin-left: auto;">${new Date(entry.time).toLocaleString('id-ID')}</span>
+                </div>
+            `).join('');
+        document.getElementById('activePartLocHistory').innerHTML = historyHtml;
     }
     
     // Tampilkan deskripsi & peringatan (untuk info saja, tidak update panel lagi)
