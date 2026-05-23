@@ -381,7 +381,14 @@ if (currentTab === 'packing') {
                 return;
             }
             
-            // Case 2: Part sudah ada lokasi lain → Show SPLIT/MOVE modal
+            // Case 2: Target box SAMA dengan existing location → Skip, no modal needed
+            if (existingLocations.includes(boxCode)) {
+                feedback('scan');
+                showToast(`Part sudah ada di ${boxCode}`);
+                return;
+            }
+            
+            // Case 3: Part sudah ada lokasi lain & target BERBEDA → Show SPLIT/MOVE modal
             showSimpanConflictModal(activeItem, boxCode);
             return;
             
