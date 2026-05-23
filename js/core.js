@@ -3,31 +3,47 @@
  * CORE LOGIC - WMS Magelang V6
  * ========================================
  * 
- * Tujuan: Main controller untuk routing scan berdasarkan tab aktif
+ * Tujuan: Main controller untuk routing scan berdasarkan tab aktif + SINGLE/MULTIPLE mode
  * Caller: main.js (via window.onload), UI events (onclick), keyboard (onkeydown)
- * Dependensi: database.js (saveDB), utils.js (feedback), config.js (QR_PARSERS)
+ * Dependensi: database.js (saveDB), utils.js (feedback), config.js (QR_PARSERS, simpanMode)
  * 
  * Main Functions:
- * - processScan(code) — Route scan per currentTab
- * - selectPartSimpan(item) — Tampilkan detail part di panel
- * - addToSimpanBuffer(item) — Add ke buffer + tampilkan detail
- * - clearActivePart() — Clear detail part + buffer
- * - renderSimpanList/handleOpnameRender/renderDataList — Per-tab UI renders
+ * - processScan(code) — Route scan per currentTab + simpanMode
+ * 
+ * SIMPAN Tab Modes:
+ * - SINGLE: Scan part → Show panel → Scan box → Save 1 qty immediately
+ * - MULTIPLE: Scan parts → Add to multiScanBuffer → Scan box → Save all buffered parts
+ * 
+ * Multi-Scan Functions:
+ * - addToMultiScan(item) — Add part ke buffer (dengan duplicate check)
+ * - removeFromMultiScan(itemId) — Remove specific part dari buffer
+ * - clearMultiScan() — Clear semua buffer + reset UI
+ * - processMultiScan() — Finalize: prompt box code, save all buffered parts
+ * - renderMultiScanList() — Render daftar parts di buffer
+ * - updatePanelDisplay() — Show correct panel (singleModeDisplay vs multiModeDisplay)
+ * 
+ * Detail Panel Functions:
+ * - updateActivePartPanel(item) — Update #activePartDetailsPanel dengan part info + similar parts
+ * - selectPartSimpan(item) — Select part dari list (untuk SINGLE mode)
+ * - getSimilarParts(partNo) — Find parts dengan nomor gudang sama
+ * - clearActivePart() — Hide panel + reset selection
+ * 
+ * Per-Tab Renders:
+ * - renderSimpanList(resetFilter) — Render SIMPAN tab items
+ * - handleOpnameRender() — Render OPNAME tab
+ * - renderDataList() — Render DATA (search) tab
  * 
  * Side Effects: 
- * - DOM update (#simpanList, #activePartDetailsPanel, #activePartNo/Desc/Loc)
- * - localStorage write (multiBuffer, offBsSession, packingSession)
+ * - DOM update (#simpanList, #activePartDetailsPanel, #multiModeDisplay, etc.)
+ * - localStorage write (multiScanBuffer, simpanMode)
  * - IndexedDB write via saveDB()
  * - Google Sheets sync via processSyncQueue()
  * 
  * Recent Changes (2026-05-09):
- * - RESTORED: Active Part Details Panel (#activePartDetailsPanel)
- *   - Shows part number, description, current locations when part is selected
- *   - Auto-triggers when user scans part in SIMPAN tab
- *   - Displays progress badge (Terisi: X/Y) and label issues if any
- * - Updated selectPartSimpan() to display detail panel
- * - Updated clearActivePart() to hide detail panel
- * - Updated addToSimpanBuffer() to show detail panel on scan
+ * - REFACTORED: SIMPAN tab to use simpanMode (SINGLE vs MULTIPLE)
+ * - REMOVED: useSimpanBuffer, activeDirectPart, simpanBuffer, targetBufferBox
+ * - ADDED: multiScanBuffer, multiScanCount, multiModeDisplay panels
+ * - CLEANUP: Eliminated quantity accumulation buffer entirely
  * ========================================
  */
 
@@ -125,23 +141,18 @@ function toggleWorkflowMode() {
     feedback('success');
 }
 
-function toggleSimpanBufferMode() {
-    // js/core.js - toggleSimpanBufferMode()
-    // Tujuan: Toggle antara mode buffer (qty calculation) vs direct save
-    // State: useSimpanBuffer (global), wms_useSimpanBuffer (localStorage)
-    const chk = document.getElementById('chkSimpanBuffer');
-    useSimpanBuffer = chk.checked;
-    localStorage.setItem('wms_useSimpanBuffer', useSimpanBuffer.toString());
+function toggleMultipleScanMode() {
+    // Toggle antara SINGLE vs MULTIPLE scan mode
+    const chk = document.getElementById('chkMultipleScan');
+    simpanMode = chk.checked ? 'multiple' : 'single';
+    localStorage.setItem('wms_simpanMode', simpanMode);
     
-    if (useSimpanBuffer) {
-        // Mode Buffer ON
-        showToast('<i class="fas fa-calculator"></i> Mode Buffer AKTIF - Qty Calculation ON');
+    if (simpanMode === 'multiple') {
+        showToast('<i class="fas fa-layer-group"></i> Mode MULTIPLE - Scan beberapa part lalu masukkan ke box');
+        multiScanBuffer = [];  // Reset buffer
     } else {
-        // Mode Buffer OFF - direct save mode
-        showToast('<i class="fas fa-save"></i> Mode Direct Save AKTIF - Simpan langsung ke box');
-        // Clear buffer and direct part
-        clearSimpanBuffer();
-        activeDirectPart = null;
+        showToast('<i class="fas fa-cube"></i> Mode SINGLE - Scan part → box → simpan langsung');
+        clearMultiScan();  // Clear buffer
     }
     
     feedback('success');
@@ -357,178 +368,116 @@ if (currentTab === 'packing') {
     
     if (currentTab === 'simpan') {
         // ==========================================
-        // BRANCH: useSimpanBuffer TRUE = BUFFER MODE
+        // SIMPAN TAB: SINGLE vs MULTIPLE MODE
         // ==========================================
-        if (useSimpanBuffer) {
+        
+        if (simpanMode === 'multiple') {
+            // === MULTIPLE MODE: Scan parts, then scan box to save all ===
             if (isBox) {
-                // Set temporary target box for conflict detection
-                targetBufferBox = parsedCode;
-                
-                // Check if simpanBuffer has items that conflict with this box
-                const conflictedItems = simpanBuffer.filter(b => {
-                    const lastBox = b.item.lastBox || '-';
-                    // Conflict if: lastBox is not empty, not '-', and doesn't match target
-                    return lastBox !== '-' && lastBox !== parsedCode;
-                });
-                
-                // If conflicts exist, show modal; otherwise save all directly
-                if (conflictedItems.length > 0) {
-                    showConflictModal(conflictedItems);
+                // Scan box = finalize and save all
+                if (multiScanBuffer.length === 0) {
+                    feedback('error');
+                    showToast('Belum ada part di buffer. Scan part dulu!');
                     return;
                 }
                 
-                // Safe to save: no conflicts - SAVE ALL ITEMS IN BUFFER to target box
-                if (simpanBuffer.length > 0) {
-                    const boxCode = parsedCode;
-                    let savedCount = 0;
-                    let totalQtySaved = 0;
+                const boxCode = parsedCode.toUpperCase();
+                let savedCount = 0;
+                
+                multiScanBuffer.forEach(buf => {
+                    const item = buf.item;
+                    const totalQty = Object.values(item.locations).reduce((a, b) => a + b, 0);
                     
-                    // Save EACH item in buffer to the target box
-                    simpanBuffer.forEach(bufferItem => {
-                        const item = bufferItem.item;
-                        const scannedQty = bufferItem.qty;
-                        
-                        // PROTEKSI: Cek apakah qty akan over dari sysQty
-                        const totalPhysical = Object.values(item.locations).reduce((a, b) => a + b, 0);
-                        if ((totalPhysical + scannedQty) > item.sysQty) {
-                            feedback('error');
-                            alert(`PERINGATAN: OVER QTY!\n\nPart: ${item.partNo}\nTarget Sistem: ${item.sysQty}\nUdah Ada: ${totalPhysical}\nMau Tambah: ${scannedQty}\nTotal: ${totalPhysical + scannedQty}\n\nGunakan SPLIT jika perlu pindahkan ke box lain!`);
-                            return;  // Skip this item on qty violation
-                        }
-                        
-                        // Add or update location
-                        if (!item.locations[boxCode]) {
-                            item.locations[boxCode] = 0;
-                        }
-                        item.locations[boxCode] += scannedQty;
-                        item.lastBox = boxCode;  // Update lastBox tracking
-                        
-                        // Save to database
-                        saveDB(item);
-                        savedCount++;
-                        totalQtySaved += scannedQty;
-                        
-                        addHistoryLog(`${item.partNo} → ${boxCode}`, `+${scannedQty}`);
-                    });
-                    
-                    // Show summary feedback
-                    if (savedCount > 0) {
-                        feedback('success');
-                        if (typeof playChime === 'function') playChime();
-                        
-                        if (savedCount === 1) {
-                            showToast(`<i class="fas fa-check-circle"></i> ${simpanBuffer[0].item.partNo} (${totalQtySaved} pcs) masuk ke ${boxCode}!`);
-                        } else {
-                            showToast(`<i class="fas fa-check-circle"></i> ${savedCount} part (${totalQtySaved} pcs total) masuk ke ${boxCode}!`);
-                        }
-                        
-                        // Clear entire buffer and reset
-                        simpanBuffer = [];
-                        tempPart = null;
-                        targetBufferBox = null;
-                        clearSimpanBuffer();  // Clear UI
-                        renderSimpanList(true);
+                    if ((totalQty + 1) > item.sysQty) {
+                        feedback('error');
+                        alert(`OVER QTY: ${item.partNo}\nTarget: ${item.sysQty}\nUdah: ${totalQty}`);
+                        return;
                     }
                     
-                    return;
-                }
+                    if (!item.locations[boxCode]) item.locations[boxCode] = 0;
+                    item.locations[boxCode] += 1;
+                    item.lastBox = boxCode;
+                    saveDB(item);
+                    addHistoryLog(item.partNo, boxCode);
+                    savedCount++;
+                });
                 
-                // No items in buffer but trying to scan box
-                feedback('error');
-                showToast('<i class="fas fa-exclamation-triangle"></i> Scan Part terlebih dahulu sebelum scan Box!');
+                if (savedCount > 0) {
+                    feedback('success');
+                    if (typeof playChime === 'function') playChime();
+                    showToast(`<i class="fas fa-check-circle"></i> ${savedCount} part → ${boxCode}`);
+                    clearMultiScan();
+                    renderSimpanList(true);
+                }
                 return;
                 
             } else if (item) {
-                // ==========================================
-                // JIKA SCAN PART -> AKUMULASI QTY (x1, x2)
-                // ==========================================
-                feedback('scan');
-                addToSimpanBuffer(item);
+                // Scan part = add to multi-scan buffer
+                addToMultiScan(item);
+                document.getElementById('activePartDetailsPanel').style.display = 'block';
+                updatePanelDisplay();
                 return;
                 
             } else {
-                // ==========================================
-                // PART BARU
-                // ==========================================
+                // Part baru
                 if (confirm(`Kode "${parsedCode}" Baru. Buat Part?`)) {
                     const newItem = createNewItem(parsedCode);
-                    addToSimpanBuffer(newItem);
+                    addToMultiScan(newItem);
+                    document.getElementById('activePartDetailsPanel').style.display = 'block';
+                    updatePanelDisplay();
                 }
                 return;
             }
-        } 
-        // ==========================================
-        // BRANCH: useSimpanBuffer FALSE = DIRECT SAVE
-        // NEW LOGIC: Scan Part -> Scan Box
-        // ==========================================
-        else {
+        } else {
+            // === SINGLE MODE: Scan part -> Scan box -> Save 1 qty ===
             if (isBox) {
-                // Scan Box = Process saved part (activeDirectPart) into this box
-                if (!activeDirectPart) {
+                // Scan Box = Save tempPart to this box
+                const activeItem = tempPart;  // Last scanned part
+                if (!activeItem) {
                     feedback('error');
-                    showToast('<i class="fas fa-exclamation-triangle"></i> Scan Part terlebih dahulu sebelum scan Box!');
-                    document.getElementById('mainInput').focus();
+                    showToast('Scan Part terlebih dahulu sebelum scan Box!');
                     return;
                 }
                 
-                const item = activeDirectPart;
-                const boxCode = parsedCode;
-                const scannedQty = 1; // Direct save: always qty 1 per scan
+                const boxCode = parsedCode.toUpperCase();
+                const totalQty = Object.values(activeItem.locations).reduce((a, b) => a + b, 0);
                 
-                // PROTEKSI: Cek apakah qty akan over dari sysQty
-                const totalPhysical = Object.values(item.locations).reduce((a, b) => a + b, 0);
-                
-                if ((totalPhysical + scannedQty) > item.sysQty) {
+                if ((totalQty + 1) > activeItem.sysQty) {
                     feedback('error');
-                    alert(`PERINGATAN: OVER QTY!\n\nPart: ${item.partNo}\nTarget Sistem: ${item.sysQty}\nUdah Ada: ${totalPhysical}\nMau Tambah: ${scannedQty}\nTotal: ${totalPhysical + scannedQty}\n\nGunakan SPLIT jika perlu pindahkan ke box lain!`);
+                    alert(`OVER QTY: ${activeItem.partNo}\nTarget: ${activeItem.sysQty}\nUdah: ${totalQty}`);
                     return;
                 }
                 
-                // Add or update location
-                if (!item.locations[boxCode]) {
-                    item.locations[boxCode] = 0;
-                }
-                item.locations[boxCode] += scannedQty;
-                item.lastBox = boxCode;
+                if (!activeItem.locations[boxCode]) activeItem.locations[boxCode] = 0;
+                activeItem.locations[boxCode] += 1;
+                activeItem.lastBox = boxCode;
+                saveDB(activeItem);
+                addHistoryLog(activeItem.partNo, boxCode);
                 
-                // Save to database
-                saveDB(item);
-                
-                // Add to history log
-                addHistoryLog(`${item.partNo} → ${boxCode}`, `+${scannedQty}`);
-                
-                // Show feedback
                 feedback('success');
-                showToast(`<i class="fas fa-check-circle"></i> ${item.partNo} (+${scannedQty}) -> ${boxCode}`);
+                showToast(`<i class="fas fa-check-circle"></i> ${activeItem.partNo} (1) → ${boxCode}`);
                 
-                // Reset active part
-                activeDirectPart = null;
-                
-                // Refresh UI
+                tempPart = null;
+                clearActivePart();
                 renderSimpanList(false);
-                document.getElementById('mainInput').focus();
                 return;
                 
             } else if (item) {
-                // Scan Part = Save to activeDirectPart, minta scan Box
-                activeDirectPart = item;
-                updateActivePartPanel(item);  // Show panel saat scan part
+                // Scan Part = Show detail
+                tempPart = item;
+                updateActivePartPanel(item);
                 feedback('scan');
-                showToast(`<i class="fas fa-box"></i> ${item.partNo} Dipilih. Scan Box tujuan untuk simpan!`);
-                document.getElementById('mainInput').focus();
+                showToast(`${item.partNo} - Scan Box untuk simpan`);
                 return;
                 
             } else {
-                // ==========================================
-                // PART BARU (Direct Save Mode)
-                // ==========================================
+                // Part baru
                 if (confirm(`Kode "${parsedCode}" Baru. Buat Part?`)) {
                     const newItem = createNewItem(parsedCode);
-                    activeDirectPart = newItem;
-                    updateActivePartPanel(newItem);  // Show panel untuk part baru
+                    tempPart = newItem;
+                    updateActivePartPanel(newItem);
                     feedback('success');
-                    showToast(`<i class="fas fa-box"></i> Part Baru ${parsedCode} Dibuat. Scan Box tujuan!`);
-                    document.getElementById('mainInput').focus();
+                    showToast(`${parsedCode} dibuat. Scan Box!`);
                 }
                 return;
             }
@@ -636,7 +585,7 @@ function renderSimpanList(reset = true) {
         if (isFilterActive && hasLoc) return;
         const div = document.createElement('div');
         div.className = `item-card ${isActive ? 'selected' : ''}`; div.id = `simpan-row-${i.id}`;
-        div.onclick = () => { addToSimpanBuffer(i); };
+        div.onclick = () => { selectPartSimpan(i); };
         div.style.cssText = (!hasLoc && isFilterActive) ? 'border-left: 5px solid #fb923c;' : '';
         
         // locTags ditaruh 1 baris menggunakan flex wrap agar aman jika layar sempit
@@ -734,9 +683,10 @@ function updateActivePartPanel(item) {
     document.querySelectorAll('.item-card').forEach(el => { el.classList.remove('selected'); el.classList.remove('row-flash'); });
     const row = document.getElementById(`simpan-row-${item.id}`);
     if(row) { row.classList.add('selected'); row.classList.add('row-flash'); row.scrollIntoView({behavior:'smooth', block:'center'}); }
+    
+    // Update panel display sesuai mode
+    updatePanelDisplay();
 }
-
-function getSimilarParts(partNo) {
 
 function getPartLocationHistory(partNo) {
     // Ambil history lokasi dari scanHistoryLog berdasarkan partNo
@@ -762,6 +712,161 @@ function selectPartSimpan(item) {
     // Display detail panel for selected part (when user clicks part in list)
     updateActivePartPanel(item);
     if(typeof renderSmartSuggestion === 'function') renderSmartSuggestion(item);
+}
+
+function addToMultiScan(item) {
+    /**
+     * Add part ke multi-scan buffer
+     */
+    if (!item) return;
+    
+    // Cek duplikat
+    const isDuplicate = multiScanBuffer.some(b => b.item.id === item.id && b.item.partNo === item.partNo);
+    if (isDuplicate) {
+        feedback('warning');
+        showToast(`${item.partNo} sudah ditambah ke buffer`);
+        return;
+    }
+    
+    // Add ke buffer
+    multiScanBuffer.push({ item: item, scannedTime: new Date() });
+    feedback('scan');
+    showToast(`${item.partNo} ➔ Ditambah (${multiScanBuffer.length} total)`);
+    
+    // Update display
+    renderMultiScanList();
+}
+
+function renderMultiScanList() {
+    /**
+     * Render daftar parts di multi-scan buffer
+     */
+    const countEl = document.getElementById('multiScanCount');
+    const listEl = document.getElementById('multiScanList');
+    
+    if (!countEl || !listEl) return;
+    
+    countEl.textContent = multiScanBuffer.length;
+    
+    if (multiScanBuffer.length === 0) {
+        listEl.innerHTML = '<div style="text-align:center; color:#9ca3af; padding:8px;">Belum ada part</div>';
+        return;
+    }
+    
+    let html = '';
+    multiScanBuffer.forEach((buf, idx) => {
+        const item = buf.item;
+        const locStr = Object.keys(item.locations).join(', ') || '(belum)';
+        html += `
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px; border-bottom: 1px solid #e5e7eb; gap: 6px;">
+                <div style="flex: 1;">
+                    <div style="font-weight: 600;">${item.partNo}</div>
+                    <div style="font-size: 0.7rem; color: #6b7280;">${item.desc}</div>
+                </div>
+                <div style="text-align: right; flex: 0 0 auto;">
+                    <div style="font-size: 0.75rem; color: #6b7280;">${locStr}</div>
+                    <button onclick="removeFromMultiScan(${item.id})" style="padding: 2px 6px; background: #ef4444; color: white; border: none; border-radius: 2px; font-size: 0.65rem; cursor: pointer; margin-top: 2px;">Hapus</button>
+                </div>
+            </div>
+        `;
+    });
+    listEl.innerHTML = html;
+}
+
+function removeFromMultiScan(itemId) {
+    /**
+     * Remove part dari multi-scan buffer
+     */
+    multiScanBuffer = multiScanBuffer.filter(b => b.item.id !== itemId);
+    renderMultiScanList();
+    feedback('success');
+    showToast(`Part dihapus (${multiScanBuffer.length} sisa)`);
+}
+
+function clearMultiScan() {
+    /**
+     * Clear semua multi-scan buffer
+     */
+    multiScanBuffer = [];
+    const listEl = document.getElementById('multiScanList');
+    const countEl = document.getElementById('multiScanCount');
+    if (listEl) listEl.innerHTML = '<div style="text-align:center; color:#9ca3af; padding:8px;">Belum ada part</div>';
+    if (countEl) countEl.textContent = '0';
+    document.getElementById('activePartDetailsPanel').style.display = 'none';
+    feedback('success');
+    showToast('Buffer cleared');
+}
+
+function processMultiScan() {
+    /**
+     * Scan box untuk finalize multi-scan
+     * Prompt user untuk input box code
+     */
+    if (multiScanBuffer.length === 0) {
+        feedback('error');
+        showToast('Belum ada part di buffer');
+        return;
+    }
+    
+    const boxCode = prompt(`Masukkan kode box untuk simpan ${multiScanBuffer.length} part:`, '');
+    if (!boxCode) return;
+    
+    // Validate box format
+    const boxPattern = /^[A-Z][0-9]{0,2}-[0-9]{2,3}$/;
+    if (!boxPattern.test(boxCode.toUpperCase())) {
+        feedback('error');
+        showToast('Format box tidak valid (misal: A2-01)');
+        return;
+    }
+    
+    // Save semua items ke box
+    let savedCount = 0;
+    multiScanBuffer.forEach(buf => {
+        const item = buf.item;
+        
+        // Check qty
+        const totalQty = Object.values(item.locations).reduce((a, b) => a + b, 0);
+        if ((totalQty + 1) > item.sysQty) {
+            feedback('error');
+            alert(`OVER QTY: ${item.partNo}\nTarget: ${item.sysQty}\nUdah: ${totalQty}`);
+            return;
+        }
+        
+        // Save
+        if (!item.locations[boxCode]) item.locations[boxCode] = 0;
+        item.locations[boxCode] += 1;
+        item.lastBox = boxCode;
+        saveDB(item);
+        addHistoryLog(item.partNo, boxCode);
+        savedCount++;
+    });
+    
+    if (savedCount > 0) {
+        feedback('success');
+        if (typeof playChime === 'function') playChime();
+        showToast(`<i class="fas fa-check-circle"></i> ${savedCount} part tersimpan ke ${boxCode.toUpperCase()}`);
+        
+        // Clear buffer dan reload
+        clearMultiScan();
+        renderSimpanList(true);
+    }
+}
+
+function updatePanelDisplay() {
+    /**
+     * Tampilkan display sesuai simpanMode
+     */
+    const singleDisplay = document.getElementById('singleModeDisplay');
+    const multiDisplay = document.getElementById('multiModeDisplay');
+    
+    if (simpanMode === 'multiple') {
+        if (singleDisplay) singleDisplay.style.display = 'none';
+        if (multiDisplay) multiDisplay.style.display = 'block';
+        renderMultiScanList();
+    } else {
+        if (singleDisplay) singleDisplay.style.display = 'block';
+        if (multiDisplay) multiDisplay.style.display = 'none';
+    }
 }
 
 function clearActivePart() {
@@ -1288,9 +1393,8 @@ function renderSmartSuggestion(item) {
 function switchTab(id) {
     // Clean up buffer when leaving SIMPAN tab
     if (currentTab === 'simpan' && currentTab !== id) {
-        clearSimpanBuffer();
-        targetBufferBox = null;
-        activeDirectPart = null;  // Reset direct part when leaving simpan tab
+        clearMultiScan();
+        tempPart = null;
     }
     
     currentTab = id;

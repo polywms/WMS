@@ -1,3 +1,28 @@
+/**
+ * ========================================
+ * CONFIG - WMS Magelang V6
+ * ========================================
+ * 
+ * Tujuan: Global config, constants, state variables, dan QR parser patterns
+ * Caller: Semua modules (core.js, database.js, main.js, etc.)
+ * 
+ * Global State Variables (persisted ke localStorage):
+ * - simpanMode: 'single' | 'multiple' — Toggle SINGLE vs MULTIPLE scan mode di SIMPAN tab
+ * - multiScanBuffer: Array<{item, scannedTime}> — Parts yang akan discan bersama-sama
+ * - currentTab: String — Active tab ID (simpan, opname, data, off-bs, packing)
+ * - filteredItems: Array<Item> — Filtered items list untuk render
+ * 
+ * QR Parser Config:
+ * - QR_PARSERS: Object dengan pattern & extract function per format
+ * - Supported formats: standard (baru), sclMGL (lama), scl2025 (legacy), simple (fallback)
+ * - Priority: standard → sclMGL → scl2025 → simple (first match wins)
+ * 
+ * Side Effects:
+ * - localStorage read/write untuk persisten state
+ * - Config accessed globally dari semua js files
+ * ========================================
+ */
+
 // js/config.js
 const DB_NAME = 'WMS_Stock_v10';
 const API_URL = "https://script.google.com/macros/s/AKfycbxDQBLQEyIaNwQsA2Ubs4KDhFI5v7aNs4pfrs_e8MDmVGwj1zuwHWoCMiGuB27flOsS/exec";
@@ -88,9 +113,9 @@ let offBsSession = JSON.parse(localStorage.getItem('wms_off_bs') || '[]');
 let activeOffBsBox = null;
 let workflowMode = localStorage.getItem('wms_workflowMode') || 'simpan'; // 'simpan' atau 'pindah_split'
 
-// ===== SIMPAN BUFFER MODE (NEW - Toggle Qty Calculation) =====
-let useSimpanBuffer = localStorage.getItem('wms_useSimpanBuffer') !== 'false'; // Default true (buffer mode ON)
-let activeDirectPart = null; // Target part aktif untuk mode direct save (useSimpanBuffer = false)
+// ===== SIMPAN SINGLE vs MULTIPLE MODE (NEW) =====
+let simpanMode = localStorage.getItem('wms_simpanMode') || 'single'; // 'single' atau 'multiple'
+let multiScanBuffer = []; // Array untuk multiple mode: [{item, scannedTime}, ...]
 
 // ===== OPNAME BUFFER (Cashier Mode) =====
 let opnameBuffer = []; // Array of {item, qty} untuk accumulate parts
