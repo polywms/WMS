@@ -3,47 +3,42 @@
  * CORE LOGIC - WMS Magelang V6
  * ========================================
  * 
- * Tujuan: Main controller untuk routing scan berdasarkan tab aktif + SINGLE/MULTIPLE mode
+ * Tujuan: Main controller untuk routing scan berdasarkan tab aktif
  * Caller: main.js (via window.onload), UI events (onclick), keyboard (onkeydown)
- * Dependensi: database.js (saveDB), utils.js (feedback), config.js (QR_PARSERS, simpanMode)
+ * Dependensi: database.js (saveDB), utils.js (feedback), config.js (QR_PARSERS)
+ * 
+ * SIMPAN Tab (Penyimpanan): **DISPLAY-ONLY MODE** (2026-05-23)
+ * - NO qty increment, NO buffer accumulation
+ * - Scan part = Select & show detail panel (read-only stok dari database)
+ * - Display: Part No, Description, Current Locations (existing dari item.locations)
+ * - Similar parts list, Label issues tracking
+ * - No saveDB, no addHistoryLog, no qty validation
  * 
  * Main Functions:
- * - processScan(code) — Route scan per currentTab + simpanMode
- * 
- * SIMPAN Tab Modes:
- * - SINGLE: Scan part → Show panel → Scan box → Save 1 qty immediately
- * - MULTIPLE: Scan parts → Add to multiScanBuffer → Scan box → Save all buffered parts
- * 
- * Multi-Scan Functions:
- * - addToMultiScan(item) — Add part ke buffer (dengan duplicate check)
- * - removeFromMultiScan(itemId) — Remove specific part dari buffer
- * - clearMultiScan() — Clear semua buffer + reset UI
- * - processMultiScan() — Finalize: prompt box code, save all buffered parts
- * - renderMultiScanList() — Render daftar parts di buffer
- * - updatePanelDisplay() — Show correct panel (singleModeDisplay vs multiModeDisplay)
- * 
- * Detail Panel Functions:
- * - updateActivePartPanel(item) — Update #activePartDetailsPanel dengan part info + similar parts
- * - selectPartSimpan(item) — Select part dari list (untuk SINGLE mode)
+ * - processScan(code) — Route scan per currentTab
+ * - updateActivePartPanel(item) — Display part detail (read-only)
+ * - selectPartSimpan(item) — Select part dari list
  * - getSimilarParts(partNo) — Find parts dengan nomor gudang sama
  * - clearActivePart() — Hide panel + reset selection
+ * - renderSimpanList/handleOpnameRender/renderDataList — Per-tab UI renders
  * 
- * Per-Tab Renders:
- * - renderSimpanList(resetFilter) — Render SIMPAN tab items
- * - handleOpnameRender() — Render OPNAME tab
- * - renderDataList() — Render DATA (search) tab
- * 
+ * Other Tabs:
+ * - OPNAME: Inventory check dengan buffer
+ * - DATA: Search/view semua parts dengan edit capability
+ * - OFF BS: Off-balance-sheet tracking dengan cloud sync
+ * - PACKING: Shipment/colly management\n * 
  * Side Effects: 
- * - DOM update (#simpanList, #activePartDetailsPanel, #multiModeDisplay, etc.)
- * - localStorage write (multiScanBuffer, simpanMode)
- * - IndexedDB write via saveDB()
- * - Google Sheets sync via processSyncQueue()
+ * - DOM update (#simpanList, #activePartDetailsPanel)
+ * - localStorage read/write (currentTab, simpanMode - not used in SIMPAN tab anymore)
+ * - IndexedDB read via loadDataFromLocal() (SIMPAN tab read-only, no writes)
+ * - Google Sheets sync via processSyncQueue() (other tabs only)
  * 
- * Recent Changes (2026-05-09):
- * - REFACTORED: SIMPAN tab to use simpanMode (SINGLE vs MULTIPLE)
- * - REMOVED: useSimpanBuffer, activeDirectPart, simpanBuffer, targetBufferBox
- * - ADDED: multiScanBuffer, multiScanCount, multiModeDisplay panels
- * - CLEANUP: Eliminated quantity accumulation buffer entirely
+ * Recent Changes (2026-05-23):
+ * - REFACTORED: SIMPAN tab to display-only mode (no qty modification)
+ * - REMOVED: All qty increment, overflow checks, saveDB calls from SIMPAN
+ * - REMOVED: simpanMode logic, multiScanBuffer, buffer-related functions (disabled)
+ * - SIMPLIFIED: processScan() SIMPAN branch to only select & display
+ * - KEPT: Full read of item.locations, similar parts, label issues (for visibility)
  * ========================================
  */
 
@@ -368,119 +363,16 @@ if (currentTab === 'packing') {
     
     if (currentTab === 'simpan') {
         // ==========================================
-        // SIMPAN TAB: SINGLE vs MULTIPLE MODE
+        // SIMPAN TAB: DISPLAY ONLY (Read stok dari database)
+        // NO QTY INCREMENT - HANYA UNTUK VIEWING
         // ==========================================
         
-        if (simpanMode === 'multiple') {
-            // === MULTIPLE MODE: Scan parts, then scan box to save all ===
-            if (isBox) {
-                // Scan box = finalize and save all
-                if (multiScanBuffer.length === 0) {
-                    feedback('error');
-                    showToast('Belum ada part di buffer. Scan part dulu!');
-                    return;
-                }
-                
-                const boxCode = parsedCode.toUpperCase();
-                let savedCount = 0;
-                
-                multiScanBuffer.forEach(buf => {
-                    const item = buf.item;
-                    const totalQty = Object.values(item.locations).reduce((a, b) => a + b, 0);
-                    
-                    if ((totalQty + 1) > item.sysQty) {
-                        feedback('error');
-                        alert(`OVER QTY: ${item.partNo}\nTarget: ${item.sysQty}\nUdah: ${totalQty}`);
-                        return;
-                    }
-                    
-                    if (!item.locations[boxCode]) item.locations[boxCode] = 0;
-                    item.locations[boxCode] += 1;
-                    item.lastBox = boxCode;
-                    saveDB(item);
-                    addHistoryLog(item.partNo, boxCode);
-                    savedCount++;
-                });
-                
-                if (savedCount > 0) {
-                    feedback('success');
-                    if (typeof playChime === 'function') playChime();
-                    showToast(`<i class="fas fa-check-circle"></i> ${savedCount} part → ${boxCode}`);
-                    clearMultiScan();
-                    renderSimpanList(true);
-                }
-                return;
-                
-            } else if (item) {
-                // Scan part = add to multi-scan buffer
-                addToMultiScan(item);
-                document.getElementById('activePartDetailsPanel').style.display = 'block';
-                updatePanelDisplay();
-                return;
-                
-            } else {
-                // Part baru
-                if (confirm(`Kode "${parsedCode}" Baru. Buat Part?`)) {
-                    const newItem = createNewItem(parsedCode);
-                    addToMultiScan(newItem);
-                    document.getElementById('activePartDetailsPanel').style.display = 'block';
-                    updatePanelDisplay();
-                }
-                return;
-            }
-        } else {
-            // === SINGLE MODE: Scan part -> Scan box -> Save 1 qty ===
-            if (isBox) {
-                // Scan Box = Save tempPart to this box
-                const activeItem = tempPart;  // Last scanned part
-                if (!activeItem) {
-                    feedback('error');
-                    showToast('Scan Part terlebih dahulu sebelum scan Box!');
-                    return;
-                }
-                
-                const boxCode = parsedCode.toUpperCase();
-                const totalQty = Object.values(activeItem.locations).reduce((a, b) => a + b, 0);
-                
-                if ((totalQty + 1) > activeItem.sysQty) {
-                    feedback('error');
-                    alert(`OVER QTY: ${activeItem.partNo}\nTarget: ${activeItem.sysQty}\nUdah: ${totalQty}`);
-                    return;
-                }
-                
-                if (!activeItem.locations[boxCode]) activeItem.locations[boxCode] = 0;
-                activeItem.locations[boxCode] += 1;
-                activeItem.lastBox = boxCode;
-                saveDB(activeItem);
-                addHistoryLog(activeItem.partNo, boxCode);
-                
-                feedback('success');
-                showToast(`<i class="fas fa-check-circle"></i> ${activeItem.partNo} (1) → ${boxCode}`);
-                
-                tempPart = null;
-                clearActivePart();
-                renderSimpanList(false);
-                return;
-                
-            } else if (item) {
-                // Scan Part = Show detail
-                tempPart = item;
-                updateActivePartPanel(item);
-                feedback('scan');
-                showToast(`${item.partNo} - Scan Box untuk simpan`);
-                return;
-                
-            } else {
-                // Part baru
-                if (confirm(`Kode "${parsedCode}" Baru. Buat Part?`)) {
-                    const newItem = createNewItem(parsedCode);
-                    tempPart = newItem;
-                    updateActivePartPanel(newItem);
-                    feedback('success');
-                    showToast(`${parsedCode} dibuat. Scan Box!`);
-                }
-                return;
-            }
+        if (item) {
+            // Scan part = Select and display detail (read-only)
+            updateActivePartPanel(item);
+            feedback('scan');
+            showToast(`📦 ${item.partNo}`);
+            return;
         }
     }
     
@@ -633,7 +525,7 @@ function getSimilarParts(partNo) {
 function updateActivePartPanel(item) {
     /**
      * Helper function: Update dan show activePartDetailsPanel
-     * Dipanggil dari semua workflow yang scan part di SIMPAN tab
+     * Display part info dari database (read-only, no qty modification)
      */
     if (!item) return;
     
@@ -642,13 +534,8 @@ function updateActivePartPanel(item) {
     // Show detail panel
     document.getElementById('activePartDetailsPanel').style.display = 'block';
     
-    // Hitung total tersimpan
-    const qtyTersimpan = Object.values(item.locations).reduce((a,b)=>a+b, 0);
-    let color = qtyTersimpan >= item.sysQty ? '#16a34a' : '#ea580c';
-    let progressBadge = `<span style="font-size:0.75rem; color:${color}; margin-left:4px; font-weight:bold;">${qtyTersimpan}/${item.sysQty}</span>`;
-    
-    // Display: Part Number + Progress
-    document.getElementById('activePartNo').innerHTML = item.partNo + progressBadge;
+    // Display: Part Number (no progress badge)
+    document.getElementById('activePartNo').innerHTML = item.partNo;
     
     // Display: Description (compact)
     let desc = item.desc;
@@ -854,19 +741,13 @@ function processMultiScan() {
 
 function updatePanelDisplay() {
     /**
-     * Tampilkan display sesuai simpanMode
+     * Display detail panel (read-only, always show singleModeDisplay)
      */
     const singleDisplay = document.getElementById('singleModeDisplay');
     const multiDisplay = document.getElementById('multiModeDisplay');
     
-    if (simpanMode === 'multiple') {
-        if (singleDisplay) singleDisplay.style.display = 'none';
-        if (multiDisplay) multiDisplay.style.display = 'block';
-        renderMultiScanList();
-    } else {
-        if (singleDisplay) singleDisplay.style.display = 'block';
-        if (multiDisplay) multiDisplay.style.display = 'none';
-    }
+    if (singleDisplay) singleDisplay.style.display = 'block';
+    if (multiDisplay) multiDisplay.style.display = 'none';
 }
 
 function clearActivePart() {
@@ -1391,10 +1272,10 @@ function renderSmartSuggestion(item) {
 }
 
 function switchTab(id) {
-    // Clean up buffer when leaving SIMPAN tab
+    // Clean up when leaving SIMPAN tab (display-only now)
     if (currentTab === 'simpan' && currentTab !== id) {
-        clearMultiScan();
         tempPart = null;
+        document.getElementById('activePartDetailsPanel').style.display = 'none';
     }
     
     currentTab = id;

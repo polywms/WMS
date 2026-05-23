@@ -727,41 +727,41 @@ XLSX.writeFile(wb, "filename.xlsx");
 
 ## Risks / Blind Spots (Continuously Updated)
 
-**Latest Improvements** (2026-05-09):
+**Latest Improvements** (2026-05-23 - CURRENT):
 
-**MAJOR REFACTOR: SIMPAN Tab SINGLE/MULTIPLE Mode (2026-05-09 - Active)**
-- ✅ **Eliminated Buffer Accumulation**: Completely removed `useSimpanBuffer` logic and `simpanBuffer[]` array
-- ✅ **Introduced simpanMode Toggle**: New state variable `simpanMode: 'single' | 'multiple'` (persisted to localStorage)
-- ✅ **SINGLE Mode Workflow**: Scan part → Show panel → Scan box → Save 1 qty immediately (direct, no buffer)
-- ✅ **MULTIPLE Mode Workflow**: Scan parts → accumulate in `multiScanBuffer[]` → Scan box → Save all at once
-- ✅ **New Multi-Scan Functions**:
-  - `addToMultiScan(item)`: Add part to buffer with duplicate check
-  - `removeFromMultiScan(itemId)`: Remove single item from buffer
-  - `clearMultiScan()`: Clear entire buffer + reset UI
-  - `processMultiScan()`: Finalize and save all buffered parts to scanned box
-  - `renderMultiScanList()`: Render daftar parts di buffer
-  - `updatePanelDisplay()`: Show correct panel (singleModeDisplay vs multiModeDisplay)
-- ✅ **Dual Display Panel**: HTML redesigned with two sections:
-  - `singleModeDisplay`: Shows part detail, description, locations, similar parts (single mode only)
-  - `multiModeDisplay`: Shows buffered parts list with "Hapus" button, scan count (multiple mode only)
-- ✅ **Updated processScan() SIMPAN Branch**:
-  - SINGLE: isBox→save to tempPart, else→set tempPart (wait for box)
-  - MULTIPLE: isBox→save all multiScanBuffer, else→addToMultiScan()
-  - No more accumulating quantities, clean direct-save flow
-- ✅ **Removed Deprecated Functions**: Disabled `useSimpanBuffer`, `activeDirectPart`, `simpanBuffer`, `targetBufferBox`
-- ✅ **Fixed syntax**: Removed duplicate getSimilarParts() declaration (was causing unclosed brace error)
-- **Impact**: Penyimpanan menu now has explicit mode choice, no hidden buffer confusion, faster scan-to-save workflow
+**MAJOR REFACTOR: SIMPAN Tab to Display-Only Mode (2026-05-23)**
+- ✅ **Eliminated ALL Qty Calculations**: Removed progress badge (X/Y), no more "+1 qty per scan"
+- ✅ **Display-Only Workflow**: SIMPAN tab now read-only for viewing existing stok from database
+  - Scan part = Select & show detail panel (read-only)
+  - Display: Part No, Description, Current Locations (from item.locations)
+  - No buffer, no saveDB, no addHistoryLog, no qty validation
+- ✅ **Removed Qty Modifications**:
+  - Removed all saveDB() calls from SIMPAN processScan branch
+  - Removed all qty overflow checks (totalQty + 1 > sysQty)
+  - Removed addHistoryLog calls (no action recorded)
+  - Removed SINGLE/MULTIPLE mode logic (simpanMode toggle now unused in SIMPAN tab)
+- ✅ **Simplified processScan() SIMPAN Branch**:
+  - Only logic: `if (item) { updateActivePartPanel() }` — select & display
+  - Box scans ignored (no box filter logic)
+  - Part baru creation removed (read-only only)
+- ✅ **Kept Display Features**:
+  - Similar parts list (getSimilarParts)
+  - Label issues tracking (DAMAGED, NO_LABEL)
+  - All read-only, no writes to database
+- **Impact**: SIMPAN tab now purely for viewing warehouse inventory, NOT for data entry/modification
+- **Database Safety**: Only reads from localItems.locations, no modifications from this tab
 
-- ✅ **RESTORED: Active Part Details Panel** (UI Feature Recovery)
-  - Added `#activePartDetailsPanel` to display part info when scanned
-  - Shows: Part No, Description, Current Locations, Progress Badge (Terisi: X/Y)
-  - Triggers automatically in SIMPAN tab when user scans part
-  - Displays label issues (Tanpa Label, Label Rusak) if applicable
-  - Integration points: selectPartSimpan(), addToSimpanBuffer(), clearActivePart()
-  - HTML: index.html (scanner-bar section)
-  - JS: core.js (updated 3 functions + new header documentation)
+**Previous Session (2026-05-09):**
 
-**Previous Improvements** (2026-04-22):
+**REFACTOR: SIMPAN Tab SINGLE/MULTIPLE Mode (2026-05-09)**
+- ✅ **Eliminated Buffer Accumulation**: Removed `useSimpanBuffer` logic and `simpanBuffer[]`
+- ✅ **Introduced simpanMode Toggle**: New state variable `simpanMode: 'single' | 'multiple'`
+- ✅ **New Multi-Scan Functions**: addToMultiScan, removeFromMultiScan, clearMultiScan, processMultiScan
+- ✅ **Dual Display Panel**: singleModeDisplay (detail) vs multiModeDisplay (buffer list)
+- ✅ **Removed Deprecated Functions**: Disabled useSimpanBuffer, activeDirectPart, simpanBuffer, targetBufferBox
+- ✅ **Fixed syntax**: Removed duplicate getSimilarParts() declaration
+
+
 - ✅ **Data Persistence on Refresh**: syncQueue & syncLogs now persisted to localStorage, survive page refresh
 - ✅ **Qty Overflow Protection**: Added check in SIMPAN tab to prevent scanning more than sysQty (matches OFF BS logic)
 - ✅ **Opname Filter Logic Fixed**: Rewritten handleOpnameRender() for correct box filtering:
