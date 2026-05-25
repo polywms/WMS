@@ -527,6 +527,7 @@ function getSimilarParts(partNo) {
      * Extract base pattern from partNo (misal: KV-033663-00D → KV-033663)
      * Return array of similar parts dengan format:
      * [{ partNo: "KV-033663-00A", locations: "A2-01, B1-02" }, ...]
+     * FIXED: Deduplicate by partNo, aggregate locations
      */
     if (!partNo || !localItems) return [];
     
@@ -536,14 +537,27 @@ function getSimilarParts(partNo) {
     const basePattern = parts.length >= 2 ? `${parts[0]}-${parts[1]}` : partNo;
     
     // Cari semua part yang match pattern, exclude yang sekarang
-    const similar = localItems
+    // Aggregate by partNo untuk remove duplikat dan collect semua locations
+    const partMap = new Map();
+    
+    localItems
         .filter(item => {
             const itemBase = item.partNo.split('-').slice(0, 2).join('-');
             return itemBase === basePattern && item.partNo !== partNo;
         })
-        .map(item => ({
-            partNo: item.partNo,
-            locations: Object.keys(item.locations).join(', ') || '(belum disimpan)'
+        .forEach(item => {
+            if (!partMap.has(item.partNo)) {
+                partMap.set(item.partNo, new Set());
+            }
+            const locs = Object.keys(item.locations);
+            locs.forEach(loc => partMap.get(item.partNo).add(loc));
+        });
+    
+    // Convert Map ke array, deduplicate sudah selesai
+    const similar = Array.from(partMap.entries())
+        .map(([pNo, locSet]) => ({
+            partNo: pNo,
+            locations: Array.from(locSet).join(', ') || '(belum disimpan)'
         }))
         .sort((a, b) => a.partNo.localeCompare(b.partNo));
     
