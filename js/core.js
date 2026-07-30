@@ -175,6 +175,107 @@ function toggleOptionsAccordion() {
     }
 }
 
+function toggleBoxToBoxMode() {
+    const btn = document.getElementById('boxToBoxBtn');
+    if (!btn) return;
+
+    boxToBoxModeActive = !boxToBoxModeActive;
+    boxToBoxSourceBox = null;
+
+    if (boxToBoxModeActive) {
+        btn.style.background = 'var(--active-color)';
+        btn.style.color = 'white';
+        btn.style.borderColor = 'var(--active-color)';
+        btn.title = 'Box to Box: scan box sumber';
+        showToast('<i class="fas fa-exchange-alt"></i> Mode Box to Box aktif. Scan box sumber dulu.');
+    } else {
+        btn.style.background = 'white';
+        btn.style.color = 'var(--secondary)';
+        btn.style.borderColor = '#cbd5e1';
+        btn.title = 'Box to Box';
+        showToast('<i class="fas fa-times"></i> Mode Box to Box dibatalkan');
+    }
+
+    document.getElementById('mainInput').focus();
+}
+
+function closeBoxToBoxModal() {
+    const modal = document.getElementById('boxToBoxModal');
+    if (modal) modal.style.display = 'none';
+    boxToBoxPending = null;
+}
+
+function showBoxToBoxSelectionModal(sourceBox, targetBox) {
+    if (!sourceBox || !targetBox || sourceBox === targetBox) {
+        feedback('warning');
+        showToast('Box sumber dan tujuan harus berbeda.');
+        return;
+    }
+
+    const affectedItems = localItems.filter(item => item && item.locations && item.locations[sourceBox]);
+    if (affectedItems.length === 0) {
+        feedback('warning');
+        showToast(`Tidak ada data pada ${sourceBox} untuk dipindah.`);
+        return;
+    }
+
+    boxToBoxPending = { sourceBox, targetBox };
+    document.getElementById('boxToBoxModalSource').innerText = sourceBox;
+    document.getElementById('boxToBoxModalTarget').innerText = targetBox;
+    document.getElementById('boxToBoxModalList').innerHTML = affectedItems.map(item => `
+        <label style="display:flex; align-items:center; gap:8px; padding:8px 0; border-bottom:1px solid #e5e7eb;">
+            <input type="checkbox" class="box-to-box-part-checkbox" value="${item.id}" checked>
+            <div style="flex:1; min-width:0;">
+                <div style="font-weight:600; color:#0f172a; word-break:break-word;">${item.partNo}</div>
+                <div style="font-size:0.75rem; color:#64748b; word-break:break-word;">${item.desc || ''}</div>
+            </div>
+        </label>
+    `).join('');
+
+    document.getElementById('boxToBoxModal').style.display = 'flex';
+}
+
+function confirmBoxToBoxSelection() {
+    if (!boxToBoxPending) return;
+
+    const selectedIds = Array.from(document.querySelectorAll('.box-to-box-part-checkbox:checked')).map(el => parseInt(el.value, 10));
+    if (selectedIds.length === 0) {
+        feedback('warning');
+        showToast('Pilih minimal 1 part untuk digabung.');
+        return;
+    }
+
+    const { sourceBox, targetBox } = boxToBoxPending;
+    let affectedCount = 0;
+    const selectedItems = localItems.filter(item => selectedIds.includes(item.id));
+
+    selectedItems.forEach(item => {
+        if (!item || !item.locations || !item.locations[sourceBox]) return;
+
+        const oldLocations = JSON.parse(JSON.stringify(item.locations));
+        if (!item.locations[targetBox]) {
+            item.locations[targetBox] = item.locations[sourceBox];
+        }
+        delete item.locations[sourceBox];
+        item.lastBox = targetBox;
+
+        if (JSON.stringify(item.locations) !== JSON.stringify(oldLocations)) {
+            saveDB(item);
+            affectedCount++;
+        }
+    });
+
+    closeBoxToBoxModal();
+    clearActivePart();
+    renderSimpanList(true);
+    feedback('success');
+    showToast(`✓ ${affectedCount} part digabung dari ${sourceBox} ke ${targetBox}`);
+}
+
+function executeBoxToBoxMerge(sourceBox, targetBox) {
+    showBoxToBoxSelectionModal(sourceBox, targetBox);
+}
+
 function toggleOpnameMode() {
     isOpnameMode = document.getElementById('chkOpnameMode').checked;
     if (isOpnameMode) {
@@ -348,6 +449,32 @@ if (currentTab === 'packing') {
     // --- LOGIKA NORMAL (SIMPAN, OPNAME, DATA) ---
     const item = filteredItems.find(i => i.partNo.toUpperCase() === parsedCode);
     
+    if (boxToBoxModeActive && currentTab === 'simpan' && isBox) {
+        const normalizedBox = parsedCode.toUpperCase();
+        if (!boxToBoxSourceBox) {
+            boxToBoxSourceBox = normalizedBox;
+            feedback('scan');
+            showToast(`Box sumber: ${normalizedBox}`);
+            return;
+        }
+
+        const sourceBox = boxToBoxSourceBox;
+        const targetBox = normalizedBox;
+        boxToBoxModeActive = false;
+        boxToBoxSourceBox = null;
+
+        const btn = document.getElementById('boxToBoxBtn');
+        if (btn) {
+            btn.style.background = 'white';
+            btn.style.color = 'var(--secondary)';
+            btn.style.borderColor = '#cbd5e1';
+            btn.title = 'Box to Box';
+        }
+
+        executeBoxToBoxMerge(sourceBox, targetBox);
+        return;
+    }
+
     if (currentTab === 'simpan') {
         // ==========================================
         // SIMPAN TAB: Save part to box (location only, no qty)

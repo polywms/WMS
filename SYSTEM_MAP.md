@@ -37,6 +37,10 @@ User Scan Code
   ↓
 handleInputKeyDown() [core.js]
   ↓
+(optional) Box-to-Box Merge Mode [core.js] — scan box sumber lalu box tujuan untuk menggabungkan lokasi tanpa overwrite data lama
+  ↓
+processScan(code) [core.js] — Parse & route per tab
+  ↓
 processScan(code) [core.js] — Parse & route per tab
   ↓
 filteredItems.find() — Match part in localItems
