@@ -1515,6 +1515,7 @@ function switchTab(id) {
     }
     
     currentTab = id;
+    document.body.classList.toggle('data-view-active', id === 'data');
     
     // Update tab content
     document.querySelectorAll('.tab-content').forEach(e=>e.classList.remove('active'));
@@ -1523,6 +1524,10 @@ function switchTab(id) {
     // Update sidebar items
     document.querySelectorAll('.sidebar-item').forEach(e=>e.classList.remove('active'));
     document.querySelector(`.sidebar-item[data-tab="${id}"]`)?.classList.add('active');
+
+    // Keep the thumb-friendly mobile navigation synchronized with the active tab.
+    document.querySelectorAll('.bottom-nav .nav-item').forEach(e=>e.classList.remove('active'));
+    document.querySelector(`.bottom-nav .nav-item[data-tab="${id}"]`)?.classList.add('active');
     
     // Update active tab title
     const tabTitles = {

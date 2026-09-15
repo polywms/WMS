@@ -1,3 +1,10 @@
+<!--
+    Tujuan: Entry point UI untuk workflow WMS Magelang.
+    Caller: Browser/PWA shell; event handlers diteruskan ke main.js dan core.js.
+    Dependensi: css/style.css, Font Awesome, dan modul JavaScript di js/.
+    Main Functions: Menyediakan tab, scanner, modal, dan kontrol import/export.
+    Side Effects: Mengubah DOM, memicu scan, penyimpanan lokal, dan sinkronisasi cloud melalui handler.
+-->
 <!-- WMS Magelang - Entry point UI -->
 <!DOCTYPE html>
 <html lang="id">
@@ -62,6 +69,25 @@
         
         <!-- Sidebar Overlay (untuk tutup drawer saat tap) -->
         <div id="sidebarOverlay" class="sidebar-overlay" onclick="toggleMenu()"></div>
+
+        <!-- Bottom navigation keeps the primary warehouse workflow within thumb reach. -->
+        <nav class="bottom-nav" aria-label="Navigasi utama">
+            <button class="nav-item active" data-tab="simpan" onclick="switchTab('simpan')" aria-label="Simpan">
+                <i class="fas fa-dolly" aria-hidden="true"></i><span>SIMPAN</span>
+            </button>
+            <button class="nav-item" data-tab="opname" onclick="switchTab('opname')" aria-label="Opname">
+                <i class="fas fa-clipboard-check" aria-hidden="true"></i><span>OPNAME</span>
+            </button>
+            <button class="nav-item" data-tab="data" onclick="switchTab('data')" aria-label="Data">
+                <i class="fas fa-search" aria-hidden="true"></i><span>DATA</span>
+            </button>
+            <button class="nav-item" data-tab="offbs" onclick="switchTab('offbs')" aria-label="Off BS">
+                <i class="fas fa-recycle" aria-hidden="true"></i><span>OFF BS</span>
+            </button>
+            <button class="nav-item" data-tab="packing" onclick="switchTab('packing')" aria-label="Packing">
+                <i class="fas fa-truck-loading" aria-hidden="true"></i><span>PACKING</span>
+            </button>
+        </nav>
         
         <div class="main-content-wrapper">
             <div style="display:flex; gap:12px; align-items:center; background:var(--bg); border-bottom:2px solid var(--primary); padding:12px 16px; z-index:90;">
@@ -180,6 +206,8 @@
                         <span><i class="fas fa-box-open"></i> Non-Box</span>
                     </label>
                 </div>
+
+            </div>
                 
                 <div id="tab-simpan" class="tab-content active">
                 <div id="multiScanPanel" class="multi-panel" style="display:none;">
@@ -294,18 +322,24 @@
             </div>
             
             <div id="tab-data" class="tab-content">
-                <div class="data-tools" style="display:flex; gap:6px; margin-bottom:12px;">
-                    <button class="btn btn-warning btn-sm" onclick="toggleNewPartFilter(this)" style="flex:1; padding:10px 0; font-size:0.75rem;"><i class="fas fa-filter"></i> Part Baru</button>
-                    <button class="btn btn-success btn-sm" onclick="downloadNewParts()" style="flex:1; padding:10px 0; font-size:0.75rem;"><i class="fas fa-download"></i> Excel Baru</button>
-                    <button class="btn btn-outline btn-sm" onclick="openLabelReport()" style="flex:1; padding:10px 0; font-size:0.75rem; border-color:var(--danger); color:var(--danger); background:#fef2f2;"><i class="fas fa-tags"></i> Cek Label</button>
-                </div>
-                <div style="display:flex; gap:6px; margin-bottom:12px;">
+                <div class="data-search-row">
                     <div style="position: relative; flex:1;">
                         <input type="text" id="cariInput" placeholder="Scan Part / Ketik Nama / Area..." onkeyup="renderDataList(true)" style="width:100%; padding:10px 40px 10px 10px; border:1px solid var(--border); border-radius:6px; box-sizing:border-box;">
                         <button onclick="document.getElementById('cariInput').value=''; renderDataList(true);" style="position:absolute; right:8px; top:50%; transform:translateY(-50%); background:none; border:none; color:var(--secondary); cursor:pointer;"><i class="fas fa-times-circle"></i></button>
                     </div>
                     <button onclick="openCameraScanner()" style="width:40px; height:40px; background:var(--active-color); color:white; border:none; border-radius:6px; display:flex; justify-content:center; align-items:center; cursor:pointer; padding:0;" title="Scan QR Kamera"><i class="fas fa-camera"></i></button>
                 </div>
+                <details class="data-tools">
+                    <summary class="data-tools-heading">
+                        <strong><i class="fas fa-toolbox"></i> Alat Data</strong>
+                        <span>Filter part baru, unduh Excel, atau cek label</span>
+                    </summary>
+                    <div class="data-tools-actions">
+                        <button class="btn btn-warning btn-sm" onclick="toggleNewPartFilter(this)" title="Tampilkan hanya part baru"><i class="fas fa-filter"></i><span>Filter Part Baru</span></button>
+                        <button class="btn btn-success btn-sm" onclick="downloadNewParts()" title="Unduh daftar part baru ke Excel"><i class="fas fa-download"></i><span>Unduh Part Baru</span></button>
+                        <button class="btn btn-outline btn-sm" onclick="openLabelReport()" title="Lihat laporan masalah label"><i class="fas fa-tags"></i><span>Laporan Label</span></button>
+                    </div>
+                </details>
                 <div id="dataList" class="list-container"></div>
                 <div id="dataLoading" style="text-align:center; padding:15px; display:none; color:var(--secondary);">Load more...</div>
             </div>
