@@ -1865,8 +1865,8 @@
                 :root { --nav-height: 0px; }
                 body { padding-bottom: 0; }
                 .bottom-nav {
-                    left: 16px;
-                    right: auto;
+                    left: auto;
+                    right: 16px;
                     top: 76px;
                     bottom: auto;
                     width: 72px;
@@ -1878,5 +1878,5 @@
                     box-shadow: var(--shadow-md);
                 }
                 .bottom-nav .nav-item { min-height: 64px; }
-                .main-content-wrapper { margin-left: 104px; }
+                .main-content-wrapper { margin-left: 0; margin-right: 104px; }
             }
