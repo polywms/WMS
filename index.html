@@ -2,7 +2,7 @@
     Tujuan: Entry point UI untuk workflow WMS Magelang.
     Caller: Browser/PWA shell; event handlers diteruskan ke main.js dan core.js.
     Dependensi: css/style.css, Font Awesome, dan modul JavaScript di js/.
-    Main Functions: Menyediakan tab, scanner, modal, dan kontrol import/export.
+    Main Functions: Menyediakan bottom navigation, tab, scanner, modal, dan kontrol import/export.
     Side Effects: Mengubah DOM, memicu scan, penyimpanan lokal, dan sinkronisasi cloud melalui handler.
 -->
 <!-- WMS Magelang - Entry point UI -->
@@ -27,50 +27,10 @@
             <h1>𝄃𝄃𝄂𝄂 WMS Magelang</h1>
             <div style="display:flex; align-items:center; gap:10px;">
                 <span id="syncStatus" style="font-size:0.75rem; background:rgba(0,0,0,0.2); padding:3px 8px; border-radius:10px; display: flex; align-items: center; gap: 4px;"><i class="fas fa-circle" style="color: #22c55e; font-size: 0.6rem;"></i><span style="font-size:0.7rem;">Online</span></span>
-                <button class="header-btn" onclick="toggleMenu()"><i class="fas fa-bars"></i></button>
             </div>
         </header>
-        
-        <!-- Sidebar Drawer -->
-        <div id="sidebarDrawer" class="sidebar-drawer">
-            <div class="sidebar-header">
-                <h2 style="margin:0; font-size:1.1rem; color:white;">Menu</h2>
-                <button onclick="toggleMenu()" style="background:none; border:none; color:white; font-size:1.5rem; cursor:pointer;"><i class="fas fa-times"></i></button>
-            </div>
-            <nav class="sidebar-nav">
-                <button class="sidebar-item active" data-tab="simpan" onclick="switchTab('simpan')">
-                    <i class="fas fa-dolly"></i>
-                    <span class="sidebar-label">Penyimpanan</span>
-                </button>
-                <button class="sidebar-item" data-tab="opname" onclick="switchTab('opname')">
-                    <i class="fas fa-clipboard-check"></i>
-                    <span class="sidebar-label">Inventory Check</span>
-                </button>
-                <button class="sidebar-item" data-tab="data" onclick="switchTab('data')">
-                    <i class="fas fa-search"></i>
-                    <span class="sidebar-label">Data</span>
-                </button>
-                <button class="sidebar-item" data-tab="offbs" onclick="switchTab('offbs')">
-                    <i class="fas fa-recycle"></i>
-                    <span class="sidebar-label">Off BS</span>
-                </button>
-                <button class="sidebar-item" data-tab="packing" onclick="switchTab('packing')">
-                    <i class="fas fa-truck-loading"></i>
-                    <span class="sidebar-label">Packing</span>
-                </button>
-                
-                <!-- Settings Button at Bottom -->
-                <button class="sidebar-item sidebar-settings-btn" data-tab="settings" onclick="switchTab('settings'); toggleMenu()">
-                    <i class="fas fa-cog"></i>
-                    <span class="sidebar-label">Pengaturan</span>
-                </button>
-            </nav>
-        </div>
-        
-        <!-- Sidebar Overlay (untuk tutup drawer saat tap) -->
-        <div id="sidebarOverlay" class="sidebar-overlay" onclick="toggleMenu()"></div>
 
-        <!-- Bottom navigation keeps the primary warehouse workflow within thumb reach. -->
+        <!-- Bottom navigation is the single navigation surface for all tabs. -->
         <nav class="bottom-nav" aria-label="Navigasi utama">
             <button class="nav-item active" data-tab="simpan" onclick="switchTab('simpan')" aria-label="Simpan">
                 <i class="fas fa-dolly" aria-hidden="true"></i><span>SIMPAN</span>
@@ -86,6 +46,9 @@
             </button>
             <button class="nav-item" data-tab="packing" onclick="switchTab('packing')" aria-label="Packing">
                 <i class="fas fa-truck-loading" aria-hidden="true"></i><span>PACKING</span>
+            </button>
+            <button class="nav-item" data-tab="settings" onclick="switchTab('settings')" aria-label="Pengaturan">
+                <i class="fas fa-cog" aria-hidden="true"></i><span>SETTING</span>
             </button>
         </nav>
         
@@ -558,55 +521,6 @@
             </div>
         </div>
         
-        <div class="overlay" id="menuModal" onclick="if(event.target===this) toggleMenu()">
-            <div class="modal">
-                <h2>Menu</h2>
-                <button class="btn btn-outline" onclick="toggleDarkMode()"><i class="fas fa-adjust"></i> Ganti Tema</button><hr>
-                
-                <!-- Import Section (Flat Design 3 Buttons) -->
-                <div style="display: flex; gap: 10px; margin-bottom: 15px;">
-                    <button style="flex: 1; display: flex; align-items: center; background-color: #0ea5e9; color: white; border: none; border-radius: 6px; padding: 12px 8px; cursor: pointer;" onclick="document.getElementById('fileInput').click()">
-                        <i class="fas fa-boxes" style="font-size: 1.5rem; flex-shrink: 0; width: 30px; text-align: center;"></i>
-                        <span style="flex: 1; text-align: center; line-height: 1.2; font-size: 0.8rem; font-weight: bold;">DATA<br>STOCK</span>
-                    </button>
-                    <button style="flex: 1; display: flex; align-items: center; background-color: #10b981; color: white; border: none; border-radius: 6px; padding: 12px 8px; cursor: pointer;" onclick="document.getElementById('offBsFileInput').click()">
-                        <i class="fas fa-recycle" style="font-size: 1.5rem; flex-shrink: 0; width: 30px; text-align: center;"></i>
-                        <span style="flex: 1; text-align: center; line-height: 1.2; font-size: 0.8rem; font-weight: bold;">DATA<br>OFF BS</span>
-                    </button>
-                    <button style="flex: 1; display: flex; align-items: center; background-color: #8b5cf6; color: white; border: none; border-radius: 6px; padding: 12px 8px; cursor: pointer;" onclick="document.getElementById('hargaFileInput').click()">
-                        <i class="fas fa-tags" style="font-size: 1.5rem; flex-shrink: 0; width: 30px; text-align: center;"></i>
-                        <span style="flex: 1; text-align: center; line-height: 1.2; font-size: 0.8rem; font-weight: bold;">DATA<br>HARGA</span>
-                    </button>
-                </div>
-                <input type="file" id="fileInput" hidden accept=".xlsx,.csv" onchange="handleImport(this)">
-                <input type="file" id="offBsFileInput" hidden accept=".xlsx,.csv" onchange="handleImportOffBS(this)">
-                <input type="file" id="hargaFileInput" hidden accept=".xlsx,.csv" onchange="handleImportHarga(this)"><hr>
-                
-                <!-- Export Section (Flat Design 3 Buttons) -->
-                <div style="display: flex; gap: 10px; margin-bottom: 15px;">
-                    <button style="flex: 1; display: flex; align-items: center; background-color: #f59e0b; color: white; border: none; border-radius: 6px; padding: 12px 8px; cursor: pointer;" onclick="exportData()">
-                        <i class="fas fa-file-excel" style="font-size: 1.5rem; flex-shrink: 0; width: 30px; text-align: center;"></i>
-                        <span style="flex: 1; text-align: center; line-height: 1.2; font-size: 0.8rem; font-weight: bold;">EXPORT<br>EXCEL</span>
-                    </button>
-                    <button style="flex: 1; display: flex; align-items: center; background-color: #64748b; color: white; border: none; border-radius: 6px; padding: 12px 8px; cursor: pointer;" onclick="backupJson()">
-                        <i class="fas fa-save" style="font-size: 1.5rem; flex-shrink: 0; width: 30px; text-align: center;"></i>
-                        <span style="flex: 1; text-align: center; line-height: 1.2; font-size: 0.8rem; font-weight: bold;">BACKUP<br>JSON</span>
-                    </button>
-                    <button style="flex: 1; display: flex; align-items: center; background-color: #f8fafc; color: #475569; border: 1px solid #cbd5e1; border-radius: 6px; padding: 12px 8px; cursor: pointer;" onclick="document.getElementById('jsonInput').click()">
-                        <i class="fas fa-folder-open" style="font-size: 1.5rem; flex-shrink: 0; width: 30px; text-align: center;"></i>
-                        <span style="flex: 1; text-align: center; line-height: 1.2; font-size: 0.8rem; font-weight: bold;">RESTORE<br>JSON</span>
-                    </button>
-                </div>
-                <input type="file" id="jsonInput" hidden accept=".json" onchange="restoreJson(this)"><hr>
-                
-                <!-- Reset Section -->
-                <div style="display: flex; gap: 10px;">
-                    <button class="btn btn-warning" onclick="clearOpname()" style="flex: 1;"><i class="fas fa-undo"></i> Reset Opname</button>
-                    <button class="btn btn-danger" onclick="clearData()" style="flex: 1;"><i class="fas fa-trash"></i> Reset DB</button>
-                </div>
-            </div>
-        </div>
-
         <!-- Loading Modal -->
         <div class="overlay" id="loadingModal" style="display: none; background: rgba(0,0,0,0.7);">
             <div class="modal" style="text-align: center; padding: 30px; min-width: 250px; background: var(--card); border: 2px solid var(--primary);">

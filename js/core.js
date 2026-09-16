@@ -1521,11 +1521,7 @@ function switchTab(id) {
     document.querySelectorAll('.tab-content').forEach(e=>e.classList.remove('active'));
     document.getElementById('tab-'+id).classList.add('active');
     
-    // Update sidebar items
-    document.querySelectorAll('.sidebar-item').forEach(e=>e.classList.remove('active'));
-    document.querySelector(`.sidebar-item[data-tab="${id}"]`)?.classList.add('active');
-
-    // Keep the thumb-friendly mobile navigation synchronized with the active tab.
+    // Keep the single navigation surface synchronized with the active tab.
     document.querySelectorAll('.bottom-nav .nav-item').forEach(e=>e.classList.remove('active'));
     document.querySelector(`.bottom-nav .nav-item[data-tab="${id}"]`)?.classList.add('active');
     
@@ -1560,8 +1556,6 @@ function switchTab(id) {
         renderOffBsList();
     }
     
-    // Close sidebar drawer after selection
-    toggleMenu();
 }
 
 // ============================================

@@ -203,6 +203,10 @@ Fetch version.json with cache bypass
   ↓
 Parse currentVersion.version
   ↓
+Register sw.js?v=currentVersion with updateViaCache: none
+  ↓
+Install versioned worker and cache namespace
+  ↓
 Compare with localStorage.appVersion
   ↓
 IF new version: Show "Update available" banner
@@ -333,7 +337,7 @@ WMS/
 - `playTone(freq, type, duration)` — Web Audio API tone generator
 - `showToast(message)` — Display floating toast notification
 - `toggleDarkMode()` — Switch light/dark theme
-- `toggleMenu()` — Show/hide sidebar menu
+- Bottom navigation — Switch between workflow and settings tabs
 
 **Peran**: UI utilities; feedback & styling helpers  
 **Caller**: core.js (feedback), event handlers (toggleDarkMode), any scanner success  
@@ -690,7 +694,7 @@ XLSX.writeFile(wb, "filename.xlsx");
 
 ### Font Awesome Icons (CDN)
 **CDN**: `https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css`  
-**Usage**: Icon classes in HTML (fa-bars, fa-search, fa-camera, etc.)  
+**Usage**: Icon classes in HTML (fa-search, fa-camera, fa-cog, etc.)  
 **Used by**: All UI buttons, indicators, badges
 
 ---
@@ -707,8 +711,8 @@ XLSX.writeFile(wb, "filename.xlsx");
 - Used by: config.js (offBsSession, packingSession), utils.js (darkMode)
 
 **Service Worker API**:
-- Register in main.js: `navigator.serviceWorker.register('sw.js')`
-- Message handler: `controller.postMessage({ type: 'SKIP_WAITING' })`
+- Register in main.js: `navigator.serviceWorker.register('sw.js?v=' + version, { updateViaCache: 'none' })`
+- Cache namespace: `wms-cache-<app-version>`; old cache namespaces are removed on activation
 
 **Web Audio API**:
 - Context: `new AudioContext()` in utils.js

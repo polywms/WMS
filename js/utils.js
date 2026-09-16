@@ -107,16 +107,6 @@ function showToast(m) {
     setTimeout(() => t.classList.remove('show'), 3000); 
 }
 
-function toggleMenu() { 
-    const drawer = document.getElementById('sidebarDrawer');
-    const overlay = document.getElementById('sidebarOverlay');
-    
-    if(drawer && overlay) {
-        drawer.classList.toggle('active');
-        overlay.classList.toggle('active');
-    }
-}
-
 function toggleDarkMode() { 
     document.body.classList.toggle('dark-mode'); 
     localStorage.setItem('darkMode', document.body.classList.contains('dark-mode')); 

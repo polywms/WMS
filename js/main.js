@@ -2,25 +2,34 @@
 let wakeLock = null;
 
 // ===== VERSION CHECK & AUTO UPDATE =====
+async function registerServiceWorker(version) {
+    if (!('serviceWorker' in navigator)) return;
+
+    try {
+        const registration = await navigator.serviceWorker.register(`sw.js?v=${encodeURIComponent(version)}`, {
+            updateViaCache: 'none'
+        });
+        await registration.update();
+        return registration;
+    } catch (error) {
+        console.log('Service worker update skipped:', error);
+    }
+}
+
 async function checkForUpdates() {
     try {
         const response = await fetch('./version.json?t=' + Date.now());
         if (!response.ok) return;
         
         const data = await response.json();
+        await registerServiceWorker(data.version);
         const savedVersion = localStorage.getItem('appVersion');
         
         if (savedVersion && data.version !== savedVersion) {
             if (confirm('UPDATE TERSEDIA!\\n\\nReload aplikasi untuk versi terbaru?')) {
                 localStorage.setItem('appVersion', data.version);
                 
-                // Notify SW to skip waiting
-                if (navigator.serviceWorker && navigator.serviceWorker.controller) {
-                    navigator.serviceWorker.controller.postMessage({ type: 'SKIP_WAITING' });
-                    setTimeout(() => window.location.reload(), 500);
-                } else {
-                    window.location.reload();
-                }
+                window.location.reload();
             }
         } else if (!savedVersion) {
             localStorage.setItem('appVersion', data.version);
@@ -109,11 +118,4 @@ window.onload = async () => {
     setupScroll('tab-data', () => { renderLimit += 50; renderDataList(false); });
 };
 
-// Daftarkan Service Worker untuk PWA
-if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-        navigator.serviceWorker.register('sw.js')
-        .then(registration => console.log('ServiceWorker sukses: ', registration.scope))
-        .catch(err => console.log('ServiceWorker gagal: ', err));
-    });
-}
+// The version check registers the worker with a release-specific URL.
