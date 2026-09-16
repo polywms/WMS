@@ -1859,6 +1859,12 @@
                 align-items: flex-end;
             }
 
+            @media (max-width: 799px) {
+                #boxToBoxModal {
+                    height: calc(100% - var(--nav-height) - var(--safe-bottom)) !important;
+                }
+            }
+
             #cameraModal .modal { text-align: center; }
 
             @media (min-width: 800px) {
