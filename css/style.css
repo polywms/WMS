@@ -1867,6 +1867,33 @@
 
             #cameraModal .modal { text-align: center; }
 
+            .overlay {
+                align-items: center;
+                padding: max(16px, var(--safe-bottom)) 16px;
+                box-sizing: border-box;
+            }
+
+            .overlay .modal,
+            .overlay .modal-content {
+                max-height: calc(100vh - max(32px, var(--safe-bottom) + 16px));
+                overflow-y: auto;
+                border-radius: 14px;
+            }
+
+            #boxToBoxModal,
+            #conflictModal {
+                align-items: center !important;
+                padding: max(16px, var(--safe-bottom)) 16px;
+                box-sizing: border-box;
+            }
+
+            #boxToBoxModal > div,
+            #conflictModal > div {
+                max-height: calc(100vh - max(32px, var(--safe-bottom) + 16px));
+                margin: 0;
+                border-radius: 12px;
+            }
+
             @media (min-width: 800px) {
                 :root { --nav-height: 0px; }
                 body { padding-bottom: 0; }

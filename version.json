@@ -1,6 +1,6 @@
 {
-  "version": "1.1.5",
-  "updated": "2026-09-16T00:00:00Z",
-  "features": ["batch-sync", "cache-versioning", "qr-parser-refactor", "mobile-ui", "data-search"],
-  "notes": "Penyegaran UI mobile, navigasi thumb-friendly, dan pencarian DATA yang diprioritaskan"
+  "version": "1.1.6",
+  "updated": "2026-09-18T00:00:00Z",
+  "features": ["batch-sync", "cache-versioning", "qr-parser-refactor", "mobile-ui", "data-search", "centered-modals"],
+  "notes": "Modal diposisikan lebih aman di tengah layar agar tombol aksi tetap mudah ditekan"
 }
