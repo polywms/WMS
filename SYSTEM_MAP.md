@@ -104,11 +104,11 @@ Render rows with origin, checkbox, and remove control
   ↓
 Scan destination Box → validate and confirm batch move
   ↓
-For selected parts: replace old locations with destination box
+  For checked parts: replace old locations with destination box
   ↓
 saveDB() per item + history + sync queue
   ↓
-Keep unchecked parts in buffer; refresh SIMPAN list
+  Keep unchecked parts in buffer; refresh SIMPAN list
 ```
 
 ### Flow 5: Packing (Colly Management)
@@ -263,8 +263,9 @@ WMS/
 
 **Peran**: Entry point aplikasi; setup lifecycle  
 **Caller**: Browser load event  
-**Dependensi**: database.js (initDB), core.js (renderLimit handler)  
+**Dependensi**: database.js (initDB), core.js (renderLimit handler, SIMPAN mode state)
 **Side Effects**: IndexedDB open, SW register, Screen wake lock acquire
+**Multi-Scan**: Memulihkan checkbox, ikon, dan panel sesuai `simpanMode` tersimpan.
 
 ---
 
@@ -292,8 +293,9 @@ WMS/
 - `handleOpnameRender()` — Filter & render opname list per box
 - `renderDataList(reset)` — Display all items dengan search/filter
 - `switchTab(id)` — Change active tab & re-render
-- `addToMultiBuffer(item)` — Add to buffer for batch scan
-- `processMultiBatchMove(box, actionType)` — Batch move/split buffer
+- `addToMultiScan(item)` — Add part with source-location snapshot and selection state
+- `processMultiScan(box)` — Confirm and move selected parts as a batch
+- `renderMultiScanList()/removeFromMultiScan()` — Render and manage buffered parts
 
 **Peran**: Logika business utama; orchestrator antara UI dan DB  
 **Caller**: event handlers (onclick, onkeydown), scanner.js (onScanSuccess)  

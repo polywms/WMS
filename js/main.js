@@ -1,4 +1,10 @@
-// js/main.js
+/**
+ * Tujuan: Inisialisasi aplikasi WMS dan lifecycle PWA.
+ * Caller: Browser melalui window.onload.
+ * Dependensi: database.js (initDB), core.js (render dan state SIMPAN), Service Worker API.
+ * Main Functions: registerServiceWorker(), checkForUpdates(), window.onload.
+ * Side Effects: IndexedDB init, registrasi cache, wake lock, dan sinkronisasi tampilan.
+ */
 let wakeLock = null;
 
 // ===== VERSION CHECK & AUTO UPDATE =====
@@ -100,6 +106,21 @@ window.onload = async () => {
             statusPanel.style.display = useSimpanBuffer ? 'block' : 'none';
         }
     }
+
+    // Restore Multi-Scan toggle and panel from the persisted SIMPAN mode.
+    const chkMultipleScan = document.getElementById('chkMultipleScan');
+    const multipleScanIcon = document.getElementById('multipleScanIcon');
+    const multiScanPanel = document.getElementById('multiScanPanel');
+    const isMultipleScan = simpanMode === 'multiple';
+    if (chkMultipleScan) chkMultipleScan.checked = isMultipleScan;
+    if (multipleScanIcon) {
+        multipleScanIcon.style.background = isMultipleScan ? 'var(--active-color)' : 'white';
+        multipleScanIcon.style.borderColor = isMultipleScan ? 'var(--active-color)' : '#cbd5e1';
+        multipleScanIcon.style.color = isMultipleScan ? 'white' : 'var(--secondary)';
+        multipleScanIcon.title = isMultipleScan ? 'Mode: MULTI-SCAN' : 'Mode: SINGLE Scan';
+    }
+    if (multiScanPanel) multiScanPanel.style.display = isMultipleScan ? 'block' : 'none';
+    if (isMultipleScan && typeof renderMultiScanList === 'function') renderMultiScanList();
     
     // Check for updates after 3 seconds
     setTimeout(checkForUpdates, 3000);
