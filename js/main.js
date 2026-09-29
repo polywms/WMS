@@ -113,7 +113,7 @@ window.onload = async () => {
             else scrollBtn.style.display = 'none';
         });
     };
-    setupScroll('tab-opname', () => { renderLimit += 50; handleOpnameRender(); });
+    setupScroll('tab-opname', () => { renderLimit += 50; handleOpnameRender(false); });
     setupScroll('tab-simpan', () => { renderLimit += 50; renderSimpanList(false); });
     setupScroll('tab-data', () => { renderLimit += 50; renderDataList(false); });
 };

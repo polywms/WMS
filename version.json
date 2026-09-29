@@ -1,6 +1,6 @@
 {
-  "version": "1.1.6",
-  "updated": "2026-09-18T00:00:00Z",
-  "features": ["batch-sync", "cache-versioning", "qr-parser-refactor", "mobile-ui", "data-search", "centered-modals"],
-  "notes": "Modal diposisikan lebih aman di tengah layar agar tombol aksi tetap mudah ditekan"
+  "version": "1.1.8",
+  "updated": "2026-09-29T00:00:00Z",
+  "features": ["batch-sync", "cache-versioning", "qr-parser-refactor", "mobile-ui", "data-search", "centered-modals", "max-buzzer-gain", "opname-flow"],
+  "notes": "Alur opname: kunci box, commit ke box aktif, persist buffer, render lebih cepat"
 }

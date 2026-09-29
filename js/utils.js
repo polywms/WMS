@@ -1,5 +1,21 @@
-// js/utils.js
+/*
+ * Tujuan: Utilitas UI, feedback visual, getaran, dan buzzer aplikasi.
+ * Caller: core.js dan handler UI melalui fungsi feedback/playChime.
+ * Dependensi: Web Audio API, Vibration API, DOM, dan localStorage.
+ * Main Functions: feedback(), playTone(), playChime(), playBoxCompleteChime().
+ * Side Effects: Memutar audio, menggetarkan perangkat, mengubah DOM, dan menulis mode gelap.
+ */
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+const audioMasterGain = audioCtx.createGain();
+const audioCompressor = audioCtx.createDynamicsCompressor();
+audioMasterGain.gain.value = 1.0;
+audioCompressor.threshold.value = -6;
+audioCompressor.knee.value = 6;
+audioCompressor.ratio.value = 12;
+audioCompressor.attack.value = 0.003;
+audioCompressor.release.value = 0.15;
+audioMasterGain.connect(audioCompressor);
+audioCompressor.connect(audioCtx.destination);
 
 function feedback(type) {
     const body = document.body;
@@ -44,13 +60,13 @@ function feedback(type) {
             const gain = audioCtx.createGain();
             osc.type = 'sine';
             osc.frequency.setValueAtTime(freq, startTime);
-            gain.gain.setValueAtTime(0.1, startTime);
+            gain.gain.setValueAtTime(1.0, startTime);
             
             // Bikin efek fade-out super cepat biar perpindahan nada mulus (gak bunyi "klik")
             gain.gain.setTargetAtTime(0, startTime + dur - 0.02, 0.015); 
             
             osc.connect(gain);
-            gain.connect(audioCtx.destination);
+            gain.connect(audioMasterGain);
             osc.start(startTime);
             osc.stop(startTime + dur);
         };
@@ -71,9 +87,9 @@ function playTone(freq, type, duration) {
     const gain = audioCtx.createGain();
     osc.type = type;
     osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
-    gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+    gain.gain.setValueAtTime(1.0, audioCtx.currentTime);
     osc.connect(gain);
-    gain.connect(audioCtx.destination);
+    gain.connect(audioMasterGain);
     osc.start();
     osc.stop(audioCtx.currentTime + duration);
 }

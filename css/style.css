@@ -517,6 +517,27 @@
             .qty-diff { background: linear-gradient(135deg, #fecaca, #f87171); color: #7f1d1d; }
             .qty-zero { background: linear-gradient(135deg, #f3f4f6, #e5e7eb); color: #64748b; }
             .qty-uncounted { background: var(--bg); color: var(--text-secondary); border:1.5px dashed var(--border); }
+            .qty-pending { background: #fef9c3; color: #854d0e; border: 1px solid #facc15; margin-left: 4px; }
+            .opname-box-panel {
+                background: #f0fdf4;
+                border-color: #86efac;
+                padding: 12px 14px;
+                justify-content: space-between;
+                flex-wrap: wrap;
+            }
+            .opname-box-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+            .opname-stats { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+            .opname-stat {
+                font-size: 0.72rem;
+                font-weight: 700;
+                padding: 3px 8px;
+                border-radius: 999px;
+                background: #fff;
+                border: 1px solid #86efac;
+                color: #14532d;
+            }
+            .opname-stat.diff { border-color: #fca5a5; color: #991b1b; background: #fef2f2; }
+            .opname-stat.zero { border-color: #cbd5e1; color: #475569; background: #f8fafc; }
             .segment-control { 
             display: flex; 
             width: 100%; 
@@ -1504,6 +1525,20 @@
             background: var(--bg-secondary);
             border-color: var(--border);
             color: var(--text-secondary);
+            }
+            body.dark-mode .qty-pending {
+            background: rgba(250, 204, 21, 0.2);
+            color: #fde68a;
+            border-color: #ca8a04;
+            }
+            body.dark-mode .opname-box-panel {
+            background: rgba(22, 163, 74, 0.12);
+            border-color: #166534;
+            }
+            body.dark-mode .opname-stat {
+            background: var(--card);
+            border-color: var(--border);
+            color: var(--text);
             }
             
             /* Dark mode - Segments */

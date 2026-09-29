@@ -31,7 +31,8 @@ function loadDataFromLocal() {
         });
         localItems.sort((a,b) => a.partNo.localeCompare(b.partNo));
         if(typeof populateFilters === 'function') populateFilters();
-        if(currentTab === 'opname' && typeof handleOpnameRender === 'function') handleOpnameRender();
+        if(typeof restoreOpnameSession === 'function') restoreOpnameSession();
+        if(currentTab === 'opname' && typeof handleOpnameRender === 'function') handleOpnameRender(true);
         if(currentTab === 'simpan' && typeof renderSimpanList === 'function') renderSimpanList(true);
         if(currentTab === 'data' && typeof renderDataList === 'function') renderDataList(true);
         if(currentTab === 'packing' && typeof renderPackingList === 'function') { renderCollyUI(); renderPackingList(); }

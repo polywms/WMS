@@ -195,29 +195,36 @@
             </div>
             
             <div id="tab-opname" class="tab-content">
-                <!-- Active Box Display (Horizontal Layout) -->
-                <div id="opnameBoxInfo" style="background:#f0fdf4; border:1px solid #86efac; border-radius:6px; padding:8px 12px; margin-bottom:12px; display:none; text-align:center; flex-direction: row; align-items: center; justify-content: center; gap: 8px; white-space: nowrap;">
-                    <span style="font-size:0.75rem; color:#166534; font-weight:bold; text-transform:uppercase;"><i class="fas fa-box" style="margin-right: 4px;"></i> Box:</span>
-                    <div id="opnameBoxName" style="font-size:1rem; color:#14532d; font-weight:bold;">-</div>
+                <div id="opnameIdleHint" class="info-mode-panel" style="display:block;">
+                    <i class="fas fa-box-open" style="font-size:2rem; color:#16a34a; margin-bottom:10px;"></i>
+                    <h3 style="margin:0 0 6px 0;">Scan box dulu</h3>
+                    <p style="color:var(--secondary); font-size:0.9rem; margin:0;">Kunci box → scan part (qty +1) → SELESAI atau scan box yang sama untuk simpan.</p>
                 </div>
-                <div id="activeBoxPanel" class="status-panel" style="background:#f0fdf4; border-color:#86efac; display:none; padding:15px 20px; flex-direction: row; align-items: center; justify-content: space-between; overflow-x: auto; gap: 15px;">
-                    <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-                        <div>
-                            <div style="font-size:0.8rem; color:#166534; font-weight:bold; text-transform:uppercase; letter-spacing:1px;"><i class="fas fa-box-open"></i> Target Opname</div>
-                            <b id="activeBoxName" style="font-size:2rem; color:#14532d; display:block; margin-top:2px;"></b>
+                <div id="activeBoxPanel" class="status-panel opname-box-panel" style="display:none;">
+                    <div style="flex:1; min-width:0;">
+                        <div style="font-size:0.75rem; color:#166534; font-weight:bold; text-transform:uppercase; letter-spacing:1px;"><i class="fas fa-box-open"></i> Box aktif</div>
+                        <b id="activeBoxName" style="font-size:1.6rem; color:#14532d; display:block; line-height:1.2;"></b>
+                        <div id="opnameBoxName" style="display:none;"></div>
+                        <div class="opname-stats">
+                            <span class="opname-stat" id="opnameStatMatch">0 OK</span>
+                            <span class="opname-stat diff" id="opnameStatDiff">0 selisih</span>
+                            <span class="opname-stat zero" id="opnameStatZero">0 belum</span>
+                            <span class="opname-stat" id="opnameStatPcs">0 pcs</span>
                         </div>
-                        <button class="btn-sm btn-warning" onclick="resetCurrentBoxOpname()" style="border-radius:50%; width:45px; height:45px; padding:0; display:flex; align-items:center; justify-content:center; box-shadow:0 4px 6px rgba(0,0,0,0.1);"><i class="fas fa-undo" style="font-size:1.2rem;"></i></button>
                     </div>
-                    <div style="margin-top:10px; font-size:0.85rem; color:#166534; border-top:1px dashed #86efac; padding-top:10px;"><i class="fas fa-bolt"></i> Mode Cepat: Scan Part untuk Auto +1</div>
+                    <div class="opname-box-actions">
+                        <button class="btn-sm btn-success" onclick="commitOpnameBox()" title="Simpan buffer ke box ini">SELESAI</button>
+                        <button class="btn-sm btn-outline" onclick="unlockOpnameBox()" title="Ganti box">Ganti</button>
+                        <button class="btn-sm btn-warning" onclick="resetCurrentBoxOpname()" title="Reset qty box ini" style="border-radius:50%; width:40px; height:40px; padding:0;"><i class="fas fa-undo"></i></button>
+                    </div>
                 </div>
-                <!-- Opname Buffer Panel (Cashier Mode) -->
                 <div id="opnameBufferPanel" class="multi-panel" style="display:none; background:#f0fdf4; border:1px solid #86efac; margin-bottom:15px;">
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-                        <b style="color:#14532d;"><i class="fas fa-calculator"></i> Buffer Qty: <span id="opnameBufferCount">0</span> items</b>
-                        <button class="btn-sm btn-danger" onclick="clearOpnameBuffer()">Clear</button>
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; gap:8px;">
+                        <b style="color:#14532d;"><i class="fas fa-calculator"></i> Buffer: <span id="opnameBufferCount">0</span> part / <span id="opnameBufferPcs">0</span> pcs</b>
+                        <button class="btn-sm btn-danger" onclick="clearOpnameBuffer(true)">Clear</button>
                     </div>
                     <div id="opnameBufferTagsContainer" style="max-height:120px; overflow-y:auto; padding-bottom:5px; display:flex; flex-wrap:wrap; gap:5px;"></div>
-                    <div style="margin-top:10px; font-size:0.9rem; font-weight:bold; color:#14532d; animation: pulse 2s infinite; text-align:center;"><i class="fas fa-arrow-right"></i> SCAN BOX UNTUK PROSES</div>
+                    <div style="margin-top:10px; font-size:0.85rem; font-weight:bold; color:#14532d; text-align:center;"><i class="fas fa-arrow-right"></i> SELESAI atau scan box yang sama untuk simpan</div>
                 </div>
                 <div id="opnameInfoPanel" class="info-mode-panel">
                     <i class="fas fa-search" style="font-size:2rem; color:#f97316; margin-bottom:10px;"></i>
@@ -227,7 +234,7 @@
                         <small>Lokasi saat ini:</small>
                         <div id="infoLocList" style="font-weight:bold;">-</div>
                     </div>
-                    <div style="color:#c2410c; font-weight:bold; animation: pulse 1s infinite;"><i class="fas fa-arrow-right"></i> SCAN BOX UNTUK MULAI HITUNG</div>
+                    <div style="color:#c2410c; font-weight:bold;"><i class="fas fa-arrow-right"></i> SCAN BOX UNTUK MULAI HITUNG</div>
                 </div>
                 <div class="segment-control">
                     <button class="btn-sm btn-outline" style="border-radius:0; border-left:1px solid var(--border);" onclick="openRakModal()"><i class="fas fa-chart-pie"></i></button>

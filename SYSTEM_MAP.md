@@ -21,7 +21,7 @@ Sistem Manajemen Gudang berbasis web untuk pencatatan stok real-time, inventory 
 - **Offline Support**: Service Worker (Cache-Network-First strategy)
 - **Scanner**: Html5QrcodeScanner library
 - **Excel Import/Export**: SheetJS (XLSX.js)
-- **Audio**: Web Audio API (feedback tone)
+- **Audio**: Web Audio API (feedback tone melalui master gain internal 100% dan compressor)
 - **Device**: Web vibration API + Screen Wake Lock
 
 **Pola Arsitektur**  
@@ -62,19 +62,17 @@ processSyncQueue() [database.js] — (Async) POST to Google Sheets
 
 ### Flow 2: Opname (Inventory Check)
 ```
-Filter by box → handleOpnameRender() [core.js]
+Scan box → handleOpnameScan() → setOpnameBoxFilter()
   ↓
-Display items grouped by part
+handleOpnameRender() — Show all filtered stock items with X/Y (counted / sysQty)
   ↓
-User Scan Part + Box Location
+Scan part QR → addToOpnameBuffer() — One scan adds exactly 1 to session count
   ↓
-promptOpnameConflict() [core.js] — Check existing locations
+Persist box + counts in localStorage; update SELISIH (X != Y) / BELUM (X = 0)
   ↓
-executeOpnameAction() — Move or Add location
+SELESAI → processOpnameBuffer() — Replace this box's quantities with counted values
   ↓
-saveDB() → sync queue
-  ↓
-Reload opname view
+saveDB() for changed items → IndexedDB + sync queue
 ```
 
 ### Flow 3: Off BS (Off-Balance-Sheet)
@@ -778,10 +776,7 @@ XLSX.writeFile(wb, "filename.xlsx");
 
 - ✅ **Data Persistence on Refresh**: syncQueue & syncLogs now persisted to localStorage, survive page refresh
 - ✅ **Qty Overflow Protection**: Added check in SIMPAN tab to prevent scanning more than sysQty (matches OFF BS logic)
-- ✅ **Opname Filter Logic Fixed**: Rewritten handleOpnameRender() for correct box filtering:
-  - SEMUA: Shows all parts in selected box
-  - SELISIH: Shows only parts with qty mismatch
-  - BELUM: Shows only parts with 0 qty in box
+- ✅ **Opname Count Flow**: Box selection displays all filtered stock items; every part QR increments X by one, X/Y compares session count to sysQty, and SELISIH/BELUM use that same X. SELESAI replaces per-box quantities with the counted result.
 - ✅ **Multi-Scan Logic Fixed**: isMultiScan check in processScan() now routes correctly to processMultiBatchMove
 - ✅ **Redundant Function Removed**: Obsolete processSimpanBuffer() deleted
 - ✅ **Buffer Validation Added**: All buffers (multiBuffer, simpanBuffer, opnameBuffer) now validated as arrays

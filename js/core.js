@@ -16,6 +16,8 @@
  * 
  * Main Functions:
  * - processScan(code) — Route scan per currentTab
+ * - handleOpnameScan()/handleOpnameRender() — Count physical units per box and display X/Y filters
+ * - commitOpnameBox()/restoreOpnameSession() — Persist and resume box count sessions
  * - updateActivePartPanel(item) — Display part detail (location-only view)
  * - selectPartSimpan(item) — Select part dari list
  * - getSimilarParts(partNo) — Find parts dengan nomor gudang sama
@@ -23,7 +25,7 @@
  * - renderSimpanList/handleOpnameRender/renderDataList — Per-tab UI renders
  * 
  * Other Tabs:
- * - OPNAME: Inventory check dengan buffer
+ * - OPNAME: Scan box, hitung satu unit per QR, bandingkan hasil sesi X dengan stok Y
  * - DATA: Search/view semua parts dengan edit capability
  * - OFF BS: Off-balance-sheet tracking dengan cloud sync
  * - PACKING: Shipment/colly management
@@ -33,6 +35,7 @@
  * - localStorage read (currentTab)
  * - IndexedDB write via saveDB() (SIMPAN tab: location save only)
  * - Google Sheets sync via processSyncQueue()
+ * - Opname session state persisted in localStorage; committed counts update IndexedDB
  * 
  * Recent Changes (2026-05-23):
  * - REFACTORED: SIMPAN tab to location-only mode (no qty tracking)
@@ -532,52 +535,8 @@ if (currentTab === 'packing') {
     }
     
     if (currentTab === 'opname') {
-        // ===== OPNAME MODE: opnameBuffer-based workflow =====
-        if (opnameBufferBox !== null) {
-            // Buffer is active (box already scanned) - accumulate parts
-            if (isBox) {
-                // Scan another box = finalize current buffer
-                if (opnameBuffer.length > 0) {
-                    processOpnameBuffer(parsedCode);
-                    return;
-                } else {
-                    // Change target box without processing
-                    opnameBufferBox = parsedCode;
-                    setOpnameBoxFilter(parsedCode);  // ← TAMBAHAN: Trigger filter update
-                    feedback('scan');
-                    showToast(`<i class="fas fa-box"></i> Diubah ke: ${parsedCode}`);
-                    return;
-                }
-            } else if (item) {
-                // Scan part = add to buffer
-                addToOpnameBuffer(item);
-                return;
-            } else {
-                if(confirm(`Kode "${parsedCode}" Baru. Tambah ke Buffer?`)) {
-                    const newItem = createNewItem(parsedCode);
-                    addToOpnameBuffer(newItem);
-                }
-                return;
-            }
-        } else {
-            // Buffer not initialized - first box scan or info display
-            if (isBox) {
-                feedback('scan');
-                opnameBufferBox = parsedCode;
-                setOpnameBoxFilter(parsedCode);  // ← TAMBAHAN: Trigger filter + display
-                showOpnameBufferPanel();
-                showToast(`<i class="fas fa-box"></i> ${parsedCode} diset. Scan part untuk akumulasi qty...`);
-                return;
-            } else if (item) {
-                feedback('scan');
-                showOpnameInfo(item);
-                return;
-            } else {
-                feedback('error');
-                setStatus("Scan Box atau Part!");
-                return;
-            }
-        }
+        handleOpnameScan(rawCode, isBox);
+        return;
     }
     
     if (item) { feedback('scan'); jumpToItem(item.partNo); } 
@@ -1218,93 +1177,225 @@ function createNewItem(code) {
     localItems.push(item); filteredItems.push(item); return item;
 }
 
-function handleOpnameRender() {
-    const container = document.getElementById('opnameList'); container.innerHTML = ''; if(filteredItems.length === 0) return;
-    let dataset = filteredItems;
-    
-    // FIXED: Apply filter based on activeBoxFilter correctly
-    if(activeBoxFilter) {
-        // Step 1: Filter untuk hanya items yang ada di box ini
-        dataset = dataset.filter(i => i.locations[activeBoxFilter] !== undefined);
-        
-        // Step 2: Apply opnameFilter AFTER box filtering
-        dataset = dataset.filter(i => {
-            const qtyInBox = i.locations[activeBoxFilter] || 0;
-            const totalPhysical = Object.values(i.locations).reduce((a,b)=>a+b,0);
-            
-            if(opnameFilter==='diff') {
-                // SELISIH: Tampilkan yang belum sesuai sysQty (qty total < atau > dari expected)
-                return totalPhysical !== i.sysQty;
+function getOpnameBufferQty(itemId) {
+    if (!Array.isArray(opnameBuffer)) return 0;
+    const buf = opnameBuffer.find(b => b.item && b.item.id === itemId);
+    return buf ? (buf.qty || 0) : 0;
+}
+
+function persistOpnameSession() {
+    if (!opnameBufferBox) {
+        localStorage.removeItem('wms_opname_session');
+        return;
+    }
+    localStorage.setItem('wms_opname_session', JSON.stringify({
+        box: opnameBufferBox,
+        committed: opnameBufferCommitted,
+        counts: opnameBuffer.map(entry => ({ itemId: entry.item.id, qty: entry.qty }))
+    }));
+}
+
+function restoreOpnameSession() {
+    const saved = JSON.parse(localStorage.getItem('wms_opname_session') || 'null');
+    if (!saved || !saved.box) return;
+
+    opnameBufferBox = saved.box;
+    opnameBufferCommitted = Boolean(saved.committed);
+    opnameBuffer = (saved.counts || []).reduce((restored, count) => {
+        const item = localItems.find(candidate => candidate.id === count.itemId);
+        if (item && count.qty > 0) restored.push({ item, qty: count.qty });
+        return restored;
+    }, []);
+    setOpnameBoxFilter(opnameBufferBox);
+    renderOpnameBuffer();
+}
+
+function handleOpnameScan(rawCode, isBox) {
+    if (isBox) {
+        const box = rawCode.toUpperCase();
+        if (opnameBufferBox && opnameBufferBox !== box && opnameBuffer.length > 0 && !opnameBufferCommitted) {
+            feedback('warning');
+            showToast('Selesaikan atau bersihkan hitungan box aktif terlebih dahulu.');
+            return;
+        }
+
+        if (opnameBufferBox !== box) {
+            opnameBuffer = [];
+            opnameBufferCommitted = false;
+            opnameBufferBox = box;
+            persistOpnameSession();
+        }
+        setOpnameBoxFilter(box);
+        renderOpnameBuffer();
+        feedback('scan');
+        showToast(`Box ${box} aktif. Scan QR part, setiap scan dihitung 1.`);
+        return;
+    }
+
+    if (!activeBoxFilter) {
+        feedback('error');
+        showToast('Scan box terlebih dahulu.');
+        return;
+    }
+
+    const parsed = parseQRCode(rawCode);
+    const partNo = (parsed ? parsed.partNo : rawCode).trim().toUpperCase();
+    const source = filteredItems.length ? filteredItems : localItems;
+    const item = source.find(candidate => candidate.partNo.toUpperCase() === partNo);
+    if (!item) {
+        feedback('error');
+        showToast(`Part ${partNo} tidak ada di daftar stok terpilih.`);
+        return;
+    }
+
+    if (opnameBufferCommitted) {
+        opnameBuffer = [];
+        opnameBufferCommitted = false;
+    }
+    opnameBufferBox = activeBoxFilter;
+    addToOpnameBuffer(item);
+}
+
+function getOpnameBoxItems() {
+    const box = activeBoxFilter;
+    if (!box) return [];
+    const seen = new Set();
+    const source = (filteredItems && filteredItems.length) ? filteredItems : localItems;
+    const dataset = source.filter(item => {
+        if (seen.has(item.id)) return false;
+        seen.add(item.id);
+        return true;
+    });
+    if (Array.isArray(opnameBuffer)) {
+        opnameBuffer.forEach(b => {
+            if (b.item && !seen.has(b.item.id)) {
+                seen.add(b.item.id);
+                dataset.push(b.item);
             }
-            if(opnameFilter==='zero') {
-                // BELUM: Tampilkan yang qty di box ini = 0 (belum dihitung) 
-                return qtyInBox === 0;
-            }
-            // SEMUA: Tampilkan semua part yang ada di box ini
-            return true;
-        });
-    } else {
-        // Jika belum select box, tampilkan semua dengan filter global
-        dataset = dataset.filter(i => {
-            const total = Object.values(i.locations).reduce((a,b)=>a+b,0);
-            if(opnameFilter==='diff') return total !== i.sysQty;
-            if(opnameFilter==='zero') return total === 0;
-            return true;
         });
     }
-    const show = dataset.slice(0, renderLimit);
-    show.forEach(i => {
-        const qtyInBox = activeBoxFilter ? i.locations[activeBoxFilter] : 0; const totalPhysical = Object.values(i.locations).reduce((a,b)=>a+b,0);
-        let badgeClass = ''; let qtyDisplay = '';
-        if (qtyInBox === 0) { badgeClass = 'qty-uncounted'; qtyDisplay = `0 / ${i.sysQty}`; } 
-        else {
-            badgeClass = (totalPhysical === i.sysQty) ? 'qty-match' : 'qty-diff'; if (totalPhysical > i.sysQty) badgeClass = 'qty-diff';
-            if (Object.keys(i.locations).length > 1) qtyDisplay = `${qtyInBox} <span style="font-size:0.7rem; opacity:0.8;">(Tot: ${totalPhysical}/${i.sysQty})</span>`;
-            else qtyDisplay = `${qtyInBox} / ${i.sysQty}`;
-        }
-        
-        // Location Badge 1 baris
-        let locBadges = activeBoxFilter ? `<span class="loc-badge" style="font-size:0.7rem; padding:2px 6px;">Box ${activeBoxFilter}</span>` : Object.entries(i.locations).map(([k,v])=>`<span class="loc-badge" style="font-size:0.7rem; padding:2px 6px;">${k}(${v})</span>`).join('');
-        
-        const div = document.createElement('div'); div.className = `item-card ${(lastOpnameScanId === i.id) ? 'selected' : ''}`; div.id = `opname-row-${i.id}`;
-        div.innerHTML = `
-        <div style="flex:1" onclick="openEditModal(${i.id})">
-            <div style="display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:4px;">
-                <span class="part-code" style="font-size:1.05rem; font-weight:bold;">${i.partNo}</span>
-                ${locBadges ? `<div style="display:flex; gap:4px; margin-left:auto; flex-wrap:wrap;">${locBadges}</div>` : ''}
-            </div>
-            <span class="part-desc" style="font-size:0.85rem; color:#64748b;">${i.desc}</span>
-        </div>
-        <div style="display:flex; gap:8px; align-items:center; margin-left:10px;">
-            <div class="qty-badge ${badgeClass}" onclick="openEditModal(${i.id})">${qtyDisplay}</div>
-            ${activeBoxFilter ? `<div class="btn-trash" onclick="deleteLocation(${i.id}, '${activeBoxFilter}')"><i class="fas fa-trash"></i></div>` : ''}
-        </div>`;
-        container.appendChild(div);
+    return dataset;
+}
+
+function filterOpnameDataset(dataset) {
+    return dataset.filter(i => {
+        const counted = getOpnameBufferQty(i.id);
+        if (opnameFilter === 'diff') return counted !== (Number(i.sysQty) || 0);
+        if (opnameFilter === 'zero') return counted === 0;
+        return true;
     });
+}
+
+function updateOpnameStats() {
+    const matchEl = document.getElementById('opnameStatMatch');
+    if (!matchEl) return;
+    const box = activeBoxFilter;
+    if (!box) {
+        matchEl.textContent = '0 OK';
+        document.getElementById('opnameStatDiff').textContent = '0 selisih';
+        document.getElementById('opnameStatZero').textContent = '0 belum';
+        document.getElementById('opnameStatPcs').textContent = '0 pcs';
+        return;
+    }
+    let match = 0, diff = 0, zero = 0, pcs = 0;
+    getOpnameBoxItems().forEach(i => {
+        const counted = getOpnameBufferQty(i.id);
+        pcs += counted;
+        if (counted === 0) zero++;
+        else if (counted === (Number(i.sysQty) || 0)) match++;
+        else diff++;
+    });
+    matchEl.textContent = `${match} OK`;
+    document.getElementById('opnameStatDiff').textContent = `${diff} selisih`;
+    document.getElementById('opnameStatZero').textContent = `${zero} belum`;
+    document.getElementById('opnameStatPcs').textContent = `${pcs} pcs`;
+}
+
+function handleOpnameRender(reset = true) {
+    const container = document.getElementById('opnameList');
+    if (!container) return;
+    if (reset) renderLimit = 50;
+    container.innerHTML = '';
+
+    if (!activeBoxFilter) {
+        updateOpnameStats();
+        document.getElementById('opnameLoading').style.display = 'none';
+        return;
+    }
+    if (!filteredItems.length && !localItems.length) return;
+
+    const dataset = filterOpnameDataset(getOpnameBoxItems());
+    updateOpnameStats();
+
+    if (dataset.length === 0) {
+        container.innerHTML = '<div style="text-align:center; padding:20px; color:#999">Tidak ada part untuk filter ini</div>';
+        document.getElementById('opnameLoading').style.display = 'none';
+        return;
+    }
+
+    const show = dataset.slice(0, renderLimit);
+    const box = activeBoxFilter;
+    let html = '';
+    show.forEach(i => {
+        const counted = getOpnameBufferQty(i.id);
+        const target = Number(i.sysQty) || 0;
+        let badgeClass = 'qty-uncounted';
+        const qtyDisplay = `${counted} / ${target}`;
+        if (counted > 0) badgeClass = counted === target ? 'qty-match' : 'qty-diff';
+        const pendingBadge = counted > 0 && !opnameBufferCommitted ? `<span class="qty-badge qty-pending opname-pending">+${counted}</span>` : `<span class="opname-pending"></span>`;
+        const locBadges = `<span class="loc-badge" style="font-size:0.7rem; padding:2px 6px;">Box ${box}</span>`;
+        html += `
+        <div class="item-card ${(lastOpnameScanId === i.id) ? 'selected' : ''}" id="opname-row-${i.id}">
+            <div style="flex:1" onclick="openEditModal(${i.id})">
+                <div style="display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:4px;">
+                    <span class="part-code" style="font-size:1.05rem; font-weight:bold;">${i.partNo}</span>
+                    <div style="display:flex; gap:4px; margin-left:auto; flex-wrap:wrap;">${locBadges}</div>
+                </div>
+                <span class="part-desc" style="font-size:0.85rem; color:#64748b;">${i.desc || ''}</span>
+            </div>
+            <div style="display:flex; gap:8px; align-items:center; margin-left:10px;">
+                ${pendingBadge}
+                <div class="qty-badge ${badgeClass}">${qtyDisplay}</div>
+            </div>
+        </div>`;
+    });
+    container.innerHTML = html;
     document.getElementById('opnameLoading').style.display = (renderLimit < dataset.length) ? 'block' : 'none';
 }
 
 function setOpnameBoxFilter(box) { 
     activeBoxFilter = box; 
-    document.getElementById('activeBoxName').innerText = box; 
-    // Update box info display below input
-    document.getElementById('opnameBoxInfo').style.display = 'block';
-    document.getElementById('opnameBoxName').innerText = box;
-    document.getElementById('activeBoxPanel').style.display = 'block'; 
+    opnameBufferBox = box;
+    const nameEl = document.getElementById('activeBoxName');
+    if (nameEl) nameEl.innerText = box;
+    const hiddenName = document.getElementById('opnameBoxName');
+    if (hiddenName) hiddenName.innerText = box;
+    const idle = document.getElementById('opnameIdleHint');
+    if (idle) idle.style.display = 'none';
+    document.getElementById('activeBoxPanel').style.display = 'flex'; 
     document.getElementById('opnameInfoPanel').style.display = 'none'; 
     document.getElementById('opnameList').style.display = 'flex'; 
-    handleOpnameRender(); 
+    handleOpnameRender(true); 
 }
 function clearOpnameBoxFilter() { 
-    activeBoxFilter = null; 
-    // Hide box info display when filter cleared
-    document.getElementById('opnameBoxInfo').style.display = 'none';
-    document.getElementById('activeBoxPanel').style.display = 'none'; 
-    document.getElementById('opnameInfoPanel').style.display = 'none'; 
-    document.getElementById('opnameList').style.display = 'flex'; 
-    handleOpnameRender(); 
+    activeBoxFilter = null;
+    opnameBufferBox = null;
+    if (Array.isArray(opnameBuffer)) opnameBuffer = [];
+    opnameBufferCommitted = false;
+    localStorage.removeItem('wms_opname_session');
+    const idle = document.getElementById('opnameIdleHint');
+    if (idle) idle.style.display = 'block';
+    const panel = document.getElementById('activeBoxPanel');
+    if (panel) panel.style.display = 'none';
+    const bufPanel = document.getElementById('opnameBufferPanel');
+    if (bufPanel) bufPanel.style.display = 'none';
+    const info = document.getElementById('opnameInfoPanel');
+    if (info) info.style.display = 'none';
+    const list = document.getElementById('opnameList');
+    if (list) list.style.display = 'flex';
+    handleOpnameRender(true); 
 }
-function setOpnameFilter(type, btn) { opnameFilter = type; document.querySelectorAll('.segment-btn').forEach(b => b.classList.remove('active')); btn.classList.add('active'); handleOpnameRender(); }
+function setOpnameFilter(type, btn) { opnameFilter = type; document.querySelectorAll('.segment-btn').forEach(b => b.classList.remove('active')); btn.classList.add('active'); handleOpnameRender(true); }
 
 function promptOpnameConflict(item, box) {
     opnameConflictData = { item, box }; const existingLocs = Object.entries(item.locations);
@@ -1339,9 +1430,22 @@ function clearOpname() {
 function resetCurrentBoxOpname() {
     if (!activeBoxFilter) return;
     if (confirm(`PERINGATAN: ULANG PERHITUNGAN BOX: ${activeBoxFilter}?`)) {
-        const tx = db.transaction('items', 'readwrite'); const st = tx.objectStore('items');
-        localItems.forEach(item => { if (item.locations[activeBoxFilter] > 0) { item.locations[activeBoxFilter] = 0; st.put(item); } });
-        tx.oncomplete = () => { feedback('success'); showToast(`<i class="fas fa-check-circle"></i> Box ${activeBoxFilter} di-reset ke 0`); handleOpnameRender(); };
+        const box = activeBoxFilter;
+        const source = filteredItems.length ? filteredItems : localItems;
+        source.forEach(item => {
+            if ((item.locations[box] || 0) !== 0) {
+                delete item.locations[box];
+                saveDB(item);
+            }
+        });
+        opnameBuffer = [];
+        opnameBufferCommitted = false;
+        opnameBufferBox = box;
+        persistOpnameSession();
+        renderOpnameBuffer();
+        feedback('success');
+        showToast(`<i class="fas fa-check-circle"></i> Hitungan box ${box} direset ke 0`);
+        handleOpnameRender();
     }
 }
 
@@ -1574,84 +1678,95 @@ function addToOpnameBuffer(item) {
         feedback('success');
         showToast(`${item.partNo}: Qty +1`);
     }
+    persistOpnameSession();
     renderOpnameBuffer();
     addHistoryLog(item.partNo, `Buffer +1`);
+    lastOpnameScanId = item.id;
+    handleOpnameRender();
 }
 
 function processOpnameBuffer(boxCode) {
-    if (opnameBuffer.length === 0) {
+    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+
+    if (boxCode !== activeBoxFilter || boxCode !== opnameBufferBox) {
         feedback('error');
-        showToast("Buffer kosong!");
+        showToast('Box aktif berubah. Scan ulang box sebelum menyimpan.');
         return;
     }
 
-    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-
+    const source = filteredItems.length ? filteredItems : localItems;
+    const countsById = new Map(opnameBuffer.map(entry => [entry.item.id, entry.qty]));
     let processedCount = 0;
-    let overQtyWarnings = [];
+    source.forEach(item => {
+        const countedQty = countsById.get(item.id) || 0;
+        const currentQty = Number(item.locations[boxCode]) || 0;
+        const quantityChanged = currentQty !== countedQty;
+        const scannedToday = countsById.has(item.id);
+        const dateChanged = scannedToday && item.lastOpnameDate !== today;
+        if (!quantityChanged && !dateChanged) return;
 
-    opnameBuffer.forEach(bufferItem => {
-        const item = bufferItem.item;
-        const scannedQty = bufferItem.qty;
-
-        // Initialize locations if not exists
-        if (!item.locations[boxCode]) {
-            item.locations[boxCode] = 0;
+        if (quantityChanged) {
+            if (countedQty > 0) item.locations[boxCode] = countedQty;
+            else delete item.locations[boxCode];
         }
-
-        item.locations[boxCode] += scannedQty;
-
-        // Always set opname date to today
-        item.lastOpnameDate = today;
-
+        if (scannedToday) item.lastOpnameDate = today;
         saveDB(item);
         processedCount++;
-
-        // Check for over-qty
-        const totalPhysical = Object.values(item.locations).reduce((a, b) => a + b, 0);
-        if (totalPhysical > item.sysQty) {
-            overQtyWarnings.push({
-                partNo: item.partNo,
-                total: totalPhysical,
-                target: item.sysQty,
-                diff: totalPhysical - item.sysQty
-            });
-        }
     });
 
     // Feedback
     feedback('success');
     playChime();
-    showToast(`<i class="fas fa-box"></i> Box ${boxCode}: ${processedCount} part diproses!`);
-
-    if (overQtyWarnings.length > 0) {
-        const msg = overQtyWarnings.map(w => `${w.partNo}: ${w.total}/${w.target} (+${w.diff})`).join('\n');
-        setTimeout(() => {
-            alert(`PERHATIAN: Over Qty!\n\n${msg}`);
-        }, 500);
-    }
+    showToast(`<i class="fas fa-box"></i> Box ${boxCode}: hasil hitung ${opnameBuffer.reduce((total, entry) => total + entry.qty, 0)} pcs disimpan (${processedCount} perubahan).`);
 
     addHistoryLog(`Buffer→${boxCode}`, `${processedCount} items`);
 
-    // Clear buffer and refresh UI
-    clearOpnameBuffer();
+    opnameBufferCommitted = true;
+    persistOpnameSession();
+    renderOpnameBuffer();
     handleOpnameRender();
+}
+
+function commitOpnameBox() {
+    if (!activeBoxFilter) {
+        feedback('error');
+        showToast('Scan box terlebih dahulu.');
+        return;
+    }
+    if (opnameBufferCommitted) {
+        showToast('Hasil hitung box ini sudah disimpan.');
+        return;
+    }
+    processOpnameBuffer(activeBoxFilter);
+}
+
+function unlockOpnameBox() {
+    if (opnameBuffer.length > 0 && !opnameBufferCommitted) {
+        feedback('warning');
+        showToast('Simpan atau bersihkan hitungan sebelum mengganti box.');
+        return;
+    }
+    clearOpnameBoxFilter();
+    renderOpnameBuffer();
 }
 
 function renderOpnameBuffer() {
     const container = document.getElementById('opnameBufferTagsContainer');
     const countEl = document.getElementById('opnameBufferCount');
+    const pcsEl = document.getElementById('opnameBufferPcs');
     const panel = document.getElementById('opnameBufferPanel');
 
     if (opnameBuffer.length === 0) {
         panel.style.display = 'none';
         container.innerHTML = '';
         countEl.textContent = '0';
+        if (pcsEl) pcsEl.textContent = '0';
         return;
     }
 
     panel.style.display = 'block';
     countEl.textContent = opnameBuffer.length;
+    if (pcsEl) pcsEl.textContent = opnameBuffer.reduce((total, entry) => total + entry.qty, 0);
 
     container.innerHTML = opnameBuffer.map((bufItem, idx) => {
         return `
@@ -1675,16 +1790,16 @@ function removeFromOpnameBuffer(index) {
 }
 
 function clearOpnameBuffer() {
-    if (opnameBuffer.length === 0) return;
-
-    // Hapus popup confirm()
     opnameBuffer = [];
-    opnameBufferBox = null;
+    opnameBufferCommitted = false;
+    opnameBufferBox = activeBoxFilter;
+    persistOpnameSession();
     document.getElementById('opnameBufferPanel').style.display = 'none';
     document.getElementById('opnameBufferTagsContainer').innerHTML = '';
     document.getElementById('opnameBufferCount').textContent = '0';
     feedback('info');
     showToast('Buffer dihapus');
+    handleOpnameRender();
 }
 
 function showOpnameBufferPanel() {

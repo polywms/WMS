@@ -9,6 +9,7 @@
  * Global State Variables (persisted ke localStorage):
  * - simpanMode: 'single' | 'multiple' — Toggle SINGLE vs MULTIPLE scan mode di SIMPAN tab
  * - multiScanBuffer: Array<{item, scannedTime}> — Parts yang akan discan bersama-sama
+ * - opnameBuffer/opnameBufferBox/opnameBufferCommitted — Hitungan fisik per box dan status simpan sesi
  * - currentTab: String — Active tab ID (simpan, opname, data, off-bs, packing)
  * - filteredItems: Array<Item> — Filtered items list untuk render
  * 
@@ -120,5 +121,6 @@ let simpanMode = localStorage.getItem('wms_simpanMode') || 'single'; // 'single'
 let multiScanBuffer = []; // Array untuk multiple mode: [{item, scannedTime}, ...]
 
 // ===== OPNAME BUFFER (Cashier Mode) =====
-let opnameBuffer = []; // Array of {item, qty} untuk accumulate parts
-let opnameBufferBox = null; // Target box untuk finalize opname
+let opnameBuffer = []; // Array of {item, qty} untuk hitungan fisik per sesi
+let opnameBufferBox = null; // Box yang sedang dihitung
+let opnameBufferCommitted = false; // Hasil sesi sudah diterapkan ke lokasi
