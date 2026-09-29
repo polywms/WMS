@@ -521,16 +521,20 @@
             .opname-box-panel {
                 background: #f0fdf4;
                 border-color: #86efac;
-                padding: 12px 14px;
+                padding: 6px 9px;
                 justify-content: space-between;
                 flex-wrap: wrap;
+                gap: 6px;
             }
-            .opname-box-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
-            .opname-stats { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+            .opname-box-panel #activeBoxName { font-size: 1.15rem !important; }
+            .opname-box-actions { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
+            .opname-box-actions .btn-sm { padding: 5px 7px; font-size: 0.75rem; }
+            .opname-box-actions button[title="Reset qty box ini"] { width: 32px !important; height: 32px !important; }
+            .opname-stats { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
             .opname-stat {
                 font-size: 0.72rem;
                 font-weight: 700;
-                padding: 3px 8px;
+                padding: 2px 6px;
                 border-radius: 999px;
                 background: #fff;
                 border: 1px solid #86efac;

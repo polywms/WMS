@@ -64,11 +64,11 @@ processSyncQueue() [database.js] — (Async) POST to Google Sheets
 ```
 Scan box → handleOpnameScan() → setOpnameBoxFilter()
   ↓
-handleOpnameRender() — Show all filtered stock items with X/Y (counted / sysQty)
+handleOpnameRender() — Show only parts registered in active box with X/Y (counted / sysQty)
   ↓
 Scan part QR → addToOpnameBuffer() — One scan adds exactly 1 to session count
   ↓
-Persist box + counts in localStorage; update SELISIH (X != Y) / BELUM (X = 0)
+Persist box + counts in localStorage; SELISIH shows counted parts where X != Y, BELUM shows active-box parts with X = 0
   ↓
 SELESAI → processOpnameBuffer() — Replace this box's quantities with counted values
   ↓
@@ -108,7 +108,7 @@ Scan destination Box → validate and confirm batch move
   ↓
 saveDB() per item + history + sync queue
   ↓
-  Keep unchecked parts in buffer; refresh SIMPAN list
+  Keep unchecked parts in buffer; refresh SIMPAN list and focus scan input after confirmation
 ```
 
 ### Flow 5: Packing (Colly Management)

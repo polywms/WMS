@@ -16,7 +16,7 @@
  * 
  * Main Functions:
  * - processScan(code) — Route scan per currentTab
- * - handleOpnameScan()/handleOpnameRender() — Count physical units per box and display X/Y filters
+ * - handleOpnameScan()/handleOpnameRender() — Count physical units per box; render only active-box items with X/Y filters
  * - commitOpnameBox()/restoreOpnameSession() — Persist and resume box count sessions
  * - updateActivePartPanel(item) — Display part detail (location-only view)
  * - selectPartSimpan(item) — Select part dari list
@@ -868,6 +868,7 @@ function processMultiScan(boxCode) {
     showToast(`${selectedItems.length} part dipindahkan ke ${boxCode}`);
     renderMultiScanList();
     renderSimpanList(false);
+    document.getElementById('mainInput')?.focus();
 }
 
 function updatePanelDisplay() {
@@ -1265,13 +1266,14 @@ function getOpnameBoxItems() {
     const seen = new Set();
     const source = (filteredItems && filteredItems.length) ? filteredItems : localItems;
     const dataset = source.filter(item => {
+        if (!(Number(item.locations && item.locations[box]) > 0)) return false;
         if (seen.has(item.id)) return false;
         seen.add(item.id);
         return true;
     });
     if (Array.isArray(opnameBuffer)) {
         opnameBuffer.forEach(b => {
-            if (b.item && !seen.has(b.item.id)) {
+            if (b.item && Number(b.item.locations && b.item.locations[box]) > 0 && !seen.has(b.item.id)) {
                 seen.add(b.item.id);
                 dataset.push(b.item);
             }
@@ -1283,7 +1285,7 @@ function getOpnameBoxItems() {
 function filterOpnameDataset(dataset) {
     return dataset.filter(i => {
         const counted = getOpnameBufferQty(i.id);
-        if (opnameFilter === 'diff') return counted !== (Number(i.sysQty) || 0);
+        if (opnameFilter === 'diff') return counted > 0 && counted !== (Number(i.sysQty) || 0);
         if (opnameFilter === 'zero') return counted === 0;
         return true;
     });

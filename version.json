@@ -1,6 +1,6 @@
 {
-  "version": "1.2.0",
+  "version": "1.2.1",
   "updated": "2026-09-29T00:00:00Z",
-  "features": ["batch-sync", "cache-versioning", "qr-parser-refactor", "mobile-ui", "data-search", "centered-modals", "max-buzzer-gain", "opname-flow", "multi-scan-relocation"],
-  "notes": "Precache app shell untuk offline dan relokasi part Multi-Scan"
+  "features": ["batch-sync", "cache-versioning", "qr-parser-refactor", "mobile-ui", "data-search", "centered-modals", "max-buzzer-gain", "opname-flow", "multi-scan-relocation", "active-box-opname-filter"],
+  "notes": "Opname difilter per box aktif, panel lebih ringkas, dan fokus input setelah relokasi batch"
 }
