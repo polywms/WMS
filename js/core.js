@@ -16,7 +16,7 @@
  * 
  * Main Functions:
  * - processScan(code) — Route scan per currentTab
- * - handleOpnameScan()/handleOpnameRender() — Count physical units per box; render only active-box items with X/Y filters
+ * - handleOpnameScan()/handleOpnameRender() — Count per active box and render compact X/Y-filtered rows
  * - commitOpnameBox()/restoreOpnameSession() — Persist and resume box count sessions
  * - updateActivePartPanel(item) — Display part detail (location-only view)
  * - selectPartSimpan(item) — Select part dari list
@@ -1339,7 +1339,6 @@ function handleOpnameRender(reset = true) {
     }
 
     const show = dataset.slice(0, renderLimit);
-    const box = activeBoxFilter;
     let html = '';
     show.forEach(i => {
         const counted = getOpnameBufferQty(i.id);
@@ -1347,18 +1346,14 @@ function handleOpnameRender(reset = true) {
         let badgeClass = 'qty-uncounted';
         const qtyDisplay = `${counted} / ${target}`;
         if (counted > 0) badgeClass = counted === target ? 'qty-match' : 'qty-diff';
-        const pendingBadge = counted > 0 && !opnameBufferCommitted ? `<span class="qty-badge qty-pending opname-pending">+${counted}</span>` : `<span class="opname-pending"></span>`;
-        const locBadges = `<span class="loc-badge" style="font-size:0.7rem; padding:2px 6px;">Box ${box}</span>`;
+        const pendingBadge = counted > 0 && !opnameBufferCommitted ? `<span class="qty-badge qty-pending opname-pending" title="Hitungan belum disimpan" aria-label="Hitungan belum disimpan"><i class="fas fa-clock"></i></span>` : '';
         html += `
         <div class="item-card ${(lastOpnameScanId === i.id) ? 'selected' : ''}" id="opname-row-${i.id}">
             <div style="flex:1" onclick="openEditModal(${i.id})">
-                <div style="display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:4px;">
-                    <span class="part-code" style="font-size:1.05rem; font-weight:bold;">${i.partNo}</span>
-                    <div style="display:flex; gap:4px; margin-left:auto; flex-wrap:wrap;">${locBadges}</div>
-                </div>
-                <span class="part-desc" style="font-size:0.85rem; color:#64748b;">${i.desc || ''}</span>
+                <span class="part-code" style="font-size:0.95rem; font-weight:bold;">${i.partNo}</span>
+                <span class="part-desc" style="font-size:0.75rem; color:#64748b;">${i.desc || ''}</span>
             </div>
-            <div style="display:flex; gap:8px; align-items:center; margin-left:10px;">
+            <div style="display:flex; gap:4px; align-items:center; margin-left:6px;">
                 ${pendingBadge}
                 <div class="qty-badge ${badgeClass}">${qtyDisplay}</div>
             </div>

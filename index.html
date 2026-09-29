@@ -69,14 +69,14 @@
                     <input type="text" id="mainInput" class="main-input" placeholder="Scan Part / Box..." inputmode="none" autocomplete="off" onkeydown="handleInputKeyDown(event)" style="padding-right: 80px; width: 100%; box-sizing: border-box;">
                     
                     <div style="position: absolute; right: 5px; top: 50%; transform: translateY(-50%); display:flex; gap:5px; z-index:10;">
-                        <button id="optionsToggleBtn" onclick="toggleOptionsAccordion()" style="width:35px; height:35px; background:white; color:var(--secondary); border:1px solid #cbd5e1; border-radius:6px; display:flex; justify-content:center; align-items:center; cursor:pointer; padding:0; transition:0.2s;" title="More Options"><i class="fas fa-sliders-h"></i></button>
+                        <button id="optionsToggleBtn" class="icon-only" onclick="toggleOptionsAccordion()" style="width:35px; height:35px; background:white; color:var(--secondary); border:1px solid #cbd5e1; border-radius:6px; display:flex; justify-content:center; align-items:center; cursor:pointer; padding:0; transition:0.2s;" title="More Options"><i class="fas fa-sliders-h"></i></button>
                     </div>
                 </div>
                 
                 <!-- Options Accordion -->
                 <div id="optionsAccordion" class="options-accordion" style="display:none;">
                     <div class="options-content">
-                        <button id="camBtn" onclick="openCameraScanner()" style="width:40px; height:40px; background:white; color:var(--secondary); border:1px solid #cbd5e1; border-radius:8px; display:flex; justify-content:center; align-items:center; cursor:pointer; padding:0; transition:0.2s; font-size:1.1rem;" title="Scan Kamera"><i class="fas fa-camera"></i></button>
+                        <button id="camBtn" class="icon-only" onclick="openCameraScanner()" style="width:40px; height:40px; background:white; color:var(--secondary); border:1px solid #cbd5e1; border-radius:8px; display:flex; justify-content:center; align-items:center; cursor:pointer; padding:0; transition:0.2s; font-size:1.1rem;" title="Scan Kamera"><i class="fas fa-camera"></i></button>
                         <label style="cursor: pointer; margin: 0;">
                             <input type="checkbox" id="chkManualType" style="display:none;" onchange="
                             toggleKeyboardMode(); 
@@ -110,8 +110,8 @@
                             <input type="checkbox" id="chkMultiScan" style="display:none;" onchange="toggleMultiMode()">
                             <div id="multiIcon" style="width:40px; height:40px; background:white; color:var(--secondary); border:1px solid #cbd5e1; border-radius:8px; display:flex; justify-content:center; align-items:center; transition:0.2s; font-size:1.1rem; cursor:pointer;"><i class="fas fa-layer-group"></i></div>
                         </label>
-                        <button id="boxToBoxBtn" onclick="toggleBoxToBoxMode()" style="width:40px; height:40px; background:white; color:var(--secondary); border:1px solid #cbd5e1; border-radius:8px; display:flex; justify-content:center; align-items:center; cursor:pointer; padding:0; transition:0.2s; font-size:1.1rem;" title="Box to Box"><i class="fas fa-exchange-alt"></i></button>
-                        <button id="historyToggleBtn" onclick="toggleHistoryAccordion()" style="width:40px; height:40px; background:white; color:var(--secondary); border:1px solid #cbd5e1; border-radius:8px; display:flex; justify-content:center; align-items:center; cursor:pointer; padding:0; transition:0.2s; font-size:1.1rem;" title="Riwayat Scan"><i class="fas fa-history"></i></button>
+                        <button id="boxToBoxBtn" class="icon-only" onclick="toggleBoxToBoxMode()" style="width:40px; height:40px; background:white; color:var(--secondary); border:1px solid #cbd5e1; border-radius:8px; display:flex; justify-content:center; align-items:center; cursor:pointer; padding:0; transition:0.2s; font-size:1.1rem;" title="Box to Box"><i class="fas fa-exchange-alt"></i></button>
+                        <button id="historyToggleBtn" class="icon-only" onclick="toggleHistoryAccordion()" style="width:40px; height:40px; background:white; color:var(--secondary); border:1px solid #cbd5e1; border-radius:8px; display:flex; justify-content:center; align-items:center; cursor:pointer; padding:0; transition:0.2s; font-size:1.1rem;" title="Riwayat Scan"><i class="fas fa-history"></i></button>
                     </div>
                 </div>
                 
@@ -203,7 +203,7 @@
                     <div class="opname-box-actions">
                         <button class="btn-sm btn-success" onclick="commitOpnameBox()" title="Simpan buffer ke box ini">SELESAI</button>
                         <button class="btn-sm btn-outline" onclick="unlockOpnameBox()" title="Ganti box">Ganti</button>
-                        <button class="btn-sm btn-warning" onclick="resetCurrentBoxOpname()" title="Reset qty box ini" style="border-radius:50%; width:40px; height:40px; padding:0;"><i class="fas fa-undo"></i></button>
+                        <button class="btn-sm btn-outline icon-only" onclick="resetCurrentBoxOpname()" title="Reset qty box ini"><i class="fas fa-undo"></i></button>
                     </div>
                 </div>
                 <div id="opnameBufferPanel" class="multi-panel" style="display:none; background:#f0fdf4; border:1px solid #86efac; margin-bottom:15px;">
@@ -225,7 +225,7 @@
                     <div style="color:#c2410c; font-weight:bold;"><i class="fas fa-arrow-right"></i> SCAN BOX UNTUK MULAI HITUNG</div>
                 </div>
                 <div class="segment-control">
-                    <button class="btn-sm btn-outline" style="border-radius:0; border-left:1px solid var(--border);" onclick="openRakModal()"><i class="fas fa-chart-pie"></i></button>
+                    <button class="btn-sm btn-outline icon-only" style="border-left:1px solid var(--border);" onclick="openRakModal()"><i class="fas fa-chart-pie"></i></button>
                     <div class="segment-btn active" onclick="setOpnameFilter('all', this)">SEMUA</div>
                     <div class="segment-btn" onclick="setOpnameFilter('diff', this)">SELISIH</div>
                     <div class="segment-btn" onclick="setOpnameFilter('zero', this)">BELUM</div>
@@ -283,9 +283,9 @@
                 <div class="data-search-row">
                     <div style="position: relative; flex:1;">
                         <input type="text" id="cariInput" placeholder="Scan Part / Ketik Nama / Area..." onkeyup="renderDataList(true)" style="width:100%; padding:10px 40px 10px 10px; border:1px solid var(--border); border-radius:6px; box-sizing:border-box;">
-                        <button onclick="document.getElementById('cariInput').value=''; renderDataList(true);" style="position:absolute; right:8px; top:50%; transform:translateY(-50%); background:none; border:none; color:var(--secondary); cursor:pointer;"><i class="fas fa-times-circle"></i></button>
+                        <button class="icon-only" onclick="document.getElementById('cariInput').value=''; renderDataList(true);" style="position:absolute; right:8px; top:50%; transform:translateY(-50%); background:none; border:none; color:var(--secondary); cursor:pointer;"><i class="fas fa-times-circle"></i></button>
                     </div>
-                    <button onclick="openCameraScanner()" style="width:40px; height:40px; background:var(--active-color); color:white; border:none; border-radius:6px; display:flex; justify-content:center; align-items:center; cursor:pointer; padding:0;" title="Scan QR Kamera"><i class="fas fa-camera"></i></button>
+                    <button class="icon-only" onclick="openCameraScanner()" style="width:40px; height:40px; background:var(--active-color); color:white; border:none; border-radius:6px; display:flex; justify-content:center; align-items:center; cursor:pointer; padding:0;" title="Scan QR Kamera"><i class="fas fa-camera"></i></button>
                 </div>
                 <details class="data-tools">
                     <summary class="data-tools-heading">
@@ -313,8 +313,8 @@
                             </div>
                         </div>
                         <div style="display:flex; gap:6px;">
-                            <button onclick="fetchCloudOffBs()" style="width:32px; height:32px; background:white; border:1px solid var(--offbs); color:var(--offbs); border-radius:6px; display:flex; justify-content:center; align-items:center; cursor:pointer;" title="Lihat Database di Cloud"><i class="fas fa-cloud-download-alt"></i></button>
-                            <button onclick="clearOffBsBox()" style="width:32px; height:32px; background:#ea580c; color:white; border:none; border-radius:6px; display:flex; justify-content:center; align-items:center; cursor:pointer;" title="Hapus Box"><i class="fas fa-times"></i></button>
+                            <button class="icon-only" onclick="fetchCloudOffBs()" style="width:32px; height:32px; background:white; border:1px solid var(--offbs); color:var(--offbs); border-radius:6px; display:flex; justify-content:center; align-items:center; cursor:pointer;" title="Lihat Database di Cloud"><i class="fas fa-cloud-download-alt"></i></button>
+                            <button class="icon-only" onclick="clearOffBsBox()" style="width:32px; height:32px; background:#ea580c; color:white; border:none; border-radius:6px; display:flex; justify-content:center; align-items:center; cursor:pointer;" title="Hapus Box"><i class="fas fa-times"></i></button>
                         </div>
                     </div>
                 </div>
@@ -453,13 +453,13 @@
                 </div>
             </div>
         
-        <button id="scrollTopBtn" class="scroll-btn" onclick="scrollToTop()"><i class="fas fa-arrow-up"></i></button>
+        <button id="scrollTopBtn" class="scroll-btn icon-only" onclick="scrollToTop()"><i class="fas fa-arrow-up"></i></button>
         
         <div class="overlay" id="opnameConfirmModal">
             <div class="modal">
                 <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); padding-bottom:10px; margin-bottom:15px;">
                     <h3 style="margin:0;" id="opnameModalTitle">Konfirmasi</h3>
-                    <button onclick="closeOpnameConfirmModal()" style="border:none; background:none; font-size:1.5rem; color:var(--secondary); cursor:pointer;"><i class="fas fa-times"></i></button>
+                    <button class="icon-only" onclick="closeOpnameConfirmModal()" style="border:none; background:none; font-size:1.5rem; color:var(--secondary); cursor:pointer;"><i class="fas fa-times"></i></button>
                 </div>
                 <p style="text-align:center; color:var(--secondary); margin-top:0;" id="opnameModalDesc"></p>
                 <div style="background:#fefce8; border:1px solid #fef08a; padding:10px; border-radius:6px; margin-bottom:15px; text-align:center;">
@@ -479,7 +479,7 @@
             <div class="modal">
                 <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); padding-bottom:10px; margin-bottom:15px;">
                     <h3 style="margin:0; color:var(--danger);">Lokasi Sudah Ada</h3>
-                    <button onclick="closeSimpanConflictModal()" style="border:none; background:none; font-size:1.5rem; color:var(--secondary); cursor:pointer;"><i class="fas fa-times"></i></button>
+                    <button class="icon-only" onclick="closeSimpanConflictModal()" style="border:none; background:none; font-size:1.5rem; color:var(--secondary); cursor:pointer;"><i class="fas fa-times"></i></button>
                 </div>
                 <p style="text-align:center; color:var(--secondary); margin-top:0;">Part <b><span id="scmPart"></span></b> sudah ada di: <br><b id="scmOldLoc" style="color:var(--danger);"></b></p>
                 <div style="background:#eff6ff; padding:15px; text-align:center; border-radius:8px; margin:15px 0; border:1px dashed #bfdbfe;">Target Baru:<br> <b id="scmNewBox" style="color:var(--primary); font-size:1.5rem; display:block; margin-top:5px;"></b></div>
@@ -492,7 +492,7 @@
             <div class="modal">
                 <div style="display:flex; justify-content:space-between;">
                     <h3>Edit Data Part</h3>
-                    <button onclick="document.getElementById('editModal').style.display='none'" style="border:none; background:none; font-size:1.2rem;"><i class="fas fa-times"></i></button>
+                    <button class="icon-only" onclick="document.getElementById('editModal').style.display='none'" style="border:none; background:none; font-size:1.2rem;"><i class="fas fa-times"></i></button>
                 </div>
                 <h4 id="editPartTitle" style="color:var(--primary); margin:0; margin-bottom:10px;"></h4>
                 
@@ -508,7 +508,7 @@
                     <div style="display:flex; gap:5px;">
                         <input type="text" id="editNewBox" placeholder="Box" style="flex:1; padding:8px; border:1px solid var(--border); border-radius:4px;">
                         <input type="number" id="editNewQty" placeholder="Qty" style="width:60px; padding:8px; border:1px solid var(--border); border-radius:4px;">
-                        <button class="btn-primary" style="width:auto; padding:8px 12px; margin:0;" onclick="addManualLoc()"><i class="fas fa-plus"></i></button>
+                        <button class="btn-primary icon-only" style="width:auto; padding:8px 12px; margin:0;" onclick="addManualLoc()"><i class="fas fa-plus"></i></button>
                     </div>
                 </div>
                 <div id="editDeleteBtnContainer"></div>
@@ -539,7 +539,7 @@
             <div class="modal">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
                     <h3 style="margin:0;"><i class="fas fa-search"></i> Cek Selisih Rak</h3>
-                    <button onclick="document.getElementById('rakModal').style.display='none'" style="border:none; background:none; font-size:1.5rem; color:var(--danger);"><i class="fas fa-times"></i></button>
+                    <button class="icon-only" onclick="document.getElementById('rakModal').style.display='none'" style="border:none; background:none; font-size:1.5rem; color:var(--danger);"><i class="fas fa-times"></i></button>
                 </div>
                 <select id="rakSelect" onchange="renderRakSummary()"><option value="">-- Loading Rak... --</option></select>
                 <div id="rakSummaryList" style="margin-top:15px; max-height:55vh; overflow-y:auto; display:flex; flex-direction:column; gap:8px;"></div>
@@ -550,7 +550,7 @@
             <div class="modal">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
                     <h3 style="margin:0; color:var(--danger);"><i class="fas fa-tags"></i> Masalah Label</h3>
-                    <button onclick="document.getElementById('labelReportModal').style.display='none'" style="border:none; background:none; font-size:1.5rem; color:var(--secondary);"><i class="fas fa-times"></i></button>
+                    <button class="icon-only" onclick="document.getElementById('labelReportModal').style.display='none'" style="border:none; background:none; font-size:1.5rem; color:var(--secondary);"><i class="fas fa-times"></i></button>
                 </div>
                 <div id="labelReportList" style="max-height:55vh; overflow-y:auto; display:flex; flex-direction:column; gap:8px;"></div>
                 <button class="btn btn-danger" style="margin-top:15px;" onclick="exportLabelReport()"><i class="fas fa-file-excel"></i> Download Excel Laporan</button>
@@ -563,7 +563,7 @@
                 
                 <div style="padding:15px 20px; background:var(--offbs); color:white; display:flex; justify-content:space-between; align-items:center;">
                     <h3 style="margin:0; font-size:1.1rem; display:flex; align-items:center; gap:8px;"><i class="fas fa-cloud"></i> Live Database OFF BS</h3>
-                    <button onclick="document.getElementById('cloudOffBsModal').style.display='none'" style="background:none; border:none; color:white; font-size:1.4rem; cursor:pointer;"><i class="fas fa-times"></i></button>
+                    <button class="icon-only" onclick="document.getElementById('cloudOffBsModal').style.display='none'" style="background:none; border:none; color:white; font-size:1.4rem; cursor:pointer;"><i class="fas fa-times"></i></button>
                 </div>
                 
                 <div id="cloudOffBsContent" style="padding:15px 20px; overflow-y:auto; flex:1; width:100%; box-sizing: border-box;">
@@ -580,7 +580,7 @@
             <div class="modal">
                 <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); padding-bottom:10px; margin-bottom:15px;">
                     <h3 style="margin:0;"><i class="fas fa-box"></i> Buat Colly Baru</h3>
-                    <button onclick="closeAddCollyModal()" style="border:none; background:none; font-size:1.5rem; color:var(--secondary); cursor:pointer;"><i class="fas fa-times"></i></button>
+                    <button class="icon-only" onclick="closeAddCollyModal()" style="border:none; background:none; font-size:1.5rem; color:var(--secondary); cursor:pointer;"><i class="fas fa-times"></i></button>
                 </div>
                 <div style="margin-bottom:15px;">
                     <label style="display:block; font-size:0.85rem; font-weight:bold; color:var(--secondary); margin-bottom:5px;">Nama Colly Pengiriman:</label>
@@ -597,7 +597,7 @@
             <div class="modal">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
                     <h3 style="margin:0;"><i class="fas fa-filter"></i> Tampilkan Box</h3>
-                    <button onclick="document.getElementById('offBsFilterModal').style.display='none'" style="border:none; background:none; font-size:1.5rem; color:var(--secondary); cursor:pointer;"><i class="fas fa-times"></i></button>
+                    <button class="icon-only" onclick="document.getElementById('offBsFilterModal').style.display='none'" style="border:none; background:none; font-size:1.5rem; color:var(--secondary); cursor:pointer;"><i class="fas fa-times"></i></button>
                 </div>
                 <div style="margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; padding-bottom: 10px; border-bottom: 1px solid var(--border);">
                     <button onclick="toggleAllOffBsFilter(true)" class="btn-sm btn-outline" style="margin:0; flex:1; margin-right:5px;"><i class="fas fa-check-square"></i> Check All</button>

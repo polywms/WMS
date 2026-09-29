@@ -1,6 +1,6 @@
 {
-  "version": "1.2.1",
+  "version": "1.2.2",
   "updated": "2026-09-29T00:00:00Z",
-  "features": ["batch-sync", "cache-versioning", "qr-parser-refactor", "mobile-ui", "data-search", "centered-modals", "max-buzzer-gain", "opname-flow", "multi-scan-relocation", "active-box-opname-filter"],
-  "notes": "Opname difilter per box aktif, panel lebih ringkas, dan fokus input setelah relokasi batch"
+  "features": ["batch-sync", "cache-versioning", "qr-parser-refactor", "mobile-ui", "data-search", "centered-modals", "max-buzzer-gain", "opname-flow", "multi-scan-relocation", "active-box-opname-filter", "compact-opname-list"],
+  "notes": "Daftar OPNAME lebih rapat, tombol ikon seragam, dan radius UI diperkecil"
 }

@@ -3,8 +3,8 @@
              * Tujuan: Menyediakan sistem visual responsif untuk workflow WMS.
              * Caller: index.html dan seluruh komponen UI berbasis class.
              * Dependensi: Variabel tema, Font Awesome, dan CSS layout native.
-             * Main Functions: Button system, bottom navigation, bottom sheets.
-             * Side Effects: Mengubah tampilan, spacing, dan perilaku modal tanpa mengubah state aplikasi.
+             * Main Functions: Compact lists, uniform icon buttons and corner radius, bottom navigation, bottom sheets.
+             * Side Effects: Mengubah tampilan dan spacing tanpa mengubah state aplikasi.
              */
             :root {
             /* Modern color palette - Cyan theme */
@@ -484,24 +484,24 @@
             .list-container { 
             display: flex; 
             flex-direction: column; 
-            gap: 10px;
+            gap: 1px;
             }
             .item-card { 
             background: var(--card); 
-            padding: 13px 14px; 
-            border-radius: 10px; 
-            border: 2px solid var(--border); 
+            padding: 6px 8px; 
+            border-radius: 3px; 
+            border: 1px solid var(--border); 
             display: flex; 
             justify-content: space-between; 
             align-items: center; 
             cursor: pointer; 
-            transition: all 0.25s ease;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            transition: border-color 0.15s ease, background-color 0.15s ease;
+            box-shadow: none;
             }
             .item-card:hover { 
             border-color: var(--primary); 
             box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15); 
-            transform: translateY(-2px);
+            transform: none;
             }
             .item-card:active { transform: scale(0.98); }
             .item-card.selected { 
@@ -529,7 +529,6 @@
             .opname-box-panel #activeBoxName { font-size: 1.15rem !important; }
             .opname-box-actions { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
             .opname-box-actions .btn-sm { padding: 5px 7px; font-size: 0.75rem; }
-            .opname-box-actions button[title="Reset qty box ini"] { width: 32px !important; height: 32px !important; }
             .opname-stats { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
             .opname-stat {
                 font-size: 0.72rem;
@@ -1732,11 +1731,64 @@
             .btn-primary:hover, .btn-danger:hover, .btn-success:hover, .btn-warning:hover { filter: brightness(0.96); box-shadow: var(--shadow-md); }
             .btn-secondary:hover, .btn-outline:hover { border-color: var(--primary); background: var(--surface-muted); box-shadow: var(--shadow-md); }
             .btn-icon {
-                width: 48px;
-                min-width: 48px;
+                width: 36px;
+                min-width: 36px;
+                height: 36px;
                 padding: 0;
-                border-radius: 12px;
+                border-radius: 4px;
             }
+
+            button.icon-only,
+            .btn-icon {
+                display: inline-flex;
+                width: 36px !important;
+                min-width: 36px !important;
+                max-width: 36px;
+                height: 36px !important;
+                min-height: 36px !important;
+                max-height: 36px;
+                flex: 0 0 36px;
+                padding: 0 !important;
+                border-radius: 4px !important;
+                align-items: center;
+                justify-content: center;
+                font-size: 0.95rem !important;
+                line-height: 1;
+                letter-spacing: normal;
+                text-transform: none;
+            }
+
+            .btn-trash {
+                width: 36px !important;
+                min-width: 36px !important;
+                height: 36px !important;
+                min-height: 36px !important;
+                padding: 0 !important;
+                border-radius: 4px !important;
+            }
+
+            button,
+            input,
+            select,
+            textarea,
+            .item-card,
+            .list-container,
+            .status-panel,
+            .multi-panel,
+            .info-mode-panel,
+            .segment-control,
+            .segment-btn,
+            .qty-badge,
+            .opname-stat,
+            .modal-content,
+            .btn-trash,
+            .btn-icon {
+                border-radius: 4px !important;
+            }
+
+            .list-container { gap: 1px !important; }
+            .list-container > .item-card { padding: 5px 8px; min-height: 0; }
+            #opnameList .qty-badge { padding: 3px 7px; font-size: 0.82rem; }
 
             .bottom-nav {
                 position: fixed;
@@ -1952,3 +2004,5 @@
                 .bottom-nav .nav-item { min-height: 64px; }
                 .main-content-wrapper { margin-left: 0; margin-right: 104px; }
             }
+
+            body * { border-radius: 4px !important; }
