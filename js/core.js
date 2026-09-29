@@ -20,6 +20,8 @@
  * - commitOpnameBox()/restoreOpnameSession() — Persist and resume box count sessions
  * - updateActivePartPanel(item) — Display part detail (location-only view)
  * - selectPartSimpan(item) — Select part dari list
+ * - addToMultiScan()/processMultiScan(box) — Buffer dan relokasi batch SIMPAN
+ * - renderMultiScanList()/removeFromMultiScan() — Kelola daftar batch terpilih
  * - getSimilarParts(partNo) — Find parts dengan nomor gudang sama
  * - clearActivePart() — Hide panel + reset selection
  * - renderSimpanList/handleOpnameRender/renderDataList — Per-tab UI renders
@@ -42,6 +44,7 @@
  * - REMOVED: All qty calculations, progress badge (X/Y), overflow checks
  * - KEPT: saveDB() and addHistoryLog() for location recording
  * - SIMPLIFIED: processScan() SIMPAN branch - part→detail, box→save location
+ * - MULTI-SCAN: Scan part ke buffer, scan box lalu konfirmasi relokasi batch
  * ========================================
  */
 
@@ -131,16 +134,17 @@ function toggleMultipleScanMode() {
     const chk = document.getElementById('chkMultipleScan');
     simpanMode = chk.checked ? 'multiple' : 'single';
     localStorage.setItem('wms_simpanMode', simpanMode);
+    const panel = document.getElementById('multiScanPanel');
+    if (panel) panel.style.display = simpanMode === 'multiple' ? 'block' : 'none';
     
     if (simpanMode === 'multiple') {
-        showToast('<i class="fas fa-layer-group"></i> Mode MULTIPLE - Scan beberapa part lalu masukkan ke box');
-        multiScanBuffer = [];  // Reset buffer
+        showToast('<i class="fas fa-layer-group"></i> Multi-Scan aktif - scan part lalu scan box tujuan');
+        multiScanBuffer = [];
+        renderMultiScanList();
     } else {
-        showToast('<i class="fas fa-cube"></i> Mode SINGLE - Scan part → box → simpan langsung');
+        showToast('<i class="fas fa-cube"></i> Mode SINGLE - scan part lalu box');
         clearMultiScan();  // Clear buffer
     }
-    
-    feedback('success');
     document.getElementById('mainInput').focus();
 }
 
@@ -484,6 +488,11 @@ if (currentTab === 'packing') {
         // ==========================================
         
         if (isBox) {
+            if (simpanMode === 'multiple') {
+                processMultiScan(parsedCode);
+                return;
+            }
+
             // Scan Box = Save part to location with conflict detection
             const activeItem = tempPart;
             if (!activeItem) {
@@ -525,6 +534,11 @@ if (currentTab === 'packing') {
             return;
             
         } else if (item) {
+            if (simpanMode === 'multiple') {
+                addToMultiScan(item);
+                return;
+            }
+
             // Scan part = Select and display detail
             tempPart = item;
             updateActivePartPanel(item);
@@ -730,12 +744,8 @@ function selectPartSimpan(item) {
 }
 
 function addToMultiScan(item) {
-    /**
-     * Add part ke multi-scan buffer
-     */
     if (!item) return;
     
-    // Cek duplikat
     const isDuplicate = multiScanBuffer.some(b => b.item.id === item.id && b.item.partNo === item.partNo);
     if (isDuplicate) {
         feedback('warning');
@@ -743,128 +753,121 @@ function addToMultiScan(item) {
         return;
     }
     
-    // Add ke buffer
-    multiScanBuffer.push({ item: item, scannedTime: new Date() });
+    multiScanBuffer.push({
+        item: item,
+        sourceLocations: Object.keys(item.locations || {}),
+        selected: true,
+        scannedTime: new Date()
+    });
     feedback('scan');
     showToast(`${item.partNo} ➔ Ditambah (${multiScanBuffer.length} total)`);
-    
-    // Update display
     renderMultiScanList();
 }
 
 function renderMultiScanList() {
-    /**
-     * Render daftar parts di multi-scan buffer
-     */
-    const countEl = document.getElementById('multiScanCount');
-    const listEl = document.getElementById('multiScanList');
-    
+    const countEl = document.getElementById('multiCount');
+    const listEl = document.getElementById('multiTagsContainer');
     if (!countEl || !listEl) return;
-    
+
     countEl.textContent = multiScanBuffer.length;
-    
+    listEl.innerHTML = '';
     if (multiScanBuffer.length === 0) {
-        listEl.innerHTML = '<div style="text-align:center; color:#9ca3af; padding:8px;">Belum ada part</div>';
+        const emptyMessage = document.createElement('div');
+        emptyMessage.textContent = 'Belum ada part';
+        emptyMessage.style.cssText = 'text-align:center; color:#9ca3af; padding:8px;';
+        listEl.appendChild(emptyMessage);
         return;
     }
-    
-    let html = '';
-    multiScanBuffer.forEach((buf, idx) => {
-        const item = buf.item;
-        const locStr = Object.keys(item.locations).join(', ') || '(belum)';
-        html += `
-            <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px; border-bottom: 1px solid #e5e7eb; gap: 6px;">
-                <div style="flex: 1;">
-                    <div style="font-weight: 600;">${item.partNo}</div>
-                    <div style="font-size: 0.7rem; color: #6b7280;">${item.desc}</div>
-                </div>
-                <div style="text-align: right; flex: 0 0 auto;">
-                    <div style="font-size: 0.75rem; color: #6b7280;">${locStr}</div>
-                    <button onclick="removeFromMultiScan(${item.id})" style="padding: 2px 6px; background: #ef4444; color: white; border: none; border-radius: 2px; font-size: 0.65rem; cursor: pointer; margin-top: 2px;">Hapus</button>
-                </div>
-            </div>
-        `;
+
+    multiScanBuffer.forEach((bufferItem, index) => {
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex; align-items:center; gap:8px; padding:6px; border-bottom:1px solid #e5e7eb;';
+
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.checked = bufferItem.selected !== false;
+        checkbox.setAttribute('aria-label', `Pilih ${bufferItem.item.partNo} untuk dipindahkan`);
+        checkbox.addEventListener('change', () => {
+            bufferItem.selected = checkbox.checked;
+        });
+
+        const details = document.createElement('div');
+        details.style.cssText = 'flex:1; min-width:0;';
+        const partNo = document.createElement('div');
+        partNo.textContent = bufferItem.item.partNo;
+        partNo.style.fontWeight = '600';
+        const origin = document.createElement('span');
+        const sourceLocations = bufferItem.sourceLocations || [];
+        origin.textContent = sourceLocations.length ? `[${sourceLocations.join(', ')}]` : '[Belum]';
+        origin.style.cssText = 'font-size:0.75rem; color:#6b7280; margin-left:6px;';
+        partNo.appendChild(origin);
+        const description = document.createElement('div');
+        description.textContent = bufferItem.item.desc || '';
+        description.style.cssText = 'font-size:0.7rem; color:#6b7280; overflow:hidden; text-overflow:ellipsis;';
+        details.append(partNo, description);
+
+        const removeButton = document.createElement('button');
+        removeButton.type = 'button';
+        removeButton.title = 'Hapus dari daftar';
+        removeButton.setAttribute('aria-label', `Hapus ${bufferItem.item.partNo}`);
+        removeButton.innerHTML = '<i class="fas fa-trash"></i>';
+        removeButton.style.cssText = 'padding:5px 8px; background:#ef4444; color:white; border:0; border-radius:3px; cursor:pointer;';
+        removeButton.addEventListener('click', () => removeFromMultiScan(index));
+
+        row.append(checkbox, details, removeButton);
+        listEl.appendChild(row);
     });
-    listEl.innerHTML = html;
 }
 
-function removeFromMultiScan(itemId) {
-    /**
-     * Remove part dari multi-scan buffer
-     */
-    multiScanBuffer = multiScanBuffer.filter(b => b.item.id !== itemId);
+function removeFromMultiScan(index) {
+    multiScanBuffer.splice(index, 1);
     renderMultiScanList();
     feedback('success');
     showToast(`Part dihapus (${multiScanBuffer.length} sisa)`);
 }
 
 function clearMultiScan() {
-    /**
-     * Clear semua multi-scan buffer
-     */
     multiScanBuffer = [];
-    const listEl = document.getElementById('multiScanList');
-    const countEl = document.getElementById('multiScanCount');
-    if (listEl) listEl.innerHTML = '<div style="text-align:center; color:#9ca3af; padding:8px;">Belum ada part</div>';
-    if (countEl) countEl.textContent = '0';
-    document.getElementById('activePartDetailsPanel').style.display = 'none';
-    feedback('success');
-    showToast('Buffer cleared');
+    renderMultiScanList();
 }
 
-function processMultiScan() {
-    /**
-     * Scan box untuk finalize multi-scan
-     * Prompt user untuk input box code
-     */
+function processMultiScan(boxCode) {
     if (multiScanBuffer.length === 0) {
         feedback('error');
         showToast('Belum ada part di buffer');
         return;
     }
-    
-    const boxCode = prompt(`Masukkan kode box untuk simpan ${multiScanBuffer.length} part:`, '');
-    if (!boxCode) return;
-    
-    // Validate box format
+
+    const selectedItems = multiScanBuffer.filter(bufferItem => bufferItem.selected !== false);
+    if (selectedItems.length === 0) {
+        feedback('warning');
+        showToast('Pilih minimal satu part untuk dipindahkan');
+        return;
+    }
+
     const boxPattern = /^[A-Z][0-9]{0,2}-[0-9]{2,3}$/;
-    if (!boxPattern.test(boxCode.toUpperCase())) {
+    if (!boxPattern.test(boxCode)) {
         feedback('error');
         showToast('Format box tidak valid (misal: A2-01)');
         return;
     }
-    
-    // Save semua items ke box
-    let savedCount = 0;
-    multiScanBuffer.forEach(buf => {
-        const item = buf.item;
-        
-        // Check qty
-        const totalQty = Object.values(item.locations).reduce((a, b) => a + b, 0);
-        if ((totalQty + 1) > item.sysQty) {
-            feedback('error');
-            alert(`OVER QTY: ${item.partNo}\nTarget: ${item.sysQty}\nUdah: ${totalQty}`);
-            return;
-        }
-        
-        // Save
-        if (!item.locations[boxCode]) item.locations[boxCode] = 0;
-        item.locations[boxCode] += 1;
+
+    const confirmed = confirm(`Pindahkan ${selectedItems.length} part ke box ${boxCode}?\n\n${selectedItems.map(entry => entry.item.partNo).join('\n')}`);
+    if (!confirmed) return;
+
+    selectedItems.forEach(bufferItem => {
+        const item = bufferItem.item;
+        item.locations = { [boxCode]: 1 };
         item.lastBox = boxCode;
         saveDB(item);
         addHistoryLog(item.partNo, boxCode);
-        savedCount++;
     });
-    
-    if (savedCount > 0) {
-        feedback('success');
-        if (typeof playChime === 'function') playChime();
-        showToast(`<i class="fas fa-check-circle"></i> ${savedCount} part tersimpan ke ${boxCode.toUpperCase()}`);
-        
-        // Clear buffer dan reload
-        clearMultiScan();
-        renderSimpanList(true);
-    }
+
+    multiScanBuffer = multiScanBuffer.filter(bufferItem => bufferItem.selected === false);
+    feedback('success');
+    showToast(`${selectedItems.length} part dipindahkan ke ${boxCode}`);
+    renderMultiScanList();
+    renderSimpanList(false);
 }
 
 function updatePanelDisplay() {

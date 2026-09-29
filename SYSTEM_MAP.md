@@ -96,19 +96,19 @@ triggerOffBsSync() [database.js] → POST to Cloud
 
 ### Flow 4: Multi-Scan (Buffer Mode)
 ```
-toggleMultiMode() → isMultiScan = true
+toggleMultipleScanMode() → simpanMode = 'multiple'
   ↓
-multiBuffer[] = []
+Scan Part → addToMultiScan() → multiScanBuffer[] (origin snapshot + selection)
   ↓
-Scan Part 1, 2, 3, ... → addToMultiBuffer()
+Render rows with origin, checkbox, and remove control
   ↓
-Scan Box → processMultiBatchMove(box, actionType)
+Scan destination Box → validate and confirm batch move
   ↓
-For each item in buffer: item.locations[box] = 1
+For selected parts: replace old locations with destination box
   ↓
-saveDB() per item + sync queue
+saveDB() per item + history + sync queue
   ↓
-clearMultiBuffer()
+Keep unchecked parts in buffer; refresh SIMPAN list
 ```
 
 ### Flow 5: Packing (Colly Management)
@@ -204,6 +204,8 @@ Parse currentVersion.version
 Register sw.js?v=currentVersion with updateViaCache: none
   ↓
 Install versioned worker and cache namespace
+  ↓
+Precache local HTML, CSS, JavaScript, manifest, and icons
   ↓
 Compare with localStorage.appVersion
   ↓

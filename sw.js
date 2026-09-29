@@ -2,7 +2,7 @@
  * Tujuan: Mengelola cache aset statis dan fallback offline PWA WMS.
  * Caller: Browser Service Worker lifecycle dan request fetch aplikasi.
  * Dependensi: Cache Storage API, version.json, dan client app.
- * Main Functions: Versioned install, activate, update cache, dan network-first fetch.
+ * Main Functions: Versioned app-shell precache, cache cleanup, dan network-first fetch.
  * Side Effects: Menulis/menghapus Cache Storage dan mengambil aset jaringan.
  */
 const RELEASE_VERSION = new URL(self.location.href).searchParams.get('v') || 'dev';
@@ -12,7 +12,17 @@ const urlsToCache = [
   './index.html',
   './manifest.json',
   './icon-192.png',
-  './version.json'
+  './icon-512.png',
+  './favicon.ico',
+  './version.json',
+  './css/style.css',
+  './js/config.js',
+  './js/utils.js',
+  './js/database.js',
+  './js/excel.js',
+  './js/scanner.js',
+  './js/core.js',
+  './js/main.js'
 ];
 
 // Handle version update messages from client
