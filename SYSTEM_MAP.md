@@ -53,11 +53,11 @@ checkSimpanConflict() [core.js] — Validate move/split
   ↓
 executeSimpanAction() [core.js] — Update item.locations
   ↓
-saveDB(item) [database.js] — Write to IndexedDB + queue sync
+saveDB(item) [database.js] — Write to IndexedDB immediately + persist sync queue
   ↓
 renderSimpanList() [core.js] — Update UI
   ↓
-processSyncQueue() [database.js] — (Async) POST to Google Sheets
+processSyncQueue() [database.js] — Background/manual POST to Google Sheets; retry while offline
 ```
 
 ### Flow 2: Opname (Inventory Check)
@@ -89,9 +89,9 @@ Check: qty <= masterItem.sysQty
   ↓
 Check: QR not duplicate scanned
   ↓
-offBsSession.unshift() → localStorage
+offBsSession.unshift() → localStorage (immediate local operation)
   ↓
-triggerOffBsSync() [database.js] → POST to Cloud
+triggerOffBsSync() [database.js] → Background/manual POST to Cloud when online
 ```
 
 ### Flow 4: Multi-Scan (Buffer Mode)
@@ -129,9 +129,9 @@ Check: QR not duplicate in packingSession
   ↓
 IF found: Remove from OFF BS (cut)
   ↓
-packingSession.unshift({...}) + save to localStorage
+packingSession.unshift({...}) + save to localStorage (immediate local operation)
   ↓
-triggerPackingSync() → POST to Google Sheets
+triggerPackingSync() → Background/manual POST to Google Sheets when online
   ↓
 Render packed items in colly
 ```
@@ -165,15 +165,13 @@ Show warn if any item exceeds sysQty
 ```
 [Every scan → saveDB()]
   ↓
-syncQueue.push(item), syncLogs.push(log)
+Write IndexedDB immediately; persist item-by-id syncQueue and syncLogs locally
   ↓
-Check: syncQueue.length > MAX_QUEUE_SIZE (500)?
+[On startup] Load IndexedDB first; refresh from cloud in background without replacing pending local edits
   ↓
-IF yes: Warn user, prevent new scans
+[Every 30 sec, on reconnect, or manual cloud-arrow-up button] autoSyncWithCloud()
   ↓
-[Every 10-15 sec or on button click] processSyncQueue()
-  ↓
-Check navigator.onLine
+Retry master, OFF BS, and PACKING queues; retain local data if request fails
   ↓
 BATCH LOOP: slice syncQueue into 100-item chunks
   ↓
@@ -184,9 +182,9 @@ FOR EACH BATCH:
   ↓
   Response: { status, duplicates, duplicateParts }
   ↓
-  IF error: Abort batch, revert queue, show error toast
+IF error/offline: Restore batch to local queue; keep local operations available
   ↓
-  IF success: Remove batch from queue, continue next batch
+IF success: Persist remaining queue and continue next batch
   ↓
 Clear syncQueue & syncLogs after ALL batches succeed
   ↓
@@ -271,10 +269,11 @@ WMS/
 
 ### [database.js](js/database.js)
 **Fungsi Publik Utama**:
-- `initDB()` — Buka IndexedDB, fetch data awal dari cloud
+- `initDB()` — Buka IndexedDB, tampilkan data lokal dulu, lalu refresh cloud di latar
 - `loadDataFromLocal()` — Read all items dari IndexedDB → localItems
 - `saveDB(item, actionName, actionDetail)` — Write item ke IndexedDB + queue sync
 - `processSyncQueue()` — POST queued items ke Google Sheets
+- `autoSyncWithCloud(force)` / `window.manualSync()` — Retry master, OFF BS, dan PACKING otomatis/manual
 - `fetchInitialDataFromCloud()` — Fetch data dari Google Sheets di awal
 - `triggerOffBsSync()` — Sync off BS session ke cloud
 
@@ -383,7 +382,9 @@ WMS/
 **Cache Name**: `wms-cache-v27` (versioned per update)
 
 **Cached Assets** (on install):
-- `index.html`, `manifest.json`, icons, `version.json`
+- Local app shell: `index.html`, CSS, JavaScript, manifest, icons, `version.json`
+- Best-effort CDN cache: Font Awesome, SheetJS, and html5-qrcode
+- CDN cache failures do not block installation of the local app shell
 
 **Cache Bypass** (never cached):
 - `script.google.com/*` → Always fetch fresh (API calls)

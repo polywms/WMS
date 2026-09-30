@@ -1,8 +1,8 @@
 /*
  * Tujuan: Mengelola cache aset statis dan fallback offline PWA WMS.
  * Caller: Browser Service Worker lifecycle dan request fetch aplikasi.
- * Dependensi: Cache Storage API, version.json, dan client app.
- * Main Functions: Versioned app-shell precache, cache cleanup, dan network-first fetch.
+ * Dependensi: Cache Storage API, version.json, CDN UI/scanner/Excel assets, dan client app.
+ * Main Functions: Versioned app-shell/CDN precache, cache cleanup, dan network-first fetch.
  * Side Effects: Menulis/menghapus Cache Storage dan mengambil aset jaringan.
  */
 const RELEASE_VERSION = new URL(self.location.href).searchParams.get('v') || 'dev';
@@ -24,6 +24,11 @@ const urlsToCache = [
   './js/core.js',
   './js/main.js'
 ];
+const optionalUrlsToCache = [
+  'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css',
+  'https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js',
+  'https://unpkg.com/html5-qrcode'
+];
 
 // Handle version update messages from client
 self.addEventListener('message', event => {
@@ -37,9 +42,17 @@ self.addEventListener('install', event => {
   self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME)
-      .then(cache => {
+      .then(async cache => {
         console.log('Opened cache', CACHE_NAME);
-        return cache.addAll(urlsToCache);
+        await cache.addAll(urlsToCache);
+        await Promise.all(optionalUrlsToCache.map(async url => {
+          try {
+            const response = await fetch(url, { mode: 'no-cors', cache: 'reload' });
+            await cache.put(url, response);
+          } catch (error) {
+            console.warn('Optional offline asset skipped:', url, error);
+          }
+        }));
       })
   );
 });

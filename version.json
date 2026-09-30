@@ -1,6 +1,6 @@
 {
-  "version": "1.2.2",
-  "updated": "2026-09-29T00:00:00Z",
-  "features": ["batch-sync", "cache-versioning", "qr-parser-refactor", "mobile-ui", "data-search", "centered-modals", "max-buzzer-gain", "opname-flow", "multi-scan-relocation", "active-box-opname-filter", "compact-opname-list"],
-  "notes": "Daftar OPNAME lebih rapat, tombol ikon seragam, dan radius UI diperkecil"
+  "version": "1.2.4",
+  "updated": "2026-09-30T00:00:00Z",
+  "features": ["batch-sync", "cache-versioning", "qr-parser-refactor", "mobile-ui", "data-search", "centered-modals", "max-buzzer-gain", "opname-flow", "multi-scan-relocation", "active-box-opname-filter", "compact-opname-list", "local-first-sync", "manual-sync"],
+  "notes": "Cache offline mencakup shell lokal dan dependency CDN secara best-effort"
 }

@@ -1,3 +1,10 @@
+/*
+ * Tujuan: Persistensi IndexedDB dan sinkronisasi latar dengan Google Sheets.
+ * Caller: main.js, core.js, dan handler kontrol sinkronisasi di index.html.
+ * Dependensi: config.js (db, antrean, sesi), IndexedDB, API_URL.
+ * Main Functions: initDB(), loadDataFromLocal(), saveDB(), processSyncQueue(), autoSyncWithCloud().
+ * Side Effects: Membaca/menulis IndexedDB dan localStorage, mengirim HTTP request.
+ */
 // js/database.js
 
 let lastFetchedCloudOffBs = [];
@@ -7,60 +14,86 @@ let hiddenOffBsBoxes = [];
 let packingSession = JSON.parse(localStorage.getItem('wms_packing')) || [];
 let collyList = JSON.parse(localStorage.getItem('wms_colly_list')) || [];
 let activeColly = localStorage.getItem('wms_active_colly') || null;
+let isCloudSyncing = false;
 
 function updateSyncUI(text) { const el = document.getElementById('syncStatus'); if(el) el.innerHTML = text; }
 
 function initDB() {
-    return new Promise(resolve => {
+    return new Promise((resolve, reject) => {
         const req = indexedDB.open(DB_NAME, 1);
         req.onupgradeneeded = e => e.target.result.createObjectStore('items', { keyPath: 'id' });
-        req.onsuccess = e => { 
+        req.onerror = () => reject(req.error);
+        req.onsuccess = async e => { 
             db = e.target.result; 
-            fetchInitialDataFromCloud().then(resolve); 
+            await loadDataFromLocal();
+            resolve();
+            fetchInitialDataFromCloud();
         };
     });
 }
 
 function loadDataFromLocal() {
-    const tx = db.transaction('items', 'readonly');
-    tx.objectStore('items').getAll().onsuccess = e => {
-        localItems = e.target.result || [];
-        localItems.forEach(i => { 
-            if(!i.locations) i.locations = {}; 
-            if(!i.lastOpnameDate) i.lastOpnameDate = '';
-        });
-        localItems.sort((a,b) => a.partNo.localeCompare(b.partNo));
-        if(typeof populateFilters === 'function') populateFilters();
-        if(typeof restoreOpnameSession === 'function') restoreOpnameSession();
-        if(currentTab === 'opname' && typeof handleOpnameRender === 'function') handleOpnameRender(true);
-        if(currentTab === 'simpan' && typeof renderSimpanList === 'function') renderSimpanList(true);
-        if(currentTab === 'data' && typeof renderDataList === 'function') renderDataList(true);
-        if(currentTab === 'packing' && typeof renderPackingList === 'function') { renderCollyUI(); renderPackingList(); }
-        if(currentTab === 'offbs' && typeof renderOffBsList === 'function') renderOffBsList();
-    };
+    return new Promise(resolve => {
+        const request = db.transaction('items', 'readonly').objectStore('items').getAll();
+        request.onsuccess = e => {
+            localItems = e.target.result || [];
+            localItems.forEach(i => {
+                if(!i.locations) i.locations = {};
+                if(!i.lastOpnameDate) i.lastOpnameDate = '';
+            });
+            localItems.sort((a,b) => a.partNo.localeCompare(b.partNo));
+            if(typeof populateFilters === 'function') populateFilters();
+            if(typeof restoreOpnameSession === 'function') restoreOpnameSession();
+            if(currentTab === 'opname' && typeof handleOpnameRender === 'function') handleOpnameRender(true);
+            if(currentTab === 'simpan' && typeof renderSimpanList === 'function') renderSimpanList(true);
+            if(currentTab === 'data' && typeof renderDataList === 'function') renderDataList(true);
+            if(currentTab === 'packing' && typeof renderPackingList === 'function') { renderCollyUI(); renderPackingList(); }
+            if(currentTab === 'offbs' && typeof renderOffBsList === 'function') renderOffBsList();
+            resolve(localItems);
+        };
+        request.onerror = () => resolve([]);
+    });
 }
 
 async function fetchInitialDataFromCloud() {
-    if (!navigator.onLine) { updateSyncUI('<i class="fas fa-circle" style="color: #ef4444; font-size: 0.6rem; margin-right: 4px;"></i> Offline (Mode Lokal)'); loadDataFromLocal(); return; }
+    if (!navigator.onLine) { updateSyncUI('<i class="fas fa-circle" style="color: #ef4444; font-size: 0.6rem; margin-right: 4px;"></i> Offline (Data Lokal)'); return; }
     updateSyncUI('<i class="fas fa-spinner fa-spin"></i> Menghubungkan ke Database...');
+    let timeoutId;
     try {
-        const controller = new AbortController(); const timeoutId = setTimeout(() => controller.abort(), 30000); 
-        const response = await fetch(API_URL, { redirect: "follow", signal: controller.signal }); clearTimeout(timeoutId); 
-updateSyncUI('<i class="fas fa-spinner fa-spin"></i> Menerima Data...'); const result = await response.json();
+        const controller = new AbortController();
+        timeoutId = setTimeout(() => controller.abort(), 30000);
+        const response = await fetch(API_URL, { redirect: "follow", signal: controller.signal });
+        clearTimeout(timeoutId);
+        if (!response.ok) throw new Error(`Cloud returned ${response.status}`);
+        updateSyncUI('<i class="fas fa-spinner fa-spin"></i> Menerima Data...');
+        const result = await response.json();
         
         if (result.status === "success") {
             if (result.data && Array.isArray(result.data)) {
                 if (result.data.length > 0) {
                     updateSyncUI(`<i class="fas fa-spinner fa-spin"></i> Memproses ${result.data.length} Item...`);
-                    const tx = db.transaction('items', 'readwrite'); const store = tx.objectStore('items');
-                    store.clear(); result.data.forEach(item => store.add(item)); 
-                    tx.oncomplete = () => { updateSyncUI('<i class="fas fa-circle" style="color: #22c55e; font-size: 0.6rem; margin-right: 4px;"></i> Tersambung & Update'); loadDataFromLocal(); setTimeout(() => updateSyncUI('<i class="fas fa-circle" style="color: #22c55e; font-size: 0.6rem; margin-right: 4px;"></i> Online'), 3000); };
-                } else { updateSyncUI('<i class="fas fa-circle" style="color: #22c55e; font-size: 0.6rem; margin-right: 4px;"></i> Database Kosong'); loadDataFromLocal(); setTimeout(() => updateSyncUI('<i class="fas fa-circle" style="color: #22c55e; font-size: 0.6rem; margin-right: 4px;"></i> Online'), 3000); }
-            } else { updateSyncUI('<i class="fas fa-times-circle"></i> Gagal (Data Rusak)'); loadDataFromLocal(); }
-         } else { updateSyncUI('<i class="fas fa-times-circle"></i> Gagal (Error Script)'); loadDataFromLocal(); }
+                    const tx = db.transaction('items', 'readwrite');
+                    const store = tx.objectStore('items');
+                    const localRequest = store.getAll();
+                    tx.oncomplete = async () => {
+                        await loadDataFromLocal();
+                        updateSyncUI('<i class="fas fa-circle" style="color: #22c55e; font-size: 0.6rem; margin-right: 4px;"></i> Lokal diperbarui');
+                        setTimeout(() => updateSyncUI('<i class="fas fa-circle" style="color: #22c55e; font-size: 0.6rem; margin-right: 4px;"></i> Online'), 3000);
+                    };
+                    localRequest.onsuccess = () => {
+                        const pendingIds = new Set(syncQueue.map(item => item.id));
+                        result.data.forEach(item => {
+                            if (!pendingIds.has(item.id)) store.put(item);
+                        });
+                    };
+                } else {
+                    updateSyncUI('<i class="fas fa-circle" style="color: #22c55e; font-size: 0.6rem; margin-right: 4px;"></i> Cloud kosong; data lokal dipertahankan');
+                }
+            } else { updateSyncUI('<i class="fas fa-times-circle"></i> Gagal (Data Rusak)'); }
+         } else { updateSyncUI('<i class="fas fa-times-circle"></i> Gagal (Error Script)'); }
     } catch (error) {
-         if (error.name === 'AbortError') updateSyncUI('<i class="fas fa-times-circle"></i> Timeout (Server Lambat)'); else updateSyncUI('<i class="fas fa-times-circle"></i> Gagal Terhubung (Cek API)');
-        loadDataFromLocal(); 
+        if (timeoutId) clearTimeout(timeoutId);
+        if (error.name === 'AbortError') updateSyncUI('<i class="fas fa-times-circle"></i> Timeout; data lokal aktif'); else updateSyncUI('<i class="fas fa-times-circle"></i> Offline; data lokal aktif');
     }
 }
 
@@ -68,37 +101,34 @@ function saveDB(item, actionName = "UPDATE", actionDetail = "") {
     // Add timestamp for two-way sync
     item.updated_at = item.updated_at || Date.now();
     
-    // Prevent queue overflow - critical safeguard
-    if (syncQueue.length >= MAX_QUEUE_SIZE) {
-         alert("PERINGATAN SISTEM!\n\nQueue penyimpanan penuh (>500 items).\n\nTunggu koneksi stabil atau clear data manual.");
-         updateSyncUI('<i class="fas fa-exclamation-triangle"></i> Queue PENUH!');
-        return;
-    }
-    
     const tx = db.transaction('items', 'readwrite'); 
     tx.objectStore('items').put(item);
-    syncQueue.push(item);
+    const queuedIndex = syncQueue.findIndex(queuedItem => queuedItem.id === item.id);
+    if (queuedIndex >= 0) syncQueue[queuedIndex] = item;
+    else syncQueue.push(item);
     // Persist to localStorage to survive refresh
     localStorage.setItem('wms_syncQueue', JSON.stringify(syncQueue));
     syncLogs.push({ partNo: item.partNo, action: actionName, detail: actionDetail || "Update Qty/Lokasi", timestamp: Date.now() });
     // Persist logs to localStorage (keep only last 100 logs to avoid overflow)
     localStorage.setItem('wms_syncLogs', JSON.stringify(syncLogs.slice(-100)));
-     updateSyncUI('<i class="fas fa-spinner fa-spin"></i> Menunggu Sync...');
+    if (syncQueue.length > MAX_QUEUE_SIZE) updateSyncUI('<i class="fas fa-exclamation-triangle"></i> Lokal tersimpan; antrean sync panjang');
+    else updateSyncUI('<i class="fas fa-spinner fa-spin"></i> Tersimpan lokal; menunggu sync');
 }
 
 async function processSyncQueue() {
-    if (isSyncing || (syncQueue.length === 0 && syncLogs.length === 0) || !navigator.onLine) return;
+    if (isSyncing || syncQueue.length === 0 || !navigator.onLine) return false;
     isSyncing = true; 
-updateSyncUI('<i class="fas fa-sync"></i> Syncing...');
+    updateSyncUI('<i class="fas fa-sync"></i> Syncing...');
+    let activeBatch = [];
     
     try {
-        let successCount = 0;
         let batchNum = 0;
         
         // Process in batches to prevent OOM crashes
         while (syncQueue.length > 0) {
             batchNum++;
             const batch = syncQueue.splice(0, MAX_SYNC_BATCH);
+            activeBatch = batch;
             const uniqueItemsMap = {};
             batch.forEach(item => uniqueItemsMap[item.id] = item);
             
@@ -112,14 +142,13 @@ updateSyncUI(`<i class="fas fa-sync"></i> Syncing (Batch ${batchNum})...`);
                 body: JSON.stringify(payload) 
             });
             
+            if (!response.ok) throw new Error(`Cloud returned ${response.status}`);
             const result = await response.json();
             if (result.status === "success") { 
-                successCount += batch.length;
+                activeBatch = [];
+                localStorage.setItem('wms_syncQueue', JSON.stringify(syncQueue));
             } else { 
-                // Revert batch if failed
-                syncQueue.unshift(...batch); 
-                 updateSyncUI('<i class="fas fa-times-circle"></i> Gagal Sync');
-                break;
+                throw new Error(result.message || 'Sync rejected');
             }
         }
         
@@ -128,29 +157,39 @@ updateSyncUI(`<i class="fas fa-sync"></i> Syncing (Batch ${batchNum})...`);
             // Clear persisted queues on success
             localStorage.removeItem('wms_syncQueue');
             localStorage.removeItem('wms_syncLogs');
-             updateSyncUI('<i class="fas fa-check-circle"></i> Tersimpan');
+            updateSyncUI('<i class="fas fa-check-circle"></i> Tersimpan');
         }
+        return true;
     } catch (error) { 
-         updateSyncUI('<i class="fas fa-circle" style="color: #ef4444; font-size: 0.6rem; margin-right: 4px;"></i> Offline');
+        if (activeBatch.length) {
+            syncQueue.unshift(...activeBatch);
+            localStorage.setItem('wms_syncQueue', JSON.stringify(syncQueue));
+        }
+        updateSyncUI('<i class="fas fa-circle" style="color: #ef4444; font-size: 0.6rem; margin-right: 4px;"></i> Sync gagal; data lokal aman');
+        return false;
     } finally { 
         isSyncing = false; 
     }
 }
 
 async function triggerOffBsSync() {
-    if (!navigator.onLine || isSyncing || typeof offBsSession === 'undefined') return;
+    if (!navigator.onLine || isSyncing || typeof offBsSession === 'undefined') return false;
     const unsyncedData = offBsSession.filter(i => !i.synced); if (unsyncedData.length === 0) return; 
      isSyncing = true; updateSyncUI('<i class="fas fa-sync"></i> Syncing OFF BS...');
     try {
         const response = await fetch(API_URL, { method: "POST", redirect: "follow", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ action: "sync_off_bs", data: unsyncedData }) });
+        if (!response.ok) throw new Error(`Cloud returned ${response.status}`);
         const result = await response.json();
         if (result.status === "success") {
             unsyncedData.forEach(u => u.synced = true); localStorage.setItem('wms_off_bs', JSON.stringify(offBsSession));
              updateSyncUI('<i class="fas fa-check-circle"></i> OFF BS Tersimpan');
             if(currentTab === 'offbs') renderOffBsList(); 
              if (result.duplicates > 0) alert(`PERINGATAN SINKRONISASI!\n\n${result.duplicates} data ditolak oleh Cloud karena part dan dokumen sudah masuk Database sebelumnya.\n\nPart ditolak:\n${result.duplicateParts.join(', ')}`);
-         } else { updateSyncUI('<i class="fas fa-times-circle"></i> Gagal Sync OFF BS'); }
-     } catch (err) { updateSyncUI('<i class="fas fa-circle" style="color: #ef4444; font-size: 0.6rem; margin-right: 4px;"></i> Offline'); } finally { isSyncing = false; }
+            return true;
+         }
+        updateSyncUI('<i class="fas fa-times-circle"></i> Gagal Sync OFF BS');
+        return false;
+     } catch (err) { updateSyncUI('<i class="fas fa-circle" style="color: #ef4444; font-size: 0.6rem; margin-right: 4px;"></i> Offline; data lokal aman'); return false; } finally { isSyncing = false; }
 }
 
 async function fetchCloudOffBs() {
@@ -572,16 +611,21 @@ window.clearPackingSession = function() {
 };
 
 window.triggerPackingSync = async function() {
-    if (!navigator.onLine || typeof packingSession === 'undefined') return;
-    const unsyncedData = packingSession.filter(i => !i.synced); if (unsyncedData.length === 0) return; 
+    if (!navigator.onLine || isSyncing || typeof packingSession === 'undefined') return false;
+    const unsyncedData = packingSession.filter(i => !i.synced); if (unsyncedData.length === 0) return true;
+    isSyncing = true;
     try {
         const response = await fetch(API_URL, { method: "POST", redirect: "follow", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ action: "sync_packing", data: unsyncedData }) });
+        if (!response.ok) throw new Error(`Cloud returned ${response.status}`);
         const result = await response.json();
         if (result.status === "success") {
             unsyncedData.forEach(u => u.synced = true); localStorage.setItem('wms_packing', JSON.stringify(packingSession));
             if(currentTab === 'packing') renderPackingList();
+            return true;
         }
-    } catch (err) { console.error(err); }
+        return false;
+    } catch (err) { console.error(err); return false; }
+    finally { isSyncing = false; }
 };
 // ===== OFF BS FUNCTIONS - Fix Reset Button =====
 window.clearOffBsBox = function() {
@@ -622,9 +666,10 @@ function updateFavicon(syncing) {
 }
 
 // Two-way sync: fetch cloud data and merge with local
-async function autoSyncWithCloud() {
-    if (!navigator.onLine || isSyncing || Date.now() - lastSyncTime < AUTO_SYNC_INTERVAL) return;
+async function autoSyncWithCloud(force = false) {
+    if (!navigator.onLine || isSyncing || isCloudSyncing || (!force && Date.now() - lastSyncTime < AUTO_SYNC_INTERVAL)) return false;
     
+    isCloudSyncing = true;
     lastSyncTime = Date.now();
     updateFavicon(true); // Show upload indicator
     
@@ -633,6 +678,9 @@ async function autoSyncWithCloud() {
         if (syncQueue.length > 0) {
             await processSyncQueue();
         }
+
+        await triggerOffBsSync();
+        await triggerPackingSync();
         
         // 2. Download and merge OFF BS data
         if (typeof offBsSession !== 'undefined') {
@@ -644,12 +692,28 @@ async function autoSyncWithCloud() {
             await autoSyncPackingWithCloud();
         }
         
-        updateFavicon(false); // Hide upload indicator
+        const pendingCount = syncQueue.length + offBsSession.filter(item => !item.synced).length + packingSession.filter(item => !item.synced).length;
+        updateSyncUI(pendingCount
+            ? `<i class="fas fa-clock"></i> ${pendingCount} menunggu sync; tersimpan lokal`
+            : '<i class="fas fa-check-circle"></i> Tersinkron');
+        return pendingCount === 0;
     } catch (error) {
         console.error('Auto-sync error:', error);
+        updateSyncUI('<i class="fas fa-times-circle"></i> Sync gagal; data lokal aman');
+        return false;
+    } finally {
+        isCloudSyncing = false;
         updateFavicon(false);
     }
 }
+
+window.manualSync = async function() {
+    if (!navigator.onLine) {
+        updateSyncUI('<i class="fas fa-circle" style="color: #ef4444; font-size: 0.6rem; margin-right: 4px;"></i> Offline; data lokal aman');
+        return false;
+    }
+    return autoSyncWithCloud(true);
+};
 
 // Auto-sync OFF BS: fetch from cloud, merge locally, auto-delete if missing in cloud
 async function autoSyncOffBsWithCloud() {
@@ -670,7 +734,7 @@ async function autoSyncOffBsWithCloud() {
         const beforeCount = offBsSession.length;
         offBsSession = offBsSession.filter(local => {
             const sig = (local.qr || "") + "_" + local.partNo;
-            return cloudSignatures.has(sig);
+            return !local.synced || cloudSignatures.has(sig);
         });
         
         if (offBsSession.length < beforeCount) {
@@ -707,7 +771,7 @@ async function autoSyncPackingWithCloud() {
         const beforeCount = packingSession.length;
         packingSession = packingSession.filter(local => {
             const sig = (local.qr || "") + "_" + local.partNo;
-            return cloudSignatures.has(sig);
+            return !local.synced || cloudSignatures.has(sig);
         });
         
         if (packingSession.length < beforeCount) {
@@ -726,3 +790,5 @@ async function autoSyncPackingWithCloud() {
 autoSyncTimer = setInterval(() => {
     autoSyncWithCloud();
 }, AUTO_SYNC_INTERVAL);
+
+window.addEventListener('online', () => autoSyncWithCloud(true));

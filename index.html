@@ -2,7 +2,7 @@
     Tujuan: Entry point UI untuk workflow WMS Magelang.
     Caller: Browser/PWA shell; event handlers diteruskan ke main.js dan core.js.
     Dependensi: css/style.css, Font Awesome, dan modul JavaScript di js/.
-    Main Functions: Menyediakan navigasi, scanner, modal konfirmasi relokasi Multi-Scan, dan kontrol import/export.
+    Main Functions: Menyediakan navigasi, scanner, kontrol import/export, dan sinkronisasi manual.
     Side Effects: Mengubah DOM, memicu scan, penyimpanan lokal, dan sinkronisasi cloud melalui handler.
 -->
 <!-- WMS Magelang - Entry point UI -->
@@ -26,6 +26,9 @@
         <header>
             <h1>𝄃𝄃𝄂𝄂 WMS Magelang</h1>
             <div style="display:flex; align-items:center; gap:10px;">
+                <button type="button" class="icon-only" onclick="manualSync()" title="Sinkronkan sekarang" aria-label="Sinkronkan sekarang" style="width:30px; height:30px; display:grid; place-items:center; border:0; border-radius:50%; background:rgba(0,0,0,0.2); color:white; cursor:pointer;">
+                    <i class="fas fa-cloud-arrow-up" aria-hidden="true"></i>
+                </button>
                 <span id="syncStatus" style="font-size:0.75rem; background:rgba(0,0,0,0.2); padding:3px 8px; border-radius:10px; display: flex; align-items: center; gap: 4px;"><i class="fas fa-circle" style="color: #22c55e; font-size: 0.6rem;"></i><span style="font-size:0.7rem;">Online</span></span>
             </div>
         </header>
