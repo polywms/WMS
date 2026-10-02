@@ -32,6 +32,7 @@ const API_URL = "https://script.google.com/macros/s/AKfycbxDQBLQEyIaNwQsA2Ubs4KD
 const MAX_SYNC_BATCH = 100;      // Max items per sync POST
 const MAX_QUEUE_SIZE = 500;      // Prevent queue overflow
 const AUTO_SYNC_INTERVAL = 30000; // Auto-sync every 30 seconds (milliseconds)
+const BOX_CODE_PATTERN = /^(?:[A-Z][0-9]{0,2}-[0-9]{2,3}|[A-Z]-[A-Z][0-9]-[0-9]{2})$/;
 let lastSyncTime = 0;
 let lastCloudSyncTime = localStorage.getItem('lastCloudSyncTime') ? parseInt(localStorage.getItem('lastCloudSyncTime')) : 0;
 let autoSyncTimer = null;

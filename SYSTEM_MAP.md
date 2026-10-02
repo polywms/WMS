@@ -379,7 +379,7 @@ WMS/
 
 ### [sw.js](sw.js) — Service Worker
 **Strategi Caching**: Network-first dengan fallback ke cache  
-**Cache Name**: `wms-cache-v27` (versioned per update)
+**Cache Name**: `wms-cache-<app-version>` (versioned from version.json)
 
 **Cached Assets** (on install):
 - Local app shell: `index.html`, CSS, JavaScript, manifest, icons, `version.json`
@@ -636,8 +636,9 @@ const QR_PARSERS = {
 };
 ```
 
-**Box Pattern Detection**:
-- Box format: `/^[A-Z][0-9]{0,2}-[0-9]{2,3}$/` (e.g., A-01, B-123, K-999)
+**Box Pattern Detection** (`BOX_CODE_PATTERN` in config.js):
+- Legacy box: `/^[A-Z][0-9]{0,2}-[0-9]{2,3}$/` (e.g., A-01, A2-01, K-999)
+- New box: `/^[A-Z]-[A-Z][0-9]-[0-9]{2}$/` (e.g., A-A3-01)
 - OFF BS box: Must start with `RTF` (e.g., RTF-001, RTF-A05)
 
 **Usage in Flows**:

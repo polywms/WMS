@@ -6,6 +6,7 @@
  * Tujuan: Main controller untuk routing scan berdasarkan tab aktif
  * Caller: main.js (via window.onload), UI events (onclick), keyboard (onkeydown)
  * Dependensi: database.js (saveDB), utils.js (feedback), config.js (QR_PARSERS)
+ * Box codes: legacy and X-XY-YY formats are recognized by BOX_CODE_PATTERN
  * 
  * SIMPAN Tab (Penyimpanan): Save part to box (location-only, no qty tracking)
  * - Scan part → Select & show detail panel (display existing locations from DB)
@@ -334,8 +335,7 @@ function processScan(code) {
     let rawCode = code.trim().toUpperCase();
     let parsedCode = rawCode.includes('|') ? rawCode.split('|')[0].trim() : rawCode;
 
-    const boxPattern = /^[A-Z][0-9]{0,2}-[0-9]{2,3}$/;
-    const isBox = boxPattern.test(rawCode);
+    const isBox = BOX_CODE_PATTERN.test(rawCode);
 
     // ==========================================
     // LOGIKA TAB PACKING / PENGIRIMAN (BARU)
@@ -845,10 +845,9 @@ function processMultiScan(boxCode) {
         return;
     }
 
-    const boxPattern = /^[A-Z][0-9]{0,2}-[0-9]{2,3}$/;
-    if (!boxPattern.test(boxCode)) {
+    if (!BOX_CODE_PATTERN.test(boxCode)) {
         feedback('error');
-        showToast('Format box tidak valid (misal: A2-01)');
+        showToast('Format box tidak valid (misal: A2-01 atau A-A3-01)');
         return;
     }
 

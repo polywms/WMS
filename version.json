@@ -1,6 +1,6 @@
 {
-  "version": "1.2.4",
-  "updated": "2026-09-30T00:00:00Z",
-  "features": ["batch-sync", "cache-versioning", "qr-parser-refactor", "mobile-ui", "data-search", "centered-modals", "max-buzzer-gain", "opname-flow", "multi-scan-relocation", "active-box-opname-filter", "compact-opname-list", "local-first-sync", "manual-sync"],
-  "notes": "Cache offline mencakup shell lokal dan dependency CDN secara best-effort"
+  "version": "1.2.5",
+  "updated": "2026-10-02T00:00:00Z",
+  "features": ["batch-sync", "cache-versioning", "qr-parser-refactor", "mobile-ui", "data-search", "centered-modals", "max-buzzer-gain", "opname-flow", "multi-scan-relocation", "active-box-opname-filter", "compact-opname-list", "local-first-sync", "manual-sync", "new-box-format"],
+  "notes": "Format box baru X-XY-YY diterima bersama format lama; cache offline mencakup shell lokal dan dependency CDN secara best-effort"
 }

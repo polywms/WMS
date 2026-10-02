@@ -61,7 +61,7 @@ Google Sheets API returns:
   - Extracted: docNo=`SCL/MGL/25/12/17/010`, qty=`1`, partNo=`XV-033284-00A`
 - **SCL Legacy**: `SCL/ QTY PART_NO` (space-separated)
 - **Simple Fallback**: Any text as partNo, qty=1, docNo='AUTO'
-- **Box Pattern**: `/^[A-Z][0-9]{0,2}-[0-9]{2,3}$/` regex
+- **Box Pattern**: Legacy `/^[A-Z][0-9]{0,2}-[0-9]{2,3}$/` (e.g. `A2-01`) and new `/^[A-Z]-[A-Z][0-9]-[0-9]{2}$/` (e.g. `A-A3-01`); both are recognized
 - **OFF BS Box**: Must start with `RTF`
 
 ### QR Parser Priority Order (First Match Wins)
