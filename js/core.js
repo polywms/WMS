@@ -18,6 +18,8 @@
  * Main Functions:
  * - processScan(code) — Route scan per currentTab
  * - toggleBoxToBoxMode() — Aktifkan/nonaktifkan relokasi box berulang
+ * - updateBoxToBoxIndicator() — Render status box sumber/tujuan dan validitas tujuan
+ * - confirmBoxToBoxYesToAll() — Setujui semua part dan aktifkan persetujuan otomatis per sesi
  * - handleOpnameScan()/handleOpnameRender() — Count per active box and render compact X/Y-filtered rows
  * - commitOpnameBox()/restoreOpnameSession() — Persist and resume box count sessions
  * - updateActivePartPanel(item) — Display part detail (location-only view)
@@ -47,7 +49,7 @@
  * - KEPT: saveDB() and addHistoryLog() for location recording
  * - SIMPLIFIED: processScan() SIMPAN branch - part→detail, box→save location
  * - MULTI-SCAN: Scan part ke buffer, scan box lalu konfirmasi relokasi batch
- * - BOX TO BOX: Mode tetap aktif setelah tujuan dipindai; sumber direset untuk pasangan berikutnya
+ * - BOX TO BOX: Mode tetap aktif setelah tujuan dipindai; sumber direset untuk pasangan berikutnya dan Yes to all berlaku sampai mode dimatikan
  * ========================================
  */
 
@@ -192,22 +194,44 @@ function toggleBoxToBoxMode() {
 
     boxToBoxModeActive = !boxToBoxModeActive;
     boxToBoxSourceBox = null;
+    boxToBoxYesToAll = false;
 
     if (boxToBoxModeActive) {
         btn.style.background = 'var(--active-color)';
         btn.style.color = 'white';
         btn.style.borderColor = 'var(--active-color)';
         btn.title = 'Box to Box: scan box sumber';
+        updateBoxToBoxIndicator();
         showToast('<i class="fas fa-exchange-alt"></i> Mode Box to Box aktif. Scan box sumber dulu.');
     } else {
         btn.style.background = 'white';
         btn.style.color = 'var(--secondary)';
         btn.style.borderColor = '#cbd5e1';
         btn.title = 'Box to Box';
+        updateBoxToBoxIndicator();
         showToast('<i class="fas fa-times"></i> Mode Box to Box dibatalkan');
     }
 
     document.getElementById('mainInput').focus();
+}
+
+function updateBoxToBoxIndicator(sourceBox = null, targetBox = null, isValidTarget = false) {
+    const indicator = document.getElementById('boxToBoxStatus');
+    const label = document.getElementById('boxToBoxStatusText');
+    if (!indicator || !label) return;
+
+    if (!boxToBoxModeActive) {
+        indicator.style.display = 'none';
+        return;
+    }
+
+    indicator.style.display = 'flex';
+    label.innerText = sourceBox
+        ? `${sourceBox} > ${targetBox || 'Scan box tujuan'}`
+        : 'Scan box sumber';
+    indicator.style.background = isValidTarget ? '#f0fdf4' : '#fff7ed';
+    indicator.style.borderColor = isValidTarget ? '#86efac' : '#fdba74';
+    indicator.style.color = isValidTarget ? '#166534' : '#9a3412';
 }
 
 function closeBoxToBoxModal() {
@@ -247,19 +271,8 @@ function showBoxToBoxSelectionModal(sourceBox, targetBox) {
     document.getElementById('boxToBoxModal').style.display = 'flex';
 }
 
-function confirmBoxToBoxSelection() {
-    if (!boxToBoxPending) return;
-
-    const selectedIds = Array.from(document.querySelectorAll('.box-to-box-part-checkbox:checked')).map(el => parseInt(el.value, 10));
-    if (selectedIds.length === 0) {
-        feedback('warning');
-        showToast('Pilih minimal 1 part untuk digabung.');
-        return;
-    }
-
-    const { sourceBox, targetBox } = boxToBoxPending;
+function applyBoxToBoxSelection(sourceBox, targetBox, selectedItems, isYesToAll = false) {
     let affectedCount = 0;
-    const selectedItems = localItems.filter(item => selectedIds.includes(item.id));
 
     selectedItems.forEach(item => {
         if (!item || !item.locations || !item.locations[sourceBox]) return;
@@ -281,7 +294,31 @@ function confirmBoxToBoxSelection() {
     clearActivePart();
     renderSimpanList(true);
     feedback('success');
-    showToast(`✓ ${affectedCount} part digabung dari ${sourceBox} ke ${targetBox}`);
+    showToast(`✓ ${affectedCount} part digabung dari ${sourceBox} ke ${targetBox}${isYesToAll ? ' (Yes to all sesi aktif)' : ''}`);
+}
+
+function confirmBoxToBoxSelection() {
+    if (!boxToBoxPending) return;
+
+    const selectedIds = Array.from(document.querySelectorAll('.box-to-box-part-checkbox:checked')).map(el => parseInt(el.value, 10));
+    if (selectedIds.length === 0) {
+        feedback('warning');
+        showToast('Pilih minimal 1 part untuk digabung.');
+        return;
+    }
+
+    const { sourceBox, targetBox } = boxToBoxPending;
+    const selectedItems = localItems.filter(item => selectedIds.includes(item.id));
+    applyBoxToBoxSelection(sourceBox, targetBox, selectedItems);
+}
+
+function confirmBoxToBoxYesToAll() {
+    if (!boxToBoxPending) return;
+
+    boxToBoxYesToAll = true;
+    const { sourceBox, targetBox } = boxToBoxPending;
+    const allSourceItems = localItems.filter(item => item && item.locations && item.locations[sourceBox]);
+    applyBoxToBoxSelection(sourceBox, targetBox, allSourceItems, true);
 }
 
 function executeBoxToBoxMerge(sourceBox, targetBox) {
@@ -464,6 +501,7 @@ if (currentTab === 'packing') {
         const normalizedBox = parsedCode.toUpperCase();
         if (!boxToBoxSourceBox) {
             boxToBoxSourceBox = normalizedBox;
+            updateBoxToBoxIndicator(normalizedBox);
             feedback('scan');
             showToast(`Box sumber: ${normalizedBox}`);
             return;
@@ -471,7 +509,24 @@ if (currentTab === 'packing') {
 
         const sourceBox = boxToBoxSourceBox;
         const targetBox = normalizedBox;
+        const sourceHasItems = localItems.some(item => item && item.locations && item.locations[sourceBox]);
+        if (sourceBox === targetBox || !sourceHasItems) {
+            updateBoxToBoxIndicator(sourceBox, targetBox);
+            feedback('warning');
+            showToast(sourceBox === targetBox
+                ? 'Box sumber dan tujuan harus berbeda.'
+                : `Tidak ada data pada ${sourceBox} untuk dipindah.`);
+            return;
+        }
+
         boxToBoxSourceBox = null;
+        updateBoxToBoxIndicator(sourceBox, targetBox, true);
+
+        if (boxToBoxYesToAll) {
+            const allSourceItems = localItems.filter(item => item && item.locations && item.locations[sourceBox]);
+            applyBoxToBoxSelection(sourceBox, targetBox, allSourceItems, true);
+            return;
+        }
 
         executeBoxToBoxMerge(sourceBox, targetBox);
         return;

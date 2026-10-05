@@ -37,7 +37,7 @@ User Scan Code
   ↓
 handleInputKeyDown() [core.js]
   ↓
-(optional) Box-to-Box Merge Mode [core.js] — scan box sumber lalu box tujuan untuk menggabungkan lokasi tanpa overwrite data lama; mode tetap aktif sampai user menonaktifkan, sumber direset setelah tiap tujuan
+(optional) Box-to-Box Merge Mode [core.js] — scan box sumber lalu box tujuan untuk menggabungkan lokasi tanpa overwrite data lama; indikator status oranye/hijau; Yes to all menggabungkan semua part dan menyetujui pasangan berikutnya sampai mode dimatikan
   ↓
 processScan(code) [core.js] — Parse & route per tab
   ↓
@@ -288,7 +288,9 @@ WMS/
 **Fungsi Publik Utama**:
 - `processScan(code)` — Parse scan result, route ke tab handler (SIMPAN/OPNAME/OFF BS/PACKING)
 - `selectPartSimpan(item)` — Set active part, render suggestion panel
-- `toggleBoxToBoxMode()` — Toggle manual mode relokasi box; tetap aktif untuk pasangan scan berulang
+- `toggleBoxToBoxMode()` — Toggle manual mode relokasi box dan reset persetujuan sesi
+- `confirmBoxToBoxYesToAll()` — Gabungkan semua part saat ini dan aktifkan auto-approval sampai mode dimatikan
+- `updateBoxToBoxIndicator()` — Render box sumber/tujuan dengan status validasi tujuan
 - `checkSimpanConflict(item, newBox)` — Prompt move/split decision
 - `handleOpnameRender()` — Filter & render opname list per box
 - `renderDataList(reset)` — Display all items dengan search/filter

@@ -12,6 +12,7 @@
  * - opnameBuffer/opnameBufferBox/opnameBufferCommitted — Hitungan fisik per box dan status simpan sesi
  * - currentTab: String — Active tab ID (simpan, opname, data, off-bs, packing)
  * - filteredItems: Array<Item> — Filtered items list untuk render
+ * - boxToBoxYesToAll: Boolean — Persetujuan otomatis box-to-box hingga mode dimatikan
  * 
  * QR Parser Config:
  * - QR_PARSERS: Object dengan pattern & extract function per format
@@ -116,6 +117,7 @@ let activeOffBsBox = null;
 let boxToBoxModeActive = false;
 let boxToBoxSourceBox = null;
 let boxToBoxPending = null;
+let boxToBoxYesToAll = false;
 
 // ===== SIMPAN SINGLE vs MULTIPLE MODE (NEW) =====
 let simpanMode = localStorage.getItem('wms_simpanMode') || 'single'; // 'single' atau 'multiple'

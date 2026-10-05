@@ -2,7 +2,7 @@
     Tujuan: Entry point UI untuk workflow WMS Magelang.
     Caller: Browser/PWA shell; event handlers diteruskan ke main.js dan core.js.
     Dependensi: css/style.css, Font Awesome, dan modul JavaScript di js/.
-    Main Functions: Menyediakan navigasi, scanner, kontrol import/export, dan sinkronisasi manual.
+    Main Functions: Menyediakan navigasi, scanner, indikator box-to-box, konfirmasi perpindahan, kontrol import/export, dan sinkronisasi manual.
     Side Effects: Mengubah DOM, memicu scan, penyimpanan lokal, dan sinkronisasi cloud melalui handler.
 -->
 <!-- WMS Magelang - Entry point UI -->
@@ -115,6 +115,10 @@
                         </label>
                         <button id="boxToBoxBtn" class="icon-only" onclick="toggleBoxToBoxMode()" style="width:40px; height:40px; background:white; color:var(--secondary); border:1px solid #cbd5e1; border-radius:8px; display:flex; justify-content:center; align-items:center; cursor:pointer; padding:0; transition:0.2s; font-size:1.1rem;" title="Box to Box"><i class="fas fa-exchange-alt"></i></button>
                         <button id="historyToggleBtn" class="icon-only" onclick="toggleHistoryAccordion()" style="width:40px; height:40px; background:white; color:var(--secondary); border:1px solid #cbd5e1; border-radius:8px; display:flex; justify-content:center; align-items:center; cursor:pointer; padding:0; transition:0.2s; font-size:1.1rem;" title="Riwayat Scan"><i class="fas fa-history"></i></button>
+                    </div>
+                    <div id="boxToBoxStatus" role="status" aria-live="polite" style="display:none; align-items:center; gap:8px; margin:0 12px 12px; padding:8px 10px; border:1px solid #fdba74; border-radius:6px; background:#fff7ed; color:#9a3412; font-size:0.85rem; font-weight:600; overflow-wrap:anywhere;">
+                        <i class="fas fa-exchange-alt" aria-hidden="true"></i>
+                        <span id="boxToBoxStatusText">Scan box sumber</span>
                     </div>
                 </div>
                 
@@ -253,6 +257,7 @@
                     <div style="padding: 12px 16px 16px; border-top: 1px solid #e5e7eb; display: flex; gap: 10px;">
                         <button onclick="closeBoxToBoxModal()" style="flex: 1; padding: 10px; border: 1px solid #cbd5e1; background: white; color: #334155; border-radius: 8px; font-weight: 600; cursor: pointer;">Batal</button>
                         <button onclick="confirmBoxToBoxSelection()" style="flex: 1; padding: 10px; border: none; background: #2563eb; color: white; border-radius: 8px; font-weight: 600; cursor: pointer;">Gabungkan</button>
+                        <button onclick="confirmBoxToBoxYesToAll()" style="flex: 1; padding: 10px; border: none; background: #16a34a; color: white; border-radius: 8px; font-weight: 600; cursor: pointer;">Yes to all</button>
                     </div>
                 </div>
             </div>
