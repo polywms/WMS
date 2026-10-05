@@ -17,6 +17,7 @@
  * 
  * Main Functions:
  * - processScan(code) — Route scan per currentTab
+ * - toggleBoxToBoxMode() — Aktifkan/nonaktifkan relokasi box berulang
  * - handleOpnameScan()/handleOpnameRender() — Count per active box and render compact X/Y-filtered rows
  * - commitOpnameBox()/restoreOpnameSession() — Persist and resume box count sessions
  * - updateActivePartPanel(item) — Display part detail (location-only view)
@@ -46,6 +47,7 @@
  * - KEPT: saveDB() and addHistoryLog() for location recording
  * - SIMPLIFIED: processScan() SIMPAN branch - part→detail, box→save location
  * - MULTI-SCAN: Scan part ke buffer, scan box lalu konfirmasi relokasi batch
+ * - BOX TO BOX: Mode tetap aktif setelah tujuan dipindai; sumber direset untuk pasangan berikutnya
  * ========================================
  */
 
@@ -109,6 +111,7 @@ function handleInputKeyDown(e) {
         const val = e.target.value; 
         e.target.value = '';
         if(val) processScan(val);
+        document.getElementById('mainInput')?.focus();
     }
 }
 
@@ -211,6 +214,7 @@ function closeBoxToBoxModal() {
     const modal = document.getElementById('boxToBoxModal');
     if (modal) modal.style.display = 'none';
     boxToBoxPending = null;
+    document.getElementById('mainInput')?.focus();
 }
 
 function showBoxToBoxSelectionModal(sourceBox, targetBox) {
@@ -467,16 +471,7 @@ if (currentTab === 'packing') {
 
         const sourceBox = boxToBoxSourceBox;
         const targetBox = normalizedBox;
-        boxToBoxModeActive = false;
         boxToBoxSourceBox = null;
-
-        const btn = document.getElementById('boxToBoxBtn');
-        if (btn) {
-            btn.style.background = 'white';
-            btn.style.color = 'var(--secondary)';
-            btn.style.borderColor = '#cbd5e1';
-            btn.title = 'Box to Box';
-        }
 
         executeBoxToBoxMerge(sourceBox, targetBox);
         return;
