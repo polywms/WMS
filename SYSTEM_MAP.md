@@ -37,7 +37,7 @@ User Scan Code
   ↓
 handleInputKeyDown() [core.js]
   ↓
-(optional) Box-to-Box Merge Mode [core.js] — saat aktif tampilkan box asal dan tujuan di bawah scanner; validasi box asal terhadap part lokal saat discan dan cocokkan key lokasi tanpa membedakan kapital/spasi; tujuan oranye saat standby/invalid dan hijau setelah scan tujuan valid; pasangan box yang valid meminta konfirmasi pertama kali, lalu Yes to All melewati konfirmasi untuk pasangan berikutnya hingga mode dimatikan; setelah tiap pasangan selesai, indikator kembali standby untuk box asal berikutnya
+(optional) Box-to-Box Merge Mode [core.js] — saat aktif tampilkan box asal dan tujuan di bawah scanner; validasi box asal terhadap part lokal saat discan dan cocokkan key lokasi tanpa membedakan kapital/spasi; tujuan oranye saat standby/invalid dan hijau setelah scan tujuan valid; pasangan yang selesai tetap ditampilkan hijau beserta asal/tujuannya; scan box berikutnya memulai pasangan baru dan mengembalikan tujuan ke oranye; pasangan valid meminta konfirmasi pertama kali, lalu Yes to All melewati konfirmasi untuk pasangan berikutnya hingga mode dimatikan
   ↓
 processScan(code) [core.js] — Parse & route per tab
   ↓

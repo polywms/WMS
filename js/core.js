@@ -18,7 +18,7 @@
  * Main Functions:
  * - processScan(code) — Route scan per currentTab
  * - toggleBoxToBoxMode() — Aktifkan/nonaktifkan relokasi box berulang
- * - updateBoxToBoxIndicator() — Render box asal/tujuan dan status standby atau valid
+ * - updateBoxToBoxIndicator() — Render box asal/tujuan; pertahankan pasangan valid sampai scan box berikutnya
  * - getBoxToBoxItems() — Temukan part sumber berdasarkan kode box yang dinormalisasi
  * - confirmBoxToBoxYesToAll() — Setujui semua part dan lewati konfirmasi hingga mode B2B dimatikan
  * - handleOpnameScan()/handleOpnameRender() — Count per active box and render compact X/Y-filtered rows
@@ -257,7 +257,6 @@ function closeBoxToBoxModal() {
     const modal = document.getElementById('boxToBoxModal');
     if (modal) modal.style.display = 'none';
     boxToBoxPending = null;
-    updateBoxToBoxIndicator();
     document.getElementById('mainInput')?.focus();
 }
 

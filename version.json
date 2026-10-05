@@ -1,6 +1,6 @@
 {
-  "version": "1.3.0",
-  "updated": "2026-10-05T08:40:00Z",
-  "features": ["batch-sync", "cache-versioning", "qr-parser-refactor", "mobile-ui", "data-search", "centered-modals", "max-buzzer-gain", "opname-flow", "multi-scan-relocation", "active-box-opname-filter", "compact-opname-list", "local-first-sync", "manual-sync", "new-box-format", "persistent-box-to-box-mode", "box-to-box-status-indicator", "box-to-box-yes-to-all-session", "box-to-box-modal-mobile-fix", "box-to-box-source-target-state-flow", "box-to-box-source-validation"],
-  "notes": "Box to Box memvalidasi box asal terhadap data lokal sebelum menerima sumber, mencocokkan key lokasi tanpa membedakan kapital/spasi, serta memberi umpan balik bila box sumber kosong. Cache offline mencakup shell lokal dan dependency CDN secara best-effort"
+  "version": "1.3.1",
+  "updated": "2026-10-05T08:54:00Z",
+  "features": ["batch-sync", "cache-versioning", "qr-parser-refactor", "mobile-ui", "data-search", "centered-modals", "max-buzzer-gain", "opname-flow", "multi-scan-relocation", "active-box-opname-filter", "compact-opname-list", "local-first-sync", "manual-sync", "new-box-format", "persistent-box-to-box-mode", "box-to-box-status-indicator", "box-to-box-yes-to-all-session", "box-to-box-modal-mobile-fix", "box-to-box-source-target-state-flow", "box-to-box-source-validation", "box-to-box-completed-pair-indicator"],
+  "notes": "Status Box to Box tetap hijau dengan box asal/tujuan pasangan selesai; scan box berikutnya baru mereset tujuan ke standby oranye. Cache offline mencakup shell lokal dan dependency CDN secara best-effort"
 }
