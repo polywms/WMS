@@ -2,7 +2,7 @@
     Tujuan: Entry point UI untuk workflow WMS Magelang.
     Caller: Browser/PWA shell; event handlers diteruskan ke main.js dan core.js.
     Dependensi: css/style.css, Font Awesome, dan modul JavaScript di js/.
-    Main Functions: Menyediakan navigasi, scanner, indikator box-to-box di bawah scanner, konfirmasi perpindahan, kontrol import/export, dan sinkronisasi manual.
+    Main Functions: Menyediakan navigasi, scanner, indikator box asal/tujuan B2B di bawah scanner, konfirmasi perpindahan, kontrol import/export, dan sinkronisasi manual.
     Side Effects: Mengubah DOM, memicu scan, penyimpanan lokal, dan sinkronisasi cloud melalui handler.
 -->
 <!-- WMS Magelang - Entry point UI -->
@@ -164,7 +164,17 @@
             </div>
             <div id="boxToBoxStatus" role="status" aria-live="polite" style="display:none; align-items:center; gap:8px; margin:8px 12px; padding:8px 10px; border:1px solid #fdba74; border-radius:6px; background:#fff7ed; color:#9a3412; font-size:0.85rem; font-weight:600; overflow-wrap:anywhere;">
                 <i class="fas fa-exchange-alt" aria-hidden="true"></i>
-                <span id="boxToBoxStatusText">Scan box sumber</span>
+                <div style="display:flex; align-items:center; gap:8px; flex:1; min-width:0; flex-wrap:wrap;">
+                    <div style="display:flex; align-items:center; gap:6px; flex:1; min-width:110px; padding:6px 8px; border:1px solid #fdba74; border-radius:6px; background:white;">
+                        <span style="font-size:0.7rem; text-transform:uppercase;">Box asal</span>
+                        <strong id="boxToBoxSourceValue" style="overflow-wrap:anywhere;">Scan box asal</strong>
+                    </div>
+                    <i class="fas fa-arrow-right" aria-hidden="true"></i>
+                    <div id="boxToBoxTargetPanel" style="display:flex; align-items:center; gap:6px; flex:1; min-width:110px; padding:6px 8px; border:1px solid #fdba74; border-radius:6px; background:#ffedd5;">
+                        <span style="font-size:0.7rem; text-transform:uppercase;">Box tujuan</span>
+                        <strong id="boxToBoxTargetValue" style="overflow-wrap:anywhere;">Standby</strong>
+                    </div>
+                </div>
             </div>
                 
                 <div id="tab-simpan" class="tab-content active">

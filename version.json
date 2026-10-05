@@ -1,6 +1,6 @@
 {
-  "version": "1.2.8",
-  "updated": "2026-10-05T08:19:00Z",
-  "features": ["batch-sync", "cache-versioning", "qr-parser-refactor", "mobile-ui", "data-search", "centered-modals", "max-buzzer-gain", "opname-flow", "multi-scan-relocation", "active-box-opname-filter", "compact-opname-list", "local-first-sync", "manual-sync", "new-box-format", "persistent-box-to-box-mode", "box-to-box-status-indicator", "box-to-box-yes-to-all-session", "box-to-box-modal-mobile-fix"],
-  "notes": "Perbaikan modal Box to Box agar tombol Yes to All tetap terlihat dan dapat diklik pada layar kecil; status box asal/tujuan ditampilkan di bawah scanner. Cache offline mencakup shell lokal dan dependency CDN secara best-effort"
+  "version": "1.2.9",
+  "updated": "2026-10-05T08:31:00Z",
+  "features": ["batch-sync", "cache-versioning", "qr-parser-refactor", "mobile-ui", "data-search", "centered-modals", "max-buzzer-gain", "opname-flow", "multi-scan-relocation", "active-box-opname-filter", "compact-opname-list", "local-first-sync", "manual-sync", "new-box-format", "persistent-box-to-box-mode", "box-to-box-status-indicator", "box-to-box-yes-to-all-session", "box-to-box-modal-mobile-fix", "box-to-box-source-target-state-flow"],
+  "notes": "Mode Box to Box menampilkan kotak asal/tujuan; tujuan oranye saat standby/invalid, hijau saat valid, lalu kembali standby setelah pasangan selesai. Konfirmasi Yes to All berlaku sampai mode dimatikan. Cache offline mencakup shell lokal dan dependency CDN secara best-effort"
 }

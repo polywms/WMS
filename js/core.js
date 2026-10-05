@@ -18,8 +18,8 @@
  * Main Functions:
  * - processScan(code) — Route scan per currentTab
  * - toggleBoxToBoxMode() — Aktifkan/nonaktifkan relokasi box berulang
- * - updateBoxToBoxIndicator() — Render status box sumber/tujuan dan validitas tujuan
- * - confirmBoxToBoxYesToAll() — Setujui semua part dan aktifkan persetujuan otomatis per sesi
+ * - updateBoxToBoxIndicator() — Render box asal/tujuan dan status standby atau valid
+ * - confirmBoxToBoxYesToAll() — Setujui semua part dan lewati konfirmasi hingga mode B2B dimatikan
  * - handleOpnameScan()/handleOpnameRender() — Count per active box and render compact X/Y-filtered rows
  * - commitOpnameBox()/restoreOpnameSession() — Persist and resume box count sessions
  * - updateActivePartPanel(item) — Display part detail (location-only view)
@@ -217,8 +217,10 @@ function toggleBoxToBoxMode() {
 
 function updateBoxToBoxIndicator(sourceBox = null, targetBox = null, isValidTarget = false) {
     const indicator = document.getElementById('boxToBoxStatus');
-    const label = document.getElementById('boxToBoxStatusText');
-    if (!indicator || !label) return;
+    const sourceValue = document.getElementById('boxToBoxSourceValue');
+    const targetValue = document.getElementById('boxToBoxTargetValue');
+    const targetPanel = document.getElementById('boxToBoxTargetPanel');
+    if (!indicator || !sourceValue || !targetValue || !targetPanel) return;
 
     if (!boxToBoxModeActive) {
         indicator.style.display = 'none';
@@ -226,18 +228,20 @@ function updateBoxToBoxIndicator(sourceBox = null, targetBox = null, isValidTarg
     }
 
     indicator.style.display = 'flex';
-    label.innerText = sourceBox
-        ? `${sourceBox} > ${targetBox || 'Scan box tujuan'}`
-        : 'Scan box sumber';
+    sourceValue.innerText = sourceBox || 'Scan box asal';
+    targetValue.innerText = targetBox || 'Standby';
     indicator.style.background = isValidTarget ? '#f0fdf4' : '#fff7ed';
     indicator.style.borderColor = isValidTarget ? '#86efac' : '#fdba74';
     indicator.style.color = isValidTarget ? '#166534' : '#9a3412';
+    targetPanel.style.background = isValidTarget ? '#dcfce7' : '#ffedd5';
+    targetPanel.style.borderColor = isValidTarget ? '#86efac' : '#fdba74';
 }
 
 function closeBoxToBoxModal() {
     const modal = document.getElementById('boxToBoxModal');
     if (modal) modal.style.display = 'none';
     boxToBoxPending = null;
+    updateBoxToBoxIndicator();
     document.getElementById('mainInput')?.focus();
 }
 

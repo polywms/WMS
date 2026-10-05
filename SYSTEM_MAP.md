@@ -37,7 +37,7 @@ User Scan Code
   ↓
 handleInputKeyDown() [core.js]
   ↓
-(optional) Box-to-Box Merge Mode [core.js] — scan box sumber lalu box tujuan untuk menggabungkan lokasi tanpa overwrite data lama; indikator status oranye/hijau selalu ditampilkan di bawah scanner bar; Yes to All menggabungkan semua part dan menyetujui pasangan berikutnya sampai mode dimatikan
+(optional) Box-to-Box Merge Mode [core.js] — saat aktif tampilkan box asal dan tujuan di bawah scanner; tujuan oranye saat standby/invalid dan hijau setelah scan tujuan valid; pasangan box yang valid meminta konfirmasi pertama kali, lalu Yes to All melewati konfirmasi untuk pasangan berikutnya hingga mode dimatikan; setelah tiap pasangan selesai, indikator kembali standby untuk box asal berikutnya
   ↓
 processScan(code) [core.js] — Parse & route per tab
   ↓
