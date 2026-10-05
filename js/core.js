@@ -19,6 +19,7 @@
  * - processScan(code) — Route scan per currentTab
  * - toggleBoxToBoxMode() — Aktifkan/nonaktifkan relokasi box berulang
  * - updateBoxToBoxIndicator() — Render box asal/tujuan dan status standby atau valid
+ * - getBoxToBoxItems() — Temukan part sumber berdasarkan kode box yang dinormalisasi
  * - confirmBoxToBoxYesToAll() — Setujui semua part dan lewati konfirmasi hingga mode B2B dimatikan
  * - handleOpnameScan()/handleOpnameRender() — Count per active box and render compact X/Y-filtered rows
  * - commitOpnameBox()/restoreOpnameSession() — Persist and resume box count sessions
@@ -237,6 +238,21 @@ function updateBoxToBoxIndicator(sourceBox = null, targetBox = null, isValidTarg
     targetPanel.style.borderColor = isValidTarget ? '#86efac' : '#fdba74';
 }
 
+function getBoxToBoxLocationKey(locations, boxCode) {
+    const normalizedBox = boxCode.trim().toUpperCase();
+    return Object.keys(locations || {}).find(location =>
+        location.trim().toUpperCase() === normalizedBox
+    );
+}
+
+function getBoxToBoxItems(sourceBox) {
+    return localItems.filter(item => {
+        if (!item || !item.locations) return false;
+        const locationKey = getBoxToBoxLocationKey(item.locations, sourceBox);
+        return locationKey !== undefined && Boolean(item.locations[locationKey]);
+    });
+}
+
 function closeBoxToBoxModal() {
     const modal = document.getElementById('boxToBoxModal');
     if (modal) modal.style.display = 'none';
@@ -252,7 +268,7 @@ function showBoxToBoxSelectionModal(sourceBox, targetBox) {
         return;
     }
 
-    const affectedItems = localItems.filter(item => item && item.locations && item.locations[sourceBox]);
+    const affectedItems = getBoxToBoxItems(sourceBox);
     if (affectedItems.length === 0) {
         feedback('warning');
         showToast(`Tidak ada data pada ${sourceBox} untuk dipindah.`);
@@ -279,13 +295,17 @@ function applyBoxToBoxSelection(sourceBox, targetBox, selectedItems, isYesToAll 
     let affectedCount = 0;
 
     selectedItems.forEach(item => {
-        if (!item || !item.locations || !item.locations[sourceBox]) return;
+        if (!item || !item.locations) return;
+
+        const sourceLocationKey = getBoxToBoxLocationKey(item.locations, sourceBox);
+        if (sourceLocationKey === undefined || !item.locations[sourceLocationKey]) return;
 
         const oldLocations = JSON.parse(JSON.stringify(item.locations));
-        if (!item.locations[targetBox]) {
-            item.locations[targetBox] = item.locations[sourceBox];
+        const targetLocationKey = getBoxToBoxLocationKey(item.locations, targetBox);
+        if (targetLocationKey === undefined) {
+            item.locations[targetBox] = item.locations[sourceLocationKey];
         }
-        delete item.locations[sourceBox];
+        delete item.locations[sourceLocationKey];
         item.lastBox = targetBox;
 
         if (JSON.stringify(item.locations) !== JSON.stringify(oldLocations)) {
@@ -321,7 +341,7 @@ function confirmBoxToBoxYesToAll() {
 
     boxToBoxYesToAll = true;
     const { sourceBox, targetBox } = boxToBoxPending;
-    const allSourceItems = localItems.filter(item => item && item.locations && item.locations[sourceBox]);
+    const allSourceItems = getBoxToBoxItems(sourceBox);
     applyBoxToBoxSelection(sourceBox, targetBox, allSourceItems, true);
 }
 
@@ -504,22 +524,30 @@ if (currentTab === 'packing') {
     if (boxToBoxModeActive && currentTab === 'simpan' && isBox) {
         const normalizedBox = parsedCode.toUpperCase();
         if (!boxToBoxSourceBox) {
+            const sourceItems = getBoxToBoxItems(normalizedBox);
+            if (sourceItems.length === 0) {
+                updateBoxToBoxIndicator(normalizedBox);
+                feedback('warning');
+                showToast(`Tidak ada part pada box asal ${normalizedBox}. Pilih box yang memiliki data.`);
+                return;
+            }
+
             boxToBoxSourceBox = normalizedBox;
             updateBoxToBoxIndicator(normalizedBox);
             feedback('scan');
-            showToast(`Box sumber: ${normalizedBox}`);
+            showToast(`Box sumber: ${normalizedBox} (${sourceItems.length} part)`);
             return;
         }
 
         const sourceBox = boxToBoxSourceBox;
         const targetBox = normalizedBox;
-        const sourceHasItems = localItems.some(item => item && item.locations && item.locations[sourceBox]);
-        if (sourceBox === targetBox || !sourceHasItems) {
+        const sourceItems = getBoxToBoxItems(sourceBox);
+        if (sourceBox.trim().toUpperCase() === targetBox.trim().toUpperCase() || sourceItems.length === 0) {
             updateBoxToBoxIndicator(sourceBox, targetBox);
             feedback('warning');
-            showToast(sourceBox === targetBox
+            showToast(sourceBox.trim().toUpperCase() === targetBox.trim().toUpperCase()
                 ? 'Box sumber dan tujuan harus berbeda.'
-                : `Tidak ada data pada ${sourceBox} untuk dipindah.`);
+                : `Tidak ada part pada box asal ${sourceBox}. Pilih ulang box asal yang memiliki data.`);
             return;
         }
 
@@ -527,8 +555,7 @@ if (currentTab === 'packing') {
         updateBoxToBoxIndicator(sourceBox, targetBox, true);
 
         if (boxToBoxYesToAll) {
-            const allSourceItems = localItems.filter(item => item && item.locations && item.locations[sourceBox]);
-            applyBoxToBoxSelection(sourceBox, targetBox, allSourceItems, true);
+            applyBoxToBoxSelection(sourceBox, targetBox, sourceItems, true);
             return;
         }
 
