@@ -57,7 +57,7 @@ saveDB(item) [database.js] — Write to IndexedDB immediately + persist sync que
   ↓
 renderSimpanList() [core.js] — Update UI
   ↓
-processSyncQueue() [database.js] — Background/manual POST to Google Sheets; retry while offline
+User opens sync dialog → Upload to server [database.js] — POST queued records only
 ```
 
 ### Flow 2: Opname (Inventory Check)
@@ -91,7 +91,7 @@ Manual qty edits in `editLocsList` update location and saved OPNAME count/sessio
   ↓
 Reset current box → set its saved X to 0; preserve locations and box membership
   ↓
-Each scan/correction → saveDBBatch() for that part → IndexedDB + sync queue
+Each scan/correction → saveDBBatch() for that part → IndexedDB + persistent upload queue (no automatic cloud request)
   ↓
 After switching boxes and selecting a previously saved box, X is restored from its saved opnameCounts value
 ```
@@ -112,7 +112,7 @@ Check: QR not duplicate scanned
   ↓
 offBsSession.unshift() → localStorage (immediate local operation)
   ↓
-triggerOffBsSync() [database.js] → Background/manual POST to Cloud when online
+Pending OFF BS data stays local; cloud menus are disabled and this workflow does not auto-upload
 ```
 
 ### Flow 4: Multi-Scan (Buffer Mode)
@@ -152,7 +152,7 @@ IF found: Remove from OFF BS (cut)
   ↓
 packingSession.unshift({...}) + save to localStorage (immediate local operation)
   ↓
-triggerPackingSync() → Background/manual POST to Google Sheets when online
+Cloud upload does not run automatically; this menu is currently disabled
   ↓
 Render packed items in colly
 ```
@@ -182,11 +182,11 @@ Keep the committed count in `item.opnameCounts[box]`; never alter location membe
   ↓
 Write IndexedDB immediately; persist item-by-id syncQueue and syncLogs locally
   ↓
-[On startup] Load IndexedDB first; refresh from cloud in background without replacing pending local edits
+[On startup] Load IndexedDB only; no cloud fetch occurs
   ↓
-[Every 30 sec, on reconnect, or manual cloud-arrow-up button] autoSyncWithCloud()
+[On explicit Upload action] processSyncQueue()
   ↓
-Retry master, OFF BS, and PACKING queues; retain local data if request fails
+Upload master queue in batches; retain local data and pending queue if request fails
   ↓
 BATCH LOOP: slice syncQueue into 100-item chunks
   ↓
@@ -286,20 +286,20 @@ WMS/
 
 ### [database.js](js/database.js)
 **Fungsi Publik Utama**:
-- `initDB()` — Buka IndexedDB, tampilkan data lokal dulu, lalu refresh cloud di latar
+- `initDB()` — Buka IndexedDB dan tampilkan data lokal tanpa request cloud
 - `loadDataFromLocal()` — Read all items dari IndexedDB → localItems
-- `saveDB(item, actionName, actionDetail)` — Write item ke IndexedDB + queue sync
-- `saveDBBatch(items, actionName, actionDetail)` — Atomically write related items and then update the sync queue
-- `processSyncQueue()` — POST queued items ke Google Sheets
-- `autoSyncWithCloud(force)` / `window.manualSync()` — Retry master, OFF BS, dan PACKING otomatis/manual
-- `fetchInitialDataFromCloud()` — Fetch data dari Google Sheets di awal
-- `triggerOffBsSync()` — Sync off BS session ke cloud
+- `saveDB(item, actionName, actionDetail)` — Write item ke IndexedDB + persistent manual-upload queue
+- `saveDBBatch(items, actionName, actionDetail)` — Atomically write related items and then update the upload queue
+- `processSyncQueue()` — POST queued items only when `uploadToServer()` is explicitly requested
+- `uploadToServer()` — Upload pending master records from the sync dialog
+- `downloadFromServer()` — GET and merge cloud records without deleting local-only or pending data
+- `window.manualSync()` — Open the manual Upload/Download dialog
 
 **Peran**: Semua operasi data persistence dan cloud sync; jantung database layer  
 **Caller**: main.js (initDB), core.js (saveDB), UI handlers  
 **Dependensi**: config.js (localItems, syncQueue), API_URL (Google Sheets)  
-**Side Effects**: IndexedDB read/write, POST/GET HTTP requests, localStorage setItem
-**Sync Status**: `autoSyncWithCloud()` aggregates all upload/download results and reports partial failures without marking the workflow synchronized.
+**Side Effects**: IndexedDB read/write, user-triggered POST/GET HTTP requests, localStorage setItem
+**Sync Status**: No startup fetch, timer, or online-event retry; cloud operations run only from explicit dialog actions.
 
 ---
 
@@ -388,7 +388,7 @@ WMS/
 - `mergeDataFast(sheet, incomingItems)` — Merge logic untuk avoid duplicates
 
 **Peran**: Backend server logic; data persist ke Google Sheets; deduplication  
-**Caller**: database.js (fetch, processSyncQueue, triggerOffBsSync)  
+**Caller**: database.js (manual `downloadFromServer()` and `processSyncQueue()`)
 **Sheets Used**:
 - `DB_MASTER` — Master item data (id, partNo, desc, locType, techName, sysQty, locations JSON, labelIssues JSON, opnameCounts JSON in column J)
 - `LOG_SCAN` — Audit log (partNo, action, detail, timestamp)
@@ -539,9 +539,9 @@ Item {
 - `wms_off_bs`: Off BS session (JSON array)
 - `darkMode`: Dark mode toggle (boolean string)
 
-**Sync Queue (Memory)**:
+**Sync Queue (Memory + localStorage)**:
 ```javascript
-syncQueue: Item[]              // Items pending sync
+syncQueue: Item[]              // Items pending manual upload; survives refresh
 syncLogs: Log[] = [
   { partNo, action: "UPDATE"|"CREATE", detail, timestamp }
 ]
@@ -560,9 +560,8 @@ Not found — Pure client-side app; no server-side artifacts.
 ### Google Sheets API (code.gs Macro)
 **Service**: `https://script.google.com/macros/s/AKfycbxDQBLQEyIaNwQsA2Ubs4KDhFI5v7aNs4pfrs_e8MDmVGwj1zuwHWoCMiGuB27flOsS/exec`  
 **Caller Modules**: database.js:
-- `fetchInitialDataFromCloud()` — GET data awal (doGet endpoint)
+- `downloadFromServer()` — GET data only after explicit user action; merges without clearing local-only records or pending queue
 - `processSyncQueue()` — POST items & logs untuk sync (doPost:action=sync)
-- `triggerOffBsSync()` — POST off BS session (doPost:action=sync_off_bs)
 - `handleImport()` in excel.js — POST bulk import (doPost:action=bulk_import)
 
 **HTTP Methods**:
@@ -620,10 +619,16 @@ Not found — Pure client-side app; no server-side artifacts.
 - `LOG_SCAN` — Audit log (partNo, action, detail, timestamp) — appended on every sync
 - `TEMP_OFF_BS` — Off-balance-sheet staging (auto-appended, no delete on client side)
 
+**Sync Policy**:
+- No cloud request runs automatically on startup, timer, or `online` event.
+- The header sync button opens a dialog with separate manual upload and download actions.
+- Upload removes acknowledged records from the pending queue but keeps inventory in IndexedDB and local scan/session data.
+- Download is an upsert merge: local-only records and pending upload records are preserved; newer local records win timestamp conflicts.
+
 **Error Handling**:
-- Network error → Keep queue in syncQueue, retry next cycle
+- Network error → Keep queue in syncQueue for the next manual upload
 - API error (400, 500) → Show error toast, log to console
-- Offline (navigator.onLine === false) → Skip sync, keep queue, show offline indicator
+- Offline (navigator.onLine === false) → Keep queue, show offline indicator; no automatic retry
 
 ---
 
@@ -814,6 +819,8 @@ XLSX.writeFile(wb, "filename.xlsx");
 
 
 - ✅ **Data Persistence on Refresh**: syncQueue & syncLogs now persisted to localStorage, survive page refresh
+- ✅ Cloud sync is manual-only: no startup download, periodic upload, or online-event retry
+- ✅ Header dialog provides separate Upload/Download actions; cloud download upserts and preserves local-only/pending/newer records
 - ✅ **Qty Overflow Protection**: Added check in SIMPAN tab to prevent scanning more than sysQty (matches OFF BS logic)
 - ✅ **Opname Count Flow**: Box selection displays all filtered stock items; every part QR increments X by one, X/Y compares session count to sysQty, and SELISIH/BELUM use that same X. SELESAI replaces per-box quantities with the counted result.
 - ✅ **Multi-Scan Logic Fixed**: isMultiScan check in processScan() now routes correctly to processMultiBatchMove

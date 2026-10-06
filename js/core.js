@@ -46,7 +46,7 @@
  * - DOM update (#simpanList, #activePartDetailsPanel)
  * - localStorage read (currentTab)
  * - IndexedDB writes via saveDB()/saveDBBatch() (SIMPAN locations, per-scan OPNAME counts)
- * - Google Sheets sync via processSyncQueue()
+ * - Google Sheets upload is started explicitly from the sync dialog in database.js
  * - Recent OPNAME scan list persisted in localStorage; authoritative per-box counts update IndexedDB immediately
  * 
  * Recent Changes (2026-05-23):
@@ -458,7 +458,6 @@ if (currentTab === 'packing') {
 
         localStorage.setItem('wms_packing', JSON.stringify(packingSession));
         renderPackingList();
-        triggerPackingSync();
         addHistoryLog(partNo, activeColly);
         
         feedback('success');
@@ -519,7 +518,6 @@ if (currentTab === 'packing') {
 
         localStorage.setItem('wms_off_bs', JSON.stringify(offBsSession));
         if(typeof renderOffBsList === 'function') renderOffBsList();
-        if(typeof triggerOffBsSync === 'function') triggerOffBsSync();
         addHistoryLog(partNo, activeOffBsBox);
         
         feedback('success'); showToast(`${partNo} (${scanQty} pcs) tersimpan!`);

@@ -26,12 +26,24 @@
         <header>
             <h1>𝄃𝄃𝄂𝄂 WMS Magelang</h1>
             <div style="display:flex; align-items:center; gap:10px;">
-                <button type="button" class="icon-only" onclick="manualSync()" title="Sinkronkan sekarang" aria-label="Sinkronkan sekarang" style="width:30px; height:30px; display:grid; place-items:center; border:0; border-radius:50%; background:rgba(0,0,0,0.2); color:white; cursor:pointer;">
-                    <i class="fas fa-cloud-arrow-up" aria-hidden="true"></i>
+                <button type="button" class="icon-only" onclick="manualSync()" title="Pilihan sinkronisasi" aria-label="Pilihan sinkronisasi" style="width:30px; height:30px; display:grid; place-items:center; border:0; border-radius:50%; background:rgba(0,0,0,0.2); color:white; cursor:pointer;">
+                    <i class="fas fa-cloud" aria-hidden="true"></i>
                 </button>
                 <span id="syncStatus" style="font-size:0.75rem; background:rgba(0,0,0,0.2); padding:3px 8px; border-radius:10px; display: flex; align-items: center; gap: 4px;"><i class="fas fa-circle" style="color: #22c55e; font-size: 0.6rem;"></i><span style="font-size:0.7rem;">Online</span></span>
             </div>
         </header>
+
+        <div class="overlay" id="syncModal" role="dialog" aria-modal="true" aria-labelledby="syncModalTitle" style="display:none; z-index:1300;">
+            <div class="modal sync-modal">
+                <div class="sync-modal-header" style="display:flex; justify-content:space-between; align-items:center;">
+                    <h3 id="syncModalTitle"><i class="fas fa-cloud"></i> Sinkronisasi Manual</h3>
+                    <button type="button" class="icon-only" onclick="closeSyncModal()" aria-label="Tutup pilihan sinkronisasi"><i class="fas fa-times"></i></button>
+                </div>
+                <p class="sync-modal-note" style="line-height:1.5; color:var(--secondary);">Data tetap disimpan di perangkat. Pilih tindakan; download tidak menghapus data lokal atau antrean upload.</p>
+                <button type="button" class="btn btn-primary" onclick="uploadToServer()"><i class="fas fa-cloud-arrow-up"></i> Upload ke server</button>
+                <button type="button" class="btn btn-outline" onclick="downloadFromServer()"><i class="fas fa-cloud-arrow-down"></i> Download dari server</button>
+            </div>
+        </div>
 
         <!-- Bottom navigation is the single navigation surface for all tabs. -->
         <nav class="bottom-nav" aria-label="Navigasi utama">

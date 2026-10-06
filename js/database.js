@@ -1,8 +1,8 @@
 /*
- * Tujuan: Persistensi IndexedDB dan sinkronisasi latar dengan Google Sheets.
+ * Tujuan: Persistensi IndexedDB dan sinkronisasi manual dengan Google Sheets.
  * Caller: main.js, core.js, dan handler kontrol sinkronisasi di index.html.
  * Dependensi: config.js (db, antrean, sesi), IndexedDB, API_URL.
- * Main Functions: initDB(), loadDataFromLocal(), saveDB(), saveDBBatch(), processSyncQueue(), autoSyncWithCloud().
+ * Main Functions: initDB(), loadDataFromLocal(), saveDB(), saveDBBatch(), uploadToServer(), downloadFromServer().
  * Side Effects: Membaca/menulis IndexedDB dan localStorage, mengirim HTTP request.
  */
 // js/database.js
@@ -27,7 +27,6 @@ function initDB() {
             db = e.target.result; 
             await loadDataFromLocal();
             resolve();
-            fetchInitialDataFromCloud();
         };
     });
 }
@@ -55,9 +54,18 @@ function loadDataFromLocal() {
     });
 }
 
-async function fetchInitialDataFromCloud() {
-    if (!navigator.onLine) { updateSyncUI('<i class="fas fa-circle" style="color: #ef4444; font-size: 0.6rem; margin-right: 4px;"></i> Offline (Data Lokal)'); return; }
-    updateSyncUI('<i class="fas fa-spinner fa-spin"></i> Menghubungkan ke Database...');
+async function downloadFromServer() {
+    if (!navigator.onLine) {
+        updateSyncUI('<i class="fas fa-circle" style="color: #ef4444; font-size: 0.6rem; margin-right: 4px;"></i> Offline; data lokal aman');
+        showToast('Tidak ada koneksi. Data lokal tetap tersimpan.');
+        return false;
+    }
+    if (isSyncing || isCloudSyncing) {
+        showToast('Sinkronisasi sedang berjalan. Tunggu hingga selesai.');
+        return false;
+    }
+    isCloudSyncing = true;
+    updateSyncUI('<i class="fas fa-spinner fa-spin"></i> Mengunduh data...');
     let timeoutId;
     try {
         const controller = new AbortController();
@@ -65,43 +73,64 @@ async function fetchInitialDataFromCloud() {
         const response = await fetch(API_URL, { redirect: "follow", signal: controller.signal });
         clearTimeout(timeoutId);
         if (!response.ok) throw new Error(`Cloud returned ${response.status}`);
-        updateSyncUI('<i class="fas fa-spinner fa-spin"></i> Menerima Data...');
         const result = await response.json();
-        
-        if (result.status === "success") {
-            if (result.data && Array.isArray(result.data)) {
-                if (result.data.length > 0) {
-                    updateSyncUI(`<i class="fas fa-spinner fa-spin"></i> Memproses ${result.data.length} Item...`);
-                    const tx = db.transaction('items', 'readwrite');
-                    const store = tx.objectStore('items');
-                    const localRequest = store.getAll();
-                    tx.oncomplete = async () => {
-                        await loadDataFromLocal();
-                        updateSyncUI('<i class="fas fa-circle" style="color: #22c55e; font-size: 0.6rem; margin-right: 4px;"></i> Lokal diperbarui');
-                        setTimeout(() => updateSyncUI('<i class="fas fa-circle" style="color: #22c55e; font-size: 0.6rem; margin-right: 4px;"></i> Online'), 3000);
-                    };
-                    localRequest.onsuccess = () => {
-                        const pendingIds = new Set(syncQueue.map(item => item.id));
-                        const localById = new Map(localRequest.result.map(item => [item.id, item]));
-                        result.data.forEach(item => {
-                            if (pendingIds.has(item.id)) return;
-                            const localItem = localById.get(item.id);
-                            if ((!item.opnameCounts || Object.keys(item.opnameCounts).length === 0)
-                                && localItem?.opnameCounts
-                                && Object.keys(localItem.opnameCounts).length > 0) {
-                                item.opnameCounts = localItem.opnameCounts;
-                            }
-                            store.put(item);
-                        });
-                    };
-                } else {
-                    updateSyncUI('<i class="fas fa-circle" style="color: #22c55e; font-size: 0.6rem; margin-right: 4px;"></i> Cloud kosong; data lokal dipertahankan');
+        if (result.status !== 'success' || !Array.isArray(result.data)) {
+            throw new Error(result.message || 'Respons data cloud tidak valid.');
+        }
+
+        const localRecords = await new Promise((resolve, reject) => {
+            const request = db.transaction('items', 'readonly').objectStore('items').getAll();
+            request.onsuccess = () => resolve(request.result || []);
+            request.onerror = () => reject(request.error || new Error('Gagal membaca data lokal.'));
+        });
+        const localById = new Map(localRecords.map(item => [item.id, item]));
+        const pendingIds = new Set(syncQueue.map(item => item.id));
+        const mergedItems = result.data
+            .filter(item => item && item.id !== undefined && item.id !== null && !pendingIds.has(item.id))
+            .map(cloudItem => {
+                const localItem = localById.get(cloudItem.id) || {};
+                const localUpdatedAt = Number(localItem.updated_at) || Date.parse(localItem.updated_at) || 0;
+                const cloudUpdatedAt = Number(cloudItem.updated_at) || Date.parse(cloudItem.updated_at) || 0;
+                if (localUpdatedAt > cloudUpdatedAt) return localItem;
+                const merged = { ...localItem, ...cloudItem };
+                if ((!cloudItem.opnameCounts || Object.keys(cloudItem.opnameCounts).length === 0)
+                    && localItem.opnameCounts
+                    && Object.keys(localItem.opnameCounts).length > 0) {
+                    merged.opnameCounts = localItem.opnameCounts;
                 }
-            } else { updateSyncUI('<i class="fas fa-times-circle"></i> Gagal (Data Rusak)'); }
-         } else { updateSyncUI('<i class="fas fa-times-circle"></i> Gagal (Error Script)'); }
+                return merged;
+            });
+
+        if (mergedItems.length > 0) {
+            await new Promise((resolve, reject) => {
+                let tx;
+                try {
+                    tx = db.transaction('items', 'readwrite');
+                    const store = tx.objectStore('items');
+                    mergedItems.forEach(item => store.put(item));
+                } catch (error) {
+                    reject(error);
+                    return;
+                }
+                tx.oncomplete = resolve;
+                tx.onerror = () => reject(tx.error || new Error('Gagal menyimpan hasil download.'));
+                tx.onabort = () => reject(tx.error || new Error('Download lokal dibatalkan.'));
+            });
+            await loadDataFromLocal();
+        }
+        updateSyncUI(`<i class="fas fa-check-circle"></i> Download selesai; ${mergedItems.length} data digabung, data lokal dipertahankan`);
+        showToast(`Download selesai: ${mergedItems.length} data digabung. Data lokal dan antrean pending tidak dihapus.`);
+        return true;
     } catch (error) {
         if (timeoutId) clearTimeout(timeoutId);
-        if (error.name === 'AbortError') updateSyncUI('<i class="fas fa-times-circle"></i> Timeout; data lokal aktif'); else updateSyncUI('<i class="fas fa-times-circle"></i> Offline; data lokal aktif');
+        console.error('Download data cloud gagal:', error);
+        updateSyncUI(error.name === 'AbortError'
+            ? '<i class="fas fa-times-circle"></i> Download timeout; data lokal aman'
+            : '<i class="fas fa-times-circle"></i> Download gagal; data lokal aman');
+        showToast(`Download gagal: ${error.message}. Data lokal tidak dihapus.`);
+        return false;
+    } finally {
+        isCloudSyncing = false;
     }
 }
 
@@ -120,7 +149,7 @@ function saveDB(item, actionName = "UPDATE", actionDetail = "") {
     // Persist logs to localStorage (keep only last 100 logs to avoid overflow)
     localStorage.setItem('wms_syncLogs', JSON.stringify(syncLogs.slice(-100)));
     if (syncQueue.length > MAX_QUEUE_SIZE) updateSyncUI('<i class="fas fa-exclamation-triangle"></i> Lokal tersimpan; antrean sync panjang');
-    else updateSyncUI('<i class="fas fa-spinner fa-spin"></i> Tersimpan lokal; menunggu sync');
+    else updateSyncUI('<i class="fas fa-spinner fa-spin"></i> Tersimpan lokal; menunggu upload manual');
 }
 
 function saveDBBatch(items, actionName = "UPDATE", actionDetail = "") {
@@ -156,7 +185,7 @@ function saveDBBatch(items, actionName = "UPDATE", actionDetail = "") {
                 localStorage.setItem('wms_syncQueue', JSON.stringify(syncQueue));
                 localStorage.setItem('wms_syncLogs', JSON.stringify(syncLogs));
                 if (syncQueue.length > MAX_QUEUE_SIZE) updateSyncUI('<i class="fas fa-exclamation-triangle"></i> Lokal tersimpan; antrean sync panjang');
-                else updateSyncUI('<i class="fas fa-spinner fa-spin"></i> Tersimpan lokal; menunggu sync');
+                else updateSyncUI('<i class="fas fa-spinner fa-spin"></i> Tersimpan lokal; menunggu upload manual');
                 resolve(records);
             } catch (error) {
                 console.error('IndexedDB batch tersimpan, tetapi antrean sync gagal dipersist:', error);
@@ -208,9 +237,8 @@ updateSyncUI(`<i class="fas fa-sync"></i> Syncing (Batch ${batchNum})...`);
         
         if (syncQueue.length === 0) {
             syncLogs = syncLogs.slice(-100); // Keep only last 100 logs
-            // Clear persisted queues on success
-            localStorage.removeItem('wms_syncQueue');
-            localStorage.removeItem('wms_syncLogs');
+            localStorage.setItem('wms_syncQueue', JSON.stringify(syncQueue));
+            localStorage.setItem('wms_syncLogs', JSON.stringify(syncLogs));
             updateSyncUI('<i class="fas fa-check-circle"></i> Tersimpan');
         }
         return true;
@@ -224,26 +252,6 @@ updateSyncUI(`<i class="fas fa-sync"></i> Syncing (Batch ${batchNum})...`);
     } finally { 
         isSyncing = false; 
     }
-}
-
-async function triggerOffBsSync() {
-    if (!navigator.onLine || isSyncing || typeof offBsSession === 'undefined') return false;
-    const unsyncedData = offBsSession.filter(i => !i.synced); if (unsyncedData.length === 0) return; 
-     isSyncing = true; updateSyncUI('<i class="fas fa-sync"></i> Syncing OFF BS...');
-    try {
-        const response = await fetch(API_URL, { method: "POST", redirect: "follow", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ action: "sync_off_bs", data: unsyncedData }) });
-        if (!response.ok) throw new Error(`Cloud returned ${response.status}`);
-        const result = await response.json();
-        if (result.status === "success") {
-            unsyncedData.forEach(u => u.synced = true); localStorage.setItem('wms_off_bs', JSON.stringify(offBsSession));
-             updateSyncUI('<i class="fas fa-check-circle"></i> OFF BS Tersimpan');
-            if(currentTab === 'offbs') renderOffBsList(); 
-             if (result.duplicates > 0) alert(`PERINGATAN SINKRONISASI!\n\n${result.duplicates} data ditolak oleh Cloud karena part dan dokumen sudah masuk Database sebelumnya.\n\nPart ditolak:\n${result.duplicateParts.join(', ')}`);
-            return true;
-         }
-        updateSyncUI('<i class="fas fa-times-circle"></i> Gagal Sync OFF BS');
-        return false;
-     } catch (err) { updateSyncUI('<i class="fas fa-circle" style="color: #ef4444; font-size: 0.6rem; margin-right: 4px;"></i> Offline; data lokal aman'); return false; } finally { isSyncing = false; }
 }
 
 async function fetchCloudOffBs() {
@@ -664,23 +672,6 @@ window.clearPackingSession = function() {
     }
 };
 
-window.triggerPackingSync = async function() {
-    if (!navigator.onLine || isSyncing || typeof packingSession === 'undefined') return false;
-    const unsyncedData = packingSession.filter(i => !i.synced); if (unsyncedData.length === 0) return true;
-    isSyncing = true;
-    try {
-        const response = await fetch(API_URL, { method: "POST", redirect: "follow", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ action: "sync_packing", data: unsyncedData }) });
-        if (!response.ok) throw new Error(`Cloud returned ${response.status}`);
-        const result = await response.json();
-        if (result.status === "success") {
-            unsyncedData.forEach(u => u.synced = true); localStorage.setItem('wms_packing', JSON.stringify(packingSession));
-            if(currentTab === 'packing') renderPackingList();
-            return true;
-        }
-        return false;
-    } catch (err) { console.error(err); return false; }
-    finally { isSyncing = false; }
-};
 // ===== OFF BS FUNCTIONS - Fix Reset Button =====
 window.clearOffBsBox = function() {
     activeOffBsBox = null;
@@ -720,46 +711,38 @@ function updateFavicon(syncing) {
 }
 
 // Two-way sync: fetch cloud data and merge with local
-async function autoSyncWithCloud(force = false) {
-    if (!navigator.onLine || isSyncing || isCloudSyncing || (!force && Date.now() - lastSyncTime < AUTO_SYNC_INTERVAL)) return false;
-    
+async function uploadToServer() {
+    if (!navigator.onLine) {
+        updateSyncUI('<i class="fas fa-circle" style="color: #ef4444; font-size: 0.6rem; margin-right: 4px;"></i> Offline; data lokal aman');
+        showToast('Tidak ada koneksi. Data lokal tetap tersimpan dan antrean upload menunggu.');
+        return false;
+    }
+    if (isSyncing || isCloudSyncing) {
+        showToast('Sinkronisasi sedang berjalan. Tunggu hingga selesai.');
+        return false;
+    }
+    if (syncQueue.length === 0) {
+        updateSyncUI('<i class="fas fa-check-circle"></i> Tidak ada antrean upload');
+        showToast('Tidak ada data lokal yang menunggu upload.');
+        return true;
+    }
+
     isCloudSyncing = true;
-    lastSyncTime = Date.now();
-    updateFavicon(true); // Show upload indicator
-    
+    updateFavicon(true);
     try {
-        let syncFailed = false;
-
-        // 1. Upload pending local changes
-        if (syncQueue.length > 0) {
-            if (!await processSyncQueue()) syncFailed = true;
+        const success = await processSyncQueue();
+        if (success) {
+            updateSyncUI('<i class="fas fa-check-circle"></i> Upload berhasil');
+            showToast('Upload data lokal ke server berhasil.');
+        } else {
+            updateSyncUI('<i class="fas fa-times-circle"></i> Upload gagal; data lokal aman');
+            showToast('Upload gagal. Data lokal dan antrean tetap tersimpan untuk dicoba lagi.');
         }
-
-        if (await triggerOffBsSync() === false) syncFailed = true;
-        if (await triggerPackingSync() === false) syncFailed = true;
-        
-        // 2. Download and merge OFF BS data
-        if (typeof offBsSession !== 'undefined') {
-            if (!await autoSyncOffBsWithCloud()) syncFailed = true;
-        }
-        
-        // 3. Download and merge PACKING data
-        if (typeof packingSession !== 'undefined') {
-            if (!await autoSyncPackingWithCloud()) syncFailed = true;
-        }
-        
-        const pendingCount = syncQueue.length + offBsSession.filter(item => !item.synced).length + packingSession.filter(item => !item.synced).length;
-        if (syncFailed) {
-            updateSyncUI('Sync gagal sebagian; data lokal aman');
-            return false;
-        }
-        updateSyncUI(pendingCount
-            ? `<i class="fas fa-clock"></i> ${pendingCount} menunggu sync; tersimpan lokal`
-            : '<i class="fas fa-check-circle"></i> Tersinkron');
-        return pendingCount === 0;
+        return success;
     } catch (error) {
-        console.error('Auto-sync error:', error);
-        updateSyncUI('<i class="fas fa-times-circle"></i> Sync gagal; data lokal aman');
+        console.error('Upload data lokal gagal:', error);
+        updateSyncUI('<i class="fas fa-times-circle"></i> Upload gagal; data lokal aman');
+        showToast(`Upload gagal: ${error.message}. Data lokal tidak dihapus.`);
         return false;
     } finally {
         isCloudSyncing = false;
@@ -767,96 +750,13 @@ async function autoSyncWithCloud(force = false) {
     }
 }
 
-window.manualSync = async function() {
-    if (!navigator.onLine) {
-        updateSyncUI('<i class="fas fa-circle" style="color: #ef4444; font-size: 0.6rem; margin-right: 4px;"></i> Offline; data lokal aman');
-        return false;
-    }
-    return autoSyncWithCloud(true);
+window.manualSync = function() {
+    document.getElementById('syncModal').style.display = 'flex';
 };
+window.closeSyncModal = function() {
+    document.getElementById('syncModal').style.display = 'none';
+};
+window.uploadToServer = uploadToServer;
+window.downloadFromServer = downloadFromServer;
 
-// Auto-sync OFF BS: fetch from cloud, merge locally, auto-delete if missing in cloud
-async function autoSyncOffBsWithCloud() {
-    try {
-        const response = await fetch(API_URL, {
-            method: "POST",
-            headers: { "Content-Type": "text/plain;charset=utf-8" },
-            body: JSON.stringify({ action: "get_cloud_off_bs" })
-        });
-        if (!response.ok) throw new Error(`Cloud returned ${response.status}`);
-        const result = await response.json();
-        if (result.status !== "success" || !Array.isArray(result.data)) {
-            throw new Error('Invalid OFF BS response');
-        }
-        
-        const cloudData = result.data;
-        const cloudSignatures = new Set(cloudData.map(item => (item.qr || "") + "_" + item.partNo));
-        
-        // Auto-delete local items that were deleted in cloud
-        const beforeCount = offBsSession.length;
-        offBsSession = offBsSession.filter(local => {
-            const sig = (local.qr || "") + "_" + local.partNo;
-            return !local.synced || cloudSignatures.has(sig);
-        });
-        
-        if (offBsSession.length < beforeCount) {
-            localStorage.setItem('wms_off_bs', JSON.stringify(offBsSession));
-            if (currentTab === 'offbs' && typeof renderOffBsList === 'function') {
-                renderOffBsList();
-            }
-            console.log(`[Synced] Auto-synced OFF BS: deleted ${beforeCount - offBsSession.length} items from cloud`);
-        }
-        
-        lastCloudSyncTime = Date.now();
-        localStorage.setItem('lastCloudSyncTime', lastCloudSyncTime);
-        return true;
-    } catch (error) {
-        console.error('Auto-sync OFF BS error:', error);
-        return false;
-    }
-}
-
-// Auto-sync PACKING: pull from cloud and merge
-async function autoSyncPackingWithCloud() {
-    try {
-        const response = await fetch(API_URL, {
-            method: "POST",
-            headers: { "Content-Type": "text/plain;charset=utf-8" },
-            body: JSON.stringify({ action: "get_cloud_packing" })
-        });
-        if (!response.ok) throw new Error(`Cloud returned ${response.status}`);
-        const result = await response.json();
-        if (result.status !== "success" || !Array.isArray(result.data)) {
-            throw new Error('Invalid PACKING response');
-        }
-        
-        const cloudData = result.data;
-        const cloudSignatures = new Set(cloudData.map(item => (item.qr || "") + "_" + item.partNo));
-        
-        // Auto-delete local packing items that were deleted in cloud
-        const beforeCount = packingSession.length;
-        packingSession = packingSession.filter(local => {
-            const sig = (local.qr || "") + "_" + local.partNo;
-            return !local.synced || cloudSignatures.has(sig);
-        });
-        
-        if (packingSession.length < beforeCount) {
-            localStorage.setItem('wms_packing', JSON.stringify(packingSession));
-            if (currentTab === 'packing' && typeof renderPackingList === 'function') {
-                renderPackingList();
-            }
-            console.log(`[Synced] Auto-synced PACKING: deleted ${beforeCount - packingSession.length} items from cloud`);
-        }
-        return true;
-    } catch (error) {
-        console.error('Auto-sync PACKING error:', error);
-        return false;
-    }
-}
-
-// Start auto-sync interval
-autoSyncTimer = setInterval(() => {
-    autoSyncWithCloud();
-}, AUTO_SYNC_INTERVAL);
-
-window.addEventListener('online', () => autoSyncWithCloud(true));
+// Cloud operations are explicit user actions; local writes continue offline.
