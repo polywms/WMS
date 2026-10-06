@@ -68,29 +68,30 @@ handleOpnameRender() — Show all parts registered in active box with X/Y (count
   ↓
 Scan part QR → handleOpnameScan() — Reject parts not registered in the active box
   ↓
-When box is selected with no active recount, show saved count from `item.opnameCounts[box]` as X
-  (legacy rows without a saved count fall back to `item.locations[box]`)
+When box is selected, show the latest saved scan count from `item.opnameCounts[box]` as X
+  (a box with no previous count starts at 0; `locations` is membership only)
   ↓
-First scan starts a fresh recount; scanned items read X from the session buffer, unscanned items read 0
+Each scan reads saved X, adds 1, and persists immediately; scanning never resets prior X
   ↓
-Any uncommitted recount blocks box changes, even when buffer quantities reach 0; tab navigation keeps the session
+The browser serializes scan writes; a failed write leaves the old X unchanged and reports an error
   ↓
-addToOpnameBuffer() — Imported stock `sysQty` is Y; one scan adds 1
+addToOpnameBuffer() — Imported stock `sysQty` is Y; if next X > Y, ask for confirmation
   ↓
-IF next X > Y: error beep + confirmation modal; reject scan unless user confirms
+Confirmed scan beyond Y also persists X+1 immediately
   ↓
-Buffer controls decrement X by one or clear that part; committed corrections update IndexedDB immediately
+Buffer controls decrement X by one or reset that part to 0; each correction persists immediately
   ↓
-Persist box + counts in localStorage; SELISIH shows counted parts where X != Y, BELUM shows active-box parts with X = 0
+Persist recent scan list in localStorage; IndexedDB `opnameCounts` is authoritative; filters compare X with Y
   ↓
-SELESAI → processOpnameBuffer() — Atomically save all changed box counts to `opnameCounts[box]`
-  (locations remains the source of part-to-box membership)
+SELESAI → mark the box workflow finished; all count writes already exist in IndexedDB and sync queue
   ↓
-Manual qty edits in `editLocsList` update the location and matching saved OPNAME count/session
+Changing boxes clears only the recent-scan display; every box's saved counts remain unchanged
+  ↓
+Manual qty edits in `editLocsList` update location and saved OPNAME count/session
   ↓
 Reset current box → set its saved X to 0; preserve locations and box membership
   ↓
-saveDBBatch() for changed items → one IndexedDB transaction + sync queue
+Each scan/correction → saveDBBatch() for that part → IndexedDB + sync queue
   ↓
 After switching boxes and selecting a previously saved box, X is restored from its saved opnameCounts value
 ```
@@ -310,8 +311,8 @@ WMS/
 - `confirmBoxToBoxYesToAll()` — Gabungkan semua part saat ini dan aktifkan auto-approval sampai mode dimatikan
 - `updateBoxToBoxIndicator()` — Render box sumber/tujuan dengan status validasi tujuan
 - `checkSimpanConflict(item, newBox)` — Prompt move/split decision
-- `handleOpnameRender()` — Filter & render opname list per box using session or committed counts, independent of SIMPAN filters
-- `getOpnameBufferQty(itemId, item)` — Read current recount counts or saved box quantities while idle
+- `handleOpnameRender()` — Filter & render opname list per box using latest saved counts, independent of SIMPAN filters
+- `getOpnameBufferQty(itemId, item)` — Read latest saved cumulative count for the active box
 - `saveManualEdit()` / `syncOpnameCountFromLocation()` — Keep manual location-qty edits aligned with OPNAME counts
 - `resetCurrentBoxOpname()` — Set saved X to zero without changing box membership
 - `confirmOpnameOverScan()` — Confirm an opname scan that exceeds imported `sysQty`

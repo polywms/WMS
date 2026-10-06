@@ -203,7 +203,7 @@
                 <div id="opnameIdleHint" class="info-mode-panel" style="display:block;">
                     <i class="fas fa-box-open" style="font-size:2rem; color:#16a34a; margin-bottom:10px;"></i>
                     <h3 style="margin:0 0 6px 0;">Scan box dulu</h3>
-                    <p style="color:var(--secondary); font-size:0.9rem; margin:0;">Kunci box → scan part (qty +1) → SELESAI atau scan box yang sama untuk simpan.</p>
+                    <p style="color:var(--secondary); font-size:0.9rem; margin:0;">Scan box → scan part. Setiap scan langsung tersimpan; pindah box kapan saja.</p>
                 </div>
                 <div id="activeBoxPanel" class="status-panel opname-box-panel" style="display:none;">
                     <div class="opname-box-identity">
@@ -219,7 +219,7 @@
                             <span class="opname-stat" id="opnameStatPcs">0 pcs</span>
                         </div>
                         <div class="opname-box-actions">
-                            <button class="btn-sm btn-success" onclick="commitOpnameBox()" title="Simpan buffer ke box ini">SELESAI</button>
+                            <button class="btn-sm btn-success" onclick="commitOpnameBox()" title="Tandai hitung box ini selesai; scan sudah tersimpan otomatis">SELESAI</button>
                             <button class="btn-sm btn-outline" onclick="unlockOpnameBox()" title="Ganti box">Ganti</button>
                             <button class="btn-sm btn-outline icon-only" onclick="resetCurrentBoxOpname()" title="Reset qty box ini" aria-label="Reset qty box ini"><i class="fas fa-undo" aria-hidden="true"></i></button>
                         </div>
@@ -227,11 +227,11 @@
                 </div>
                 <div id="opnameBufferPanel" class="multi-panel opname-buffer-panel" style="display:none;">
                     <div class="opname-buffer-header">
-                        <b style="color:#14532d;"><i class="fas fa-calculator"></i> Buffer: <span id="opnameBufferCount">0</span> part / <span id="opnameBufferPcs">0</span> pcs</b>
-                        <button class="btn-sm btn-danger" onclick="clearOpnameBuffer()">Clear</button>
+                        <b style="color:#14532d;"><i class="fas fa-calculator"></i> Tersimpan: <span id="opnameBufferCount">0</span> part / <span id="opnameBufferPcs">0</span> pcs</b>
+                        <button class="btn-sm btn-outline" onclick="clearOpnameBuffer()" title="Bersihkan daftar scan terbaru, hitungan tetap tersimpan">Bersihkan</button>
                     </div>
                     <div id="opnameBufferTagsContainer" class="opname-buffer-tags"></div>
-                    <div class="opname-buffer-hint"><i class="fas fa-arrow-right"></i> SELESAI atau scan box yang sama untuk simpan</div>
+                    <div class="opname-buffer-hint"><i class="fas fa-check"></i> Tiap scan langsung tersimpan; X berikutnya melanjutkan jumlah ini</div>
                 </div>
                 <div id="opnameInfoPanel" class="info-mode-panel">
                     <i class="fas fa-search" style="font-size:2rem; color:#f97316; margin-bottom:10px;"></i>

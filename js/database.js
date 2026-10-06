@@ -35,7 +35,7 @@ function initDB() {
 function loadDataFromLocal() {
     return new Promise(resolve => {
         const request = db.transaction('items', 'readonly').objectStore('items').getAll();
-        request.onsuccess = e => {
+        request.onsuccess = async e => {
             localItems = e.target.result || [];
             localItems.forEach(i => {
                 if(!i.locations) i.locations = {};
@@ -43,7 +43,7 @@ function loadDataFromLocal() {
             });
             localItems.sort((a,b) => a.partNo.localeCompare(b.partNo));
             if(typeof populateFilters === 'function') populateFilters();
-            if(typeof restoreOpnameSession === 'function') restoreOpnameSession();
+            if(typeof restoreOpnameSession === 'function') await restoreOpnameSession();
             if(currentTab === 'opname' && typeof handleOpnameRender === 'function') handleOpnameRender(true);
             if(currentTab === 'simpan' && typeof renderSimpanList === 'function') renderSimpanList(true);
             if(currentTab === 'data' && typeof renderDataList === 'function') renderDataList(true);
