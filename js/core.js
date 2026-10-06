@@ -23,6 +23,7 @@
  * - confirmBoxToBoxYesToAll() — Setujui semua part dan lewati konfirmasi hingga mode B2B dimatikan
  * - handleOpnameScan()/handleOpnameRender() — Count per active box and render compact X/Y-filtered rows
  * - handleOpnameScan() — Reject part scans that do not belong to the active box
+ * - getOpnameBufferQty(itemId, item) — Show active recount values or saved box quantities when idle
  * - confirmOpnameOverScan()/decrementOpnameBuffer() — Confirm over-target scans and correct counted quantity
  * - commitOpnameBox()/restoreOpnameSession() — Persist and resume box count sessions
  * - updateActivePartPanel(item) — Display part detail (location-only view)
@@ -58,6 +59,7 @@
 
 // js/core.js
 let pendingOpnameOverScan = null;
+let opnameBufferStarted = false;
 
 // ===== QR CODE PARSER =====
 function parseQRCode(rawCode) {
@@ -1263,10 +1265,14 @@ function createNewItem(code) {
     localItems.push(item); filteredItems.push(item); return item;
 }
 
-function getOpnameBufferQty(itemId) {
+function getOpnameBufferQty(itemId, item = null) {
     if (!Array.isArray(opnameBuffer)) return 0;
-    const buf = opnameBuffer.find(b => b.item && b.item.id === itemId);
-    return buf ? (buf.qty || 0) : 0;
+    const buf = opnameBuffer.find(entry => entry.item && entry.item.id === itemId);
+    if (opnameBufferStarted && opnameBufferBox === activeBoxFilter) {
+        return buf ? (Number(buf.qty) || 0) : 0;
+    }
+    const sourceItem = item || localItems.find(candidate => candidate.id === itemId);
+    return Number(sourceItem?.locations?.[activeBoxFilter]) || 0;
 }
 
 function persistOpnameSession() {
@@ -1277,6 +1283,7 @@ function persistOpnameSession() {
     localStorage.setItem('wms_opname_session', JSON.stringify({
         box: opnameBufferBox,
         committed: opnameBufferCommitted,
+        started: opnameBufferStarted,
         counts: opnameBuffer.map(entry => ({ itemId: entry.item.id, qty: entry.qty }))
     }));
 }
@@ -1292,6 +1299,9 @@ function restoreOpnameSession() {
         if (item && count.qty > 0) restored.push({ item, qty: count.qty });
         return restored;
     }, []);
+    opnameBufferStarted = saved.started === undefined
+        ? opnameBufferCommitted || opnameBuffer.length > 0
+        : Boolean(saved.started);
     setOpnameBoxFilter(opnameBufferBox);
     renderOpnameBuffer();
 }
@@ -1314,6 +1324,7 @@ function handleOpnameScan(rawCode, isBox) {
         if (opnameBufferBox !== box) {
             opnameBuffer = [];
             opnameBufferCommitted = false;
+            opnameBufferStarted = false;
             opnameBufferBox = box;
             persistOpnameSession();
         }
@@ -1347,6 +1358,12 @@ function handleOpnameScan(rawCode, isBox) {
     }
 
     opnameBufferBox = activeBoxFilter;
+    if (!opnameBufferStarted || opnameBufferCommitted) {
+        opnameBuffer = [];
+        opnameBufferCommitted = false;
+        opnameBufferStarted = true;
+        persistOpnameSession();
+    }
     addToOpnameBuffer(item);
 }
 
@@ -1374,7 +1391,7 @@ function getOpnameBoxItems() {
 
 function filterOpnameDataset(dataset) {
     return dataset.filter(i => {
-        const counted = getOpnameBufferQty(i.id);
+        const counted = getOpnameBufferQty(i.id, i);
         if (opnameFilter === 'diff') return counted > 0 && counted !== (Number(i.sysQty) || 0);
         if (opnameFilter === 'zero') return counted === 0;
         return true;
@@ -1394,7 +1411,7 @@ function updateOpnameStats() {
     }
     let match = 0, diff = 0, zero = 0, pcs = 0;
     getOpnameBoxItems().forEach(i => {
-        const counted = getOpnameBufferQty(i.id);
+        const counted = getOpnameBufferQty(i.id, i);
         pcs += counted;
         if (counted === 0) zero++;
         else if (counted === (Number(i.sysQty) || 0)) match++;
@@ -1431,7 +1448,7 @@ function handleOpnameRender(reset = true) {
     const show = dataset.slice(0, renderLimit);
     let html = '';
     show.forEach(i => {
-        const counted = getOpnameBufferQty(i.id);
+        const counted = getOpnameBufferQty(i.id, i);
         const target = Number(i.sysQty) || 0;
         let badgeClass = 'qty-uncounted';
         const qtyDisplay = `${counted} / ${target}`;
@@ -1530,6 +1547,7 @@ function resetCurrentBoxOpname() {
         });
         opnameBuffer = [];
         opnameBufferCommitted = false;
+        opnameBufferStarted = false;
         opnameBufferBox = box;
         persistOpnameSession();
         renderOpnameBuffer();
@@ -1953,6 +1971,7 @@ function removeFromOpnameBuffer(index) {
 function clearOpnameBuffer() {
     opnameBuffer = [];
     opnameBufferCommitted = false;
+    opnameBufferStarted = true;
     opnameBufferBox = activeBoxFilter;
     persistOpnameSession();
     document.getElementById('opnameBufferPanel').style.display = 'none';

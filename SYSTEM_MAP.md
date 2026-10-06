@@ -68,6 +68,10 @@ handleOpnameRender() — Show only parts registered in active box with X/Y (coun
   ↓
 Scan part QR → handleOpnameScan() — Reject parts not registered in the active box
   ↓
+When box is selected with no active recount, show saved box quantity from `item.locations[box]` as X
+  ↓
+First scan starts a fresh recount; scanned items read X from the session buffer, unscanned items read 0
+  ↓
 addToOpnameBuffer() — Imported stock `sysQty` is Y; one scan adds 1
   ↓
 IF next X > Y: error beep + confirmation modal; reject scan unless user confirms
@@ -79,6 +83,8 @@ Persist box + counts in localStorage; SELISIH shows counted parts where X != Y, 
 SELESAI → processOpnameBuffer() — Replace this box's quantities with counted values
   ↓
 saveDB() for changed items → IndexedDB + sync queue
+  ↓
+After switching boxes and selecting a previously saved box, X is restored from its saved box location quantity
 ```
 
 ### Flow 3: Off BS (Off-Balance-Sheet)
@@ -302,6 +308,7 @@ WMS/
 - `updateBoxToBoxIndicator()` — Render box sumber/tujuan dengan status validasi tujuan
 - `checkSimpanConflict(item, newBox)` — Prompt move/split decision
 - `handleOpnameRender()` — Filter & render opname list per box
+- `getOpnameBufferQty(itemId, item)` — Read current recount counts or saved box quantities while idle
 - `confirmOpnameOverScan()` — Confirm an opname scan that exceeds imported `sysQty`
 - `decrementOpnameBuffer()` / `removeFromOpnameBuffer()` — Reduce one or all counted units for a part
 - `renderDataList(reset)` — Display all items dengan search/filter
