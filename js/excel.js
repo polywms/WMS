@@ -20,11 +20,13 @@ function handleImport(input) {
         const txRead = db.transaction('items', 'readonly');
         const oldItems = await new Promise(resolve => { txRead.objectStore('items').getAll().onsuccess = ev => resolve(ev.target.result || []); });
         
-        const locationPool = {}; const idMap = {}; 
+        const locationPool = {}; const idMap = {}; const opnameCountMap = {};
         oldItems.forEach(item => {
             const pNo = item.partNo.trim().toUpperCase();
             if (Object.keys(item.locations).length > 0) { if (!locationPool[pNo]) locationPool[pNo] = {}; Object.assign(locationPool[pNo], item.locations); }
-            idMap[`${pNo}_${(item.locType||'').toUpperCase()}_${(item.techName||'').toUpperCase()}`] = item.id;
+            const itemKey = `${pNo}_${(item.locType||'').toUpperCase()}_${(item.techName||'').toUpperCase()}`;
+            idMap[itemKey] = item.id;
+            if (item.opnameCounts) opnameCountMap[itemKey] = item.opnameCounts;
         });
         
         const consolidatedExcel = {}; let fgSkippedCount = 0;
@@ -58,7 +60,7 @@ function handleImport(input) {
         for (const key in consolidatedExcel) {
             const data = consolidatedExcel[key]; const isTeknisi = data.locType.toUpperCase().includes('TEKNISI'); let finalLocs = {};
             if (!isTeknisi && locationPool[data.basePartNo]) { finalLocs = { ...locationPool[data.basePartNo] }; delete locationPool[data.basePartNo]; }
-            const newItem = { id: idMap[data.compositeKey] || (Date.now() + newIdCounter), locType: data.locType, techName: data.techName, partNo: data.partNo, desc: data.desc, sysQty: data.sysQty, locations: finalLocs, raw: data.raw, lastOpnameDate: '' };
+            const newItem = { id: idMap[data.compositeKey] || (Date.now() + newIdCounter), locType: data.locType, techName: data.techName, partNo: data.partNo, desc: data.desc, sysQty: data.sysQty, locations: finalLocs, opnameCounts: opnameCountMap[data.compositeKey] || {}, raw: data.raw, lastOpnameDate: '' };
             st.add(newItem); bulkDataToUpload.push(newItem); newIdCounter++;
         }
         

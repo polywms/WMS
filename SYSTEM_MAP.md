@@ -68,7 +68,8 @@ handleOpnameRender() — Show only parts registered in active box with X/Y (coun
   ↓
 Scan part QR → handleOpnameScan() — Reject parts not registered in the active box
   ↓
-When box is selected with no active recount, show saved box quantity from `item.locations[box]` as X
+When box is selected with no active recount, show saved count from `item.opnameCounts[box]` as X
+  (legacy rows without a saved count fall back to `item.locations[box]`)
   ↓
 First scan starts a fresh recount; scanned items read X from the session buffer, unscanned items read 0
   ↓
@@ -80,11 +81,14 @@ Buffer controls decrement X by one or clear that part; committed corrections upd
   ↓
 Persist box + counts in localStorage; SELISIH shows counted parts where X != Y, BELUM shows active-box parts with X = 0
   ↓
-SELESAI → processOpnameBuffer() — Replace this box's quantities with counted values
+SELESAI → processOpnameBuffer() — Save counted values to `opnameCounts[box]`
+  (locations remains the source of part-to-box membership)
+  ↓
+Reset current box → set its saved X to 0; preserve locations and box membership
   ↓
 saveDB() for changed items → IndexedDB + sync queue
   ↓
-After switching boxes and selecting a previously saved box, X is restored from its saved box location quantity
+After switching boxes and selecting a previously saved box, X is restored from its saved opnameCounts value
 ```
 
 ### Flow 3: Off BS (Off-Balance-Sheet)
@@ -309,6 +313,7 @@ WMS/
 - `checkSimpanConflict(item, newBox)` — Prompt move/split decision
 - `handleOpnameRender()` — Filter & render opname list per box
 - `getOpnameBufferQty(itemId, item)` — Read current recount counts or saved box quantities while idle
+- `resetCurrentBoxOpname()` — Set saved X to zero without changing box membership
 - `confirmOpnameOverScan()` — Confirm an opname scan that exceeds imported `sysQty`
 - `decrementOpnameBuffer()` / `removeFromOpnameBuffer()` — Reduce one or all counted units for a part
 - `renderDataList(reset)` — Display all items dengan search/filter
@@ -384,7 +389,7 @@ WMS/
 **Peran**: Backend server logic; data persist ke Google Sheets; deduplication  
 **Caller**: database.js (fetch, processSyncQueue, triggerOffBsSync)  
 **Sheets Used**:
-- `DB_MASTER` — Master item data (id, partNo, desc, locType, techName, sysQty, locations JSON, labelIssues JSON)
+- `DB_MASTER` — Master item data (id, partNo, desc, locType, techName, sysQty, locations JSON, labelIssues JSON, opnameCounts JSON in column J)
 - `LOG_SCAN` — Audit log (partNo, action, detail, timestamp)
 - `TEMP_OFF_BS` — Off-balance-sheet staging (time, box, partNo, qty, docNo, qr, updated_at timestamp)
 
@@ -514,6 +519,9 @@ Item {
     [box]: qty,
     "A-01": 5,
     "B-10": 3
+  },
+  opnameCounts: {              // Hasil hitung OPNAME tersimpan per box (terpisah dari membership)
+    [box]: number
   },
   labelIssues: {               // Label quality issues
     DAMAGED: number,

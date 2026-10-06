@@ -1,3 +1,11 @@
+/*
+ * Tujuan: Endpoint Google Apps Script untuk sinkronisasi data WMS dan sesi terkait.
+ * Caller: js/database.js melalui Google Sheets API.
+ * Dependensi: SpreadsheetApp, ContentService, sheet DB_MASTER/LOG_SCAN.
+ * Main Functions: doGet(), doPost(), mergeDataFast().
+ * Side Effects: Membaca/menulis Google Sheets dan mengirim respons HTTP.
+ */
+
 // Konfigurasi Nama Sheet
 const SHEET_DB = "DB_MASTER";
 const SHEET_LOG = "LOG_SCAN";
@@ -18,6 +26,9 @@ function doGet(e) {
     let labelIssues = {};
     try { labelIssues = JSON.parse(row[7]) || {}; } catch(err) {}
 
+    let opnameCounts = {};
+    try { opnameCounts = JSON.parse(row[9]) || {}; } catch(err) {}
+
     items.push({
       id: Number(row[0]),
       partNo: row[1],
@@ -26,7 +37,8 @@ function doGet(e) {
       techName: row[4],
       sysQty: Number(row[5]) || 0,
       locations: locations,
-      labelIssues: labelIssues
+      labelIssues: labelIssues,
+      opnameCounts: opnameCounts
     });
   }
 
@@ -353,15 +365,29 @@ function doPost(e) {
 
 function mergeDataFast(sheet, incomingItems) {
   const data = sheet.getDataRange().getValues();
+  if (data.length === 0) data.push([]);
+  const columnCount = Math.max(data[0].length, 10);
+  while (data[0].length < columnCount) data[0].push("");
+  if (!data[0][9]) data[0][9] = "OPNAME_COUNTS";
+  for (let i = 1; i < data.length; i++) {
+    while (data[i].length < columnCount) data[i].push("");
+  }
   const idMap = {};
   for (let i = 1; i < data.length; i++) { if (data[i][0]) idMap[data[i][0]] = i; }
   const now = new Date();
   incomingItems.forEach(item => {
     const locString = JSON.stringify(item.locations || {});
     const labelString = JSON.stringify(item.labelIssues || {});
-    const rowData = [ item.id, item.partNo, item.desc, item.locType || '', item.techName || '', item.sysQty || 0, locString, labelString, now ];
+    const existingRow = idMap[item.id] ? data[idMap[item.id]] : null;
+    const opnameCounts = item.opnameCounts === undefined && existingRow
+      ? existingRow[9]
+      : JSON.stringify(item.opnameCounts || {});
+    const rowData = [ item.id, item.partNo, item.desc, item.locType || '', item.techName || '', item.sysQty || 0, locString, labelString, now, opnameCounts ];
+    if (columnCount > 10) {
+      rowData.push(...(existingRow ? existingRow.slice(10, columnCount) : Array(columnCount - 10).fill("")));
+    }
     if (idMap[item.id]) { data[idMap[item.id]] = rowData; } 
     else { data.push(rowData); idMap[item.id] = data.length - 1; }
   });
-  sheet.getRange(1, 1, data.length, data[0].length).setValues(data);
+  sheet.getRange(1, 1, data.length, columnCount).setValues(data);
 }

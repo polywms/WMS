@@ -24,6 +24,7 @@
  * - handleOpnameScan()/handleOpnameRender() — Count per active box and render compact X/Y-filtered rows
  * - handleOpnameScan() — Reject part scans that do not belong to the active box
  * - getOpnameBufferQty(itemId, item) — Show active recount values or saved box quantities when idle
+ * - resetCurrentBoxOpname() — Reset only the saved count, preserving part-to-box locations
  * - confirmOpnameOverScan()/decrementOpnameBuffer() — Confirm over-target scans and correct counted quantity
  * - commitOpnameBox()/restoreOpnameSession() — Persist and resume box count sessions
  * - updateActivePartPanel(item) — Display part detail (location-only view)
@@ -1272,6 +1273,9 @@ function getOpnameBufferQty(itemId, item = null) {
         return buf ? (Number(buf.qty) || 0) : 0;
     }
     const sourceItem = item || localItems.find(candidate => candidate.id === itemId);
+    if (sourceItem?.opnameCounts && Object.prototype.hasOwnProperty.call(sourceItem.opnameCounts, activeBoxFilter)) {
+        return Number(sourceItem.opnameCounts[activeBoxFilter]) || 0;
+    }
     return Number(sourceItem?.locations?.[activeBoxFilter]) || 0;
 }
 
@@ -1524,12 +1528,27 @@ function showOpnameInfo(item) { tempPart = item; document.getElementById('opname
 function clearOpname() {
     if (confirm("PERINGATAN!\n\nReset SEMUA HASIL OPNAME (Qty jadi 0)?")) {
         if (prompt("Ketik kata 'RESET' untuk melanjutkan:") === "RESET") {
-            const tx = db.transaction('items', 'readwrite'); const st = tx.objectStore('items'); let resetCount = 0;
+            let resetCount = 0;
             localItems.forEach(item => {
-                let hasChanges = false; for (let box in item.locations) { if (item.locations[box] > 0) { item.locations[box] = 0; hasChanges = true; } }
-                if (hasChanges) { st.put(item); resetCount++; }
+                const boxes = new Set([
+                    ...Object.keys(item.locations || {}),
+                    ...Object.keys(item.opnameCounts || {})
+                ]);
+                if (boxes.size === 0) return;
+                if (!item.opnameCounts) item.opnameCounts = {};
+                boxes.forEach(box => { item.opnameCounts[box] = 0; });
+                saveDB(item, 'OPNAME', 'Reset semua hitungan: 0');
+                resetCount++;
             });
-            tx.oncomplete = () => { alert(`SELESAI!\n${resetCount} Part di-reset.`); location.reload(); }; tx.onerror = () => { alert('GAGAL: Gagal mereset!'); };
+            opnameBuffer = [];
+            opnameBufferCommitted = true;
+            opnameBufferStarted = Boolean(activeBoxFilter);
+            opnameBufferBox = activeBoxFilter;
+            persistOpnameSession();
+            renderOpnameBuffer();
+            handleOpnameRender();
+            feedback('success');
+            showToast(`Selesai: hitungan ${resetCount} part direset; data box tetap.`);
         } else { alert('Batal mereset.'); }
     }
 }
@@ -1538,16 +1557,17 @@ function resetCurrentBoxOpname() {
     if (!activeBoxFilter) return;
     if (confirm(`PERINGATAN: ULANG PERHITUNGAN BOX: ${activeBoxFilter}?`)) {
         const box = activeBoxFilter;
-        const source = filteredItems.length ? filteredItems : localItems;
+        const source = localItems;
         source.forEach(item => {
-            if ((item.locations[box] || 0) !== 0) {
-                delete item.locations[box];
-                saveDB(item);
-            }
+            if (!(Number(item.locations && item.locations[box]) > 0)) return;
+            if (!item.opnameCounts) item.opnameCounts = {};
+            if (Object.prototype.hasOwnProperty.call(item.opnameCounts, box) && Number(item.opnameCounts[box]) === 0) return;
+            item.opnameCounts[box] = 0;
+            saveDB(item, 'OPNAME', `Reset hitungan ${box}: 0`);
         });
         opnameBuffer = [];
-        opnameBufferCommitted = false;
-        opnameBufferStarted = false;
+        opnameBufferCommitted = true;
+        opnameBufferStarted = true;
         opnameBufferBox = box;
         persistOpnameSession();
         renderOpnameBuffer();
@@ -1839,8 +1859,8 @@ function persistOpnameBufferQuantity(entry, nextQty) {
             showToast('Box aktif berubah. Scan ulang box sebelum mengoreksi hitungan.');
             return false;
         }
-        if (nextQty > 0) entry.item.locations[activeBoxFilter] = nextQty;
-        else delete entry.item.locations[activeBoxFilter];
+        if (!entry.item.opnameCounts) entry.item.opnameCounts = {};
+        entry.item.opnameCounts[activeBoxFilter] = nextQty;
         entry.item.updated_at = Date.now();
         saveDB(entry.item, 'OPNAME', `Koreksi hitungan ${activeBoxFilter}: ${nextQty}`);
     }
@@ -1872,23 +1892,22 @@ function processOpnameBuffer(boxCode) {
         return;
     }
 
-    const source = filteredItems.length ? filteredItems : localItems;
+    const source = localItems;
     const countsById = new Map(opnameBuffer.map(entry => [entry.item.id, entry.qty]));
     let processedCount = 0;
     source.forEach(item => {
+        if (!(Number(item.locations && item.locations[boxCode]) > 0)) return;
         const countedQty = countsById.get(item.id) || 0;
-        const currentQty = Number(item.locations[boxCode]) || 0;
-        const quantityChanged = currentQty !== countedQty;
+        if (!item.opnameCounts) item.opnameCounts = {};
+        const countChanged = !Object.prototype.hasOwnProperty.call(item.opnameCounts, boxCode)
+            || (Number(item.opnameCounts[boxCode]) || 0) !== countedQty;
         const scannedToday = countsById.has(item.id);
         const dateChanged = scannedToday && item.lastOpnameDate !== today;
-        if (!quantityChanged && !dateChanged) return;
+        if (!countChanged && !dateChanged) return;
 
-        if (quantityChanged) {
-            if (countedQty > 0) item.locations[boxCode] = countedQty;
-            else delete item.locations[boxCode];
-        }
+        if (countChanged) item.opnameCounts[boxCode] = countedQty;
         if (scannedToday) item.lastOpnameDate = today;
-        saveDB(item);
+        saveDB(item, 'OPNAME', `Simpan hitungan ${boxCode}: ${countedQty}`);
         processedCount++;
     });
 

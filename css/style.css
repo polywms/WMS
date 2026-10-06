@@ -530,11 +530,12 @@
             .opname-box-panel {
                 background: #f0fdf4;
                 border-color: #86efac;
+                border-radius: 0;
                 display: grid;
                 grid-template-columns: minmax(0, 30%) minmax(0, 1fr);
                 align-items: stretch;
                 gap: 0;
-                padding: 6px;
+                padding: 0;
             }
             .opname-box-identity {
                 display: flex;
@@ -563,6 +564,9 @@
                 grid-template-rows: auto auto;
                 align-content: center;
                 min-width: 0;
+                padding: 0;
+                margin: 0;
+                border-radius: 0;
             }
             .opname-box-actions { display: flex; align-items: center; justify-content: stretch; gap: 5px; min-width: 0; padding-top: 5px; }
             .opname-box-actions .btn-sm { flex: 1 1 auto; min-width: 0; min-height: 27px; padding: 2px 6px; font-size: 0.7rem; }
@@ -592,8 +596,8 @@
                 overflow: hidden;
                 text-overflow: ellipsis;
             }
-            .opname-stat:first-child { border-radius: 6px 0 0 6px; }
-            .opname-stat:last-child { border-right-width: 1px; border-radius: 0 6px 6px 0; }
+            .opname-stat:first-child { border-radius: 0; }
+            .opname-stat:last-child { border-right-width: 1px; border-radius: 0; }
             .opname-stat.diff { border-color: #fca5a5; color: #991b1b; background: #fef2f2; }
             .opname-stat.zero { border-color: #cbd5e1; color: #475569; background: #f8fafc; }
             .segment-control { 
@@ -635,6 +639,12 @@
             gap: 12px;
             flex-wrap: nowrap;
             }
+            .status-panel.opname-box-panel {
+                gap: 0;
+                padding: 0;
+                border-radius: 0 !important;
+            }
+            .opname-box-panel .opname-stat { border-radius: 0 !important; }
             .multi-panel { 
             background: linear-gradient(135deg, #f3e8ff 0%, #faf5ff 100%); 
             border: 2px solid #d8b4fe; padding: 12px; border-radius: 12px; 
