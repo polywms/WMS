@@ -531,41 +531,42 @@
                 background: #f0fdf4;
                 border-color: #86efac;
                 display: grid;
-                grid-template-rows: auto auto;
-                gap: 6px;
-                padding: 7px 9px;
-            }
-            .opname-box-top-row {
-                display: flex;
-                align-items: center;
-                justify-content: space-between;
-                gap: 8px;
-                min-width: 0;
+                grid-template-columns: minmax(0, 30%) minmax(0, 1fr);
+                align-items: stretch;
+                gap: 0;
+                padding: 6px;
             }
             .opname-box-identity {
                 display: flex;
-                align-items: center;
-                gap: 8px;
+                flex-direction: column;
+                align-items: flex-start;
+                justify-content: center;
+                gap: 5px;
                 min-width: 0;
+                padding: 5px 8px;
                 color: #166534;
             }
             .opname-box-identity > i {
                 flex: 0 0 auto;
-                font-size: 1.1rem;
+                font-size: 1.5rem;
             }
             .opname-box-panel #activeBoxName {
                 display: block;
                 min-width: 0;
-                overflow: hidden;
-                text-overflow: ellipsis;
-                white-space: nowrap;
-                font-size: 1.05rem;
-                line-height: 1.2;
+                overflow-wrap: anywhere;
+                font-size: clamp(1.1rem, 5vw, 1.8rem);
+                line-height: 1.1;
                 color: #14532d;
             }
-            .opname-box-actions { display: flex; align-items: center; gap: 5px; flex: 0 0 auto; }
-            .opname-box-actions .btn-sm { min-height: 30px; padding: 3px 7px; font-size: 0.72rem; }
-            .opname-box-actions .icon-only { width: 30px !important; height: 30px !important; min-height: 30px !important; padding: 3px !important; }
+            .opname-box-details {
+                display: grid;
+                grid-template-rows: auto auto;
+                align-content: center;
+                min-width: 0;
+            }
+            .opname-box-actions { display: flex; align-items: center; justify-content: stretch; gap: 5px; min-width: 0; padding-top: 5px; }
+            .opname-box-actions .btn-sm { flex: 1 1 auto; min-width: 0; min-height: 27px; padding: 2px 6px; font-size: 0.7rem; }
+            .opname-box-actions .icon-only { flex: 0 0 28px; width: 28px !important; min-width: 28px !important; height: 27px !important; min-height: 27px !important; padding: 2px !important; }
             .opname-box-actions .btn-outline {
                 border: 1px solid #64748b !important;
                 box-shadow: 0 0 0 1px rgba(51, 65, 85, 0.12);
@@ -573,22 +574,26 @@
             .opname-stats {
                 display: grid;
                 grid-template-columns: repeat(4, minmax(0, 1fr));
-                gap: 5px;
+                gap: 0;
                 width: 100%;
             }
             .opname-stat {
-                font-size: 0.72rem;
+                min-width: 0;
+                font-size: clamp(0.56rem, 2.5vw, 0.72rem);
                 font-weight: 700;
-                padding: 2px 6px;
-                border-radius: 999px;
+                padding: 4px 2px;
+                border-radius: 0;
                 background: #fff;
                 border: 1px solid #86efac;
+                border-right-width: 0;
                 color: #14532d;
                 text-align: center;
                 white-space: nowrap;
                 overflow: hidden;
                 text-overflow: ellipsis;
             }
+            .opname-stat:first-child { border-radius: 6px 0 0 6px; }
+            .opname-stat:last-child { border-right-width: 1px; border-radius: 0 6px 6px 0; }
             .opname-stat.diff { border-color: #fca5a5; color: #991b1b; background: #fef2f2; }
             .opname-stat.zero { border-color: #cbd5e1; color: #475569; background: #f8fafc; }
             .segment-control { 

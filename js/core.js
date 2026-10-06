@@ -1479,7 +1479,7 @@ function setOpnameBoxFilter(box) {
     if (hiddenName) hiddenName.innerText = box;
     const idle = document.getElementById('opnameIdleHint');
     if (idle) idle.style.display = 'none';
-    document.getElementById('activeBoxPanel').style.display = 'flex'; 
+    document.getElementById('activeBoxPanel').style.display = 'grid'; 
     document.getElementById('opnameInfoPanel').style.display = 'none'; 
     document.getElementById('opnameList').style.display = 'flex'; 
     handleOpnameRender(true); 

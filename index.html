@@ -206,23 +206,23 @@
                     <p style="color:var(--secondary); font-size:0.9rem; margin:0;">Kunci box → scan part (qty +1) → SELESAI atau scan box yang sama untuk simpan.</p>
                 </div>
                 <div id="activeBoxPanel" class="status-panel opname-box-panel" style="display:none;">
-                    <div class="opname-box-top-row">
-                        <div class="opname-box-identity">
-                            <i class="fas fa-box-open" aria-hidden="true"></i>
-                            <b id="activeBoxName"></b>
-                            <div id="opnameBoxName" style="display:none;"></div>
+                    <div class="opname-box-identity">
+                        <i class="fas fa-box-open" aria-hidden="true"></i>
+                        <b id="activeBoxName"></b>
+                        <div id="opnameBoxName" style="display:none;"></div>
+                    </div>
+                    <div class="opname-box-details">
+                        <div class="opname-stats">
+                            <span class="opname-stat" id="opnameStatMatch">0 OK</span>
+                            <span class="opname-stat diff" id="opnameStatDiff">0 selisih</span>
+                            <span class="opname-stat zero" id="opnameStatZero">0 belum</span>
+                            <span class="opname-stat" id="opnameStatPcs">0 pcs</span>
                         </div>
                         <div class="opname-box-actions">
                             <button class="btn-sm btn-success" onclick="commitOpnameBox()" title="Simpan buffer ke box ini">SELESAI</button>
                             <button class="btn-sm btn-outline" onclick="unlockOpnameBox()" title="Ganti box">Ganti</button>
                             <button class="btn-sm btn-outline icon-only" onclick="resetCurrentBoxOpname()" title="Reset qty box ini" aria-label="Reset qty box ini"><i class="fas fa-undo" aria-hidden="true"></i></button>
                         </div>
-                    </div>
-                    <div class="opname-stats">
-                        <span class="opname-stat" id="opnameStatMatch">0 OK</span>
-                        <span class="opname-stat diff" id="opnameStatDiff">0 selisih</span>
-                        <span class="opname-stat zero" id="opnameStatZero">0 belum</span>
-                        <span class="opname-stat" id="opnameStatPcs">0 pcs</span>
                     </div>
                 </div>
                 <div id="opnameBufferPanel" class="multi-panel" style="display:none; background:#f0fdf4; border:1px solid #86efac; margin-bottom:15px;">
