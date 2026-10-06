@@ -22,6 +22,8 @@
  * - getBoxToBoxItems() — Temukan part sumber berdasarkan kode box yang dinormalisasi
  * - confirmBoxToBoxYesToAll() — Setujui semua part dan lewati konfirmasi hingga mode B2B dimatikan
  * - handleOpnameScan()/handleOpnameRender() — Count per active box and render compact X/Y-filtered rows
+ * - handleOpnameScan() — Reject part scans that do not belong to the active box
+ * - confirmOpnameOverScan()/decrementOpnameBuffer() — Confirm over-target scans and correct counted quantity
  * - commitOpnameBox()/restoreOpnameSession() — Persist and resume box count sessions
  * - updateActivePartPanel(item) — Display part detail (location-only view)
  * - selectPartSimpan(item) — Select part dari list
@@ -55,6 +57,7 @@
  */
 
 // js/core.js
+let pendingOpnameOverScan = null;
 
 // ===== QR CODE PARSER =====
 function parseQRCode(rawCode) {
@@ -634,7 +637,7 @@ if (currentTab === 'packing') {
     }
     
     if (item) { feedback('scan'); jumpToItem(item.partNo); } 
-    else { feedback('error'); setStatus("Item tidak ditemukan"); }
+    else { feedback('error'); showToast("Item tidak ditemukan"); }
 }
 
 
@@ -1294,6 +1297,12 @@ function restoreOpnameSession() {
 }
 
 function handleOpnameScan(rawCode, isBox) {
+    if (pendingOpnameOverScan) {
+        feedback('error');
+        showToast('Konfirmasi scan berlebih terlebih dahulu.');
+        return;
+    }
+
     if (isBox) {
         const box = rawCode.toUpperCase();
         if (opnameBufferBox && opnameBufferBox !== box && opnameBuffer.length > 0 && !opnameBufferCommitted) {
@@ -1331,10 +1340,12 @@ function handleOpnameScan(rawCode, isBox) {
         return;
     }
 
-    if (opnameBufferCommitted) {
-        opnameBuffer = [];
-        opnameBufferCommitted = false;
+    if (!(Number(item.locations && item.locations[activeBoxFilter]) > 0)) {
+        feedback('error');
+        showToast(`Part ${partNo} tidak terdaftar di box ${activeBoxFilter}.`);
+        return;
     }
+
     opnameBufferBox = activeBoxFilter;
     addToOpnameBuffer(item);
 }
@@ -1691,6 +1702,12 @@ function renderSmartSuggestion(item) {
 }
 
 function switchTab(id) {
+    if (id === 'offbs' || id === 'packing') {
+        feedback('error');
+        showToast(`${id === 'offbs' ? 'OFF BS' : 'PACKING'} sementara dinonaktifkan.`);
+        return;
+    }
+
     // Clean up when leaving SIMPAN tab (display-only now)
     if (currentTab === 'simpan' && currentTab !== id) {
         tempPart = null;
@@ -1745,23 +1762,87 @@ function switchTab(id) {
 // OPNAME BUFFER FUNCTIONS (Cashier Mode)
 // ============================================
 
-function addToOpnameBuffer(item) {
-    // Check if item already in buffer
+function addToOpnameBuffer(item, confirmedOverTarget = false) {
     const existing = opnameBuffer.find(b => b.item.id === item.id);
+    const nextQty = (existing ? existing.qty : 0) + 1;
+    const targetQty = Number(item.sysQty) || 0;
+
+    if (nextQty > targetQty && !confirmedOverTarget) {
+        pendingOpnameOverScan = item;
+        document.getElementById('opnameOverScanPart').textContent = item.partNo;
+        document.getElementById('opnameOverScanQty').textContent = `${nextQty} / ${targetQty}`;
+        document.getElementById('opnameOverScanModal').style.display = 'flex';
+        feedback('scan_over');
+        return;
+    }
+
     if (existing) {
-        existing.qty++;
-        feedback('warning');
+        existing.qty = nextQty;
         showToast(`${item.partNo}: Qty +1 → ${existing.qty}`);
     } else {
-        opnameBuffer.push({ item: item, qty: 1 });
-        feedback('success');
-        showToast(`${item.partNo}: Qty +1`);
+        opnameBuffer.push({ item: item, qty: nextQty });
+        showToast(`${item.partNo}: Qty → ${nextQty}`);
     }
+
+    opnameBufferCommitted = false;
+    const countedQty = nextQty;
+    if (countedQty < targetQty) feedback('scan_normal');
+    else if (countedQty === targetQty) feedback('scan_complete');
+    else feedback('scan_over');
+
     persistOpnameSession();
     renderOpnameBuffer();
     addHistoryLog(item.partNo, `Buffer +1`);
     lastOpnameScanId = item.id;
     handleOpnameRender();
+}
+
+function confirmOpnameOverScan() {
+    const item = pendingOpnameOverScan;
+    if (!item) return;
+    pendingOpnameOverScan = null;
+    document.getElementById('opnameOverScanModal').style.display = 'none';
+    addToOpnameBuffer(item, true);
+}
+
+function closeOpnameOverScanModal() {
+    if (!pendingOpnameOverScan) return;
+    pendingOpnameOverScan = null;
+    document.getElementById('opnameOverScanModal').style.display = 'none';
+    feedback('info');
+    showToast('Scan dibatalkan; hitungan tidak berubah.');
+    document.getElementById('mainInput')?.focus();
+}
+
+function persistOpnameBufferQuantity(entry, nextQty) {
+    if (opnameBufferCommitted) {
+        if (!activeBoxFilter || activeBoxFilter !== opnameBufferBox) {
+            feedback('error');
+            showToast('Box aktif berubah. Scan ulang box sebelum mengoreksi hitungan.');
+            return false;
+        }
+        if (nextQty > 0) entry.item.locations[activeBoxFilter] = nextQty;
+        else delete entry.item.locations[activeBoxFilter];
+        entry.item.updated_at = Date.now();
+        saveDB(entry.item, 'OPNAME', `Koreksi hitungan ${activeBoxFilter}: ${nextQty}`);
+    }
+
+    entry.qty = nextQty;
+    if (nextQty === 0) {
+        opnameBuffer = opnameBuffer.filter(bufferEntry => bufferEntry !== entry);
+    }
+    persistOpnameSession();
+    renderOpnameBuffer();
+    handleOpnameRender();
+    return true;
+}
+
+function decrementOpnameBuffer(index) {
+    const entry = opnameBuffer[index];
+    if (!entry) return;
+    if (!persistOpnameBufferQuantity(entry, entry.qty - 1)) return;
+    feedback('warning');
+    showToast(`${entry.item.partNo}: hitungan dikurangi 1.`);
 }
 
 function processOpnameBuffer(boxCode) {
@@ -1849,10 +1930,13 @@ function renderOpnameBuffer() {
 
     container.innerHTML = opnameBuffer.map((bufItem, idx) => {
         return `
-            <div style="display:flex; align-items:center; gap:6px; background:#dcfce7; padding:8px 12px; border-radius:8px; border:1px solid #86efac; font-size:0.85rem; font-weight:bold; color:#14532d;">
+            <div class="opname-buffer-tag">
                 <span>${bufItem.item.partNo} × ${bufItem.qty}</span>
-                <button onclick="removeFromOpnameBuffer(${idx})" style="background:none; border:none; color:#14532d; cursor:pointer; font-size:0.9rem; padding:0; width:20px; height:20px; display:flex; align-items:center; justify-content:center;">
-                    <i class="fas fa-times-circle"></i>
+                <button type="button" onclick="decrementOpnameBuffer(${idx})" aria-label="Kurangi satu hitungan ${bufItem.item.partNo}" title="Kurangi satu hitungan">
+                    <i class="fas fa-minus-circle" aria-hidden="true"></i>
+                </button>
+                <button type="button" onclick="removeFromOpnameBuffer(${idx})" aria-label="Hapus hitungan ${bufItem.item.partNo}" title="Hapus hitungan part ini">
+                    <i class="fas fa-times-circle" aria-hidden="true"></i>
                 </button>
             </div>
         `;
@@ -1860,12 +1944,10 @@ function renderOpnameBuffer() {
 }
 
 function removeFromOpnameBuffer(index) {
-    if (index >= 0 && index < opnameBuffer.length) {
-        const removed = opnameBuffer.splice(index, 1)[0];
-        feedback('warning');
-        showToast(`${removed.item.partNo} dihapus dari buffer`);
-        renderOpnameBuffer();
-    }
+    const entry = opnameBuffer[index];
+    if (!entry || !persistOpnameBufferQuantity(entry, 0)) return;
+    feedback('warning');
+    showToast(`${entry.item.partNo} dihapus dari hitungan.`);
 }
 
 function clearOpnameBuffer() {

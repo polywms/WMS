@@ -66,7 +66,13 @@ Scan box → handleOpnameScan() → setOpnameBoxFilter()
   ↓
 handleOpnameRender() — Show only parts registered in active box with X/Y (counted / sysQty)
   ↓
-Scan part QR → addToOpnameBuffer() — One scan adds exactly 1 to session count
+Scan part QR → handleOpnameScan() — Reject parts not registered in the active box
+  ↓
+addToOpnameBuffer() — Imported stock `sysQty` is Y; one scan adds 1
+  ↓
+IF next X > Y: error beep + confirmation modal; reject scan unless user confirms
+  ↓
+Buffer controls decrement X by one or clear that part; committed corrections update IndexedDB immediately
   ↓
 Persist box + counts in localStorage; SELISIH shows counted parts where X != Y, BELUM shows active-box parts with X = 0
   ↓
@@ -188,6 +194,8 @@ IF success: Persist remaining queue and continue next batch
   ↓
 Clear syncQueue & syncLogs after ALL batches succeed
   ↓
+Aggregate every upload/download result; any partial failure reports "Sync gagal sebagian" instead of "Tersinkron"
+  ↓
 updateSyncUI("🟢 Tersimpan")
 ```
 
@@ -281,6 +289,7 @@ WMS/
 **Caller**: main.js (initDB), core.js (saveDB), UI handlers  
 **Dependensi**: config.js (localItems, syncQueue), API_URL (Google Sheets)  
 **Side Effects**: IndexedDB read/write, POST/GET HTTP requests, localStorage setItem
+**Sync Status**: `autoSyncWithCloud()` aggregates all upload/download results and reports partial failures without marking the workflow synchronized.
 
 ---
 
@@ -293,6 +302,8 @@ WMS/
 - `updateBoxToBoxIndicator()` — Render box sumber/tujuan dengan status validasi tujuan
 - `checkSimpanConflict(item, newBox)` — Prompt move/split decision
 - `handleOpnameRender()` — Filter & render opname list per box
+- `confirmOpnameOverScan()` — Confirm an opname scan that exceeds imported `sysQty`
+- `decrementOpnameBuffer()` / `removeFromOpnameBuffer()` — Reduce one or all counted units for a part
 - `renderDataList(reset)` — Display all items dengan search/filter
 - `switchTab(id)` — Change active tab & re-render
 - `addToMultiScan(item)` — Add part with source-location snapshot and selection state
@@ -337,7 +348,7 @@ WMS/
 
 ### [utils.js](js/utils.js)
 **Fungsi Publik Utama**:
-- `feedback(type)` — Trigger visual flash + audio tone + vibrate
+- `feedback(type)` — Play distinct scan/result tones, vibrate, and flash the scanner input state
 - `playTone(freq, type, duration)` — Web Audio API tone generator
 - `showToast(message)` — Display floating toast notification
 - `toggleDarkMode()` — Switch light/dark theme
@@ -345,7 +356,7 @@ WMS/
 
 **Peran**: UI utilities; feedback & styling helpers  
 **Caller**: core.js (feedback), event handlers (toggleDarkMode), any scanner success  
-**Dependensi**: Web Audio API, DOM manipulation  
+**Dependensi**: Web Audio API, Vibration API, DOM manipulation  
 **Side Effects**: DOM class toggle, audio play, localStorage setItem (darkMode)
 
 ---
@@ -402,17 +413,19 @@ WMS/
 ---
 
 ### [index.html](index.html) — UI Structure
-**5 Main Tabs**:
+**Navigation Tabs** (OFF BS and PACKING temporarily hidden and guarded):
 1. **SIMPAN** — Penyimpanan (single-scan or multi-scan buffer mode)
 2. **OPNAME** — Inventory check per box (cashier buffer mode)
 3. **DATA** — Search & view all items
-4. **OFF BS** — Off-balance-sheet session management
-5. **PACKING** — Colly-based packing operations
+4. **SETTING** — Application settings
+5. **OFF BS** — Temporarily disabled
+6. **PACKING** — Temporarily disabled
 
 **Key Modals**:
 - Camera Scanner (Html5QrcodeScanner)
 - Simpan Conflict (move vs split decision)
 - Opname Conflict (location conflict resolution)
+- Opname Over-Scan (confirm adding a scan above imported stock target)
 - Edit Modal (manual qty/location edit)
 - Label Report (quality issues)
 - Rak Summary (missing stock per rack)

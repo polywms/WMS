@@ -3,7 +3,7 @@
              * Tujuan: Menyediakan sistem visual responsif untuk workflow WMS.
              * Caller: index.html dan seluruh komponen UI berbasis class.
              * Dependensi: Variabel tema, Font Awesome, dan CSS layout native.
-             * Main Functions: Compact lists, uniform icon buttons and corner radius, bottom navigation, bottom sheets.
+             * Main Functions: Layout, compact lists, bottom navigation, scan-result highlights, and opname count controls.
              * Side Effects: Mengubah tampilan dan spacing tanpa mengubah state aplikasi.
              */
             :root {
@@ -470,6 +470,15 @@
             @keyframes flashError { 0% { background-color: rgba(220, 38, 38, 0.3); } 100% { background-color: transparent; } }
             .flash-success { animation: flashSuccess 0.5s ease-out; }
             .flash-error { animation: flashError 0.5s ease-out; }
+            .main-input.scan-feedback-scan { border-color: var(--primary); box-shadow: 0 0 0 4px rgba(6, 182, 212, 0.22); }
+            .main-input.scan-feedback-success { border-color: var(--success); box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.24); }
+            .main-input.scan-feedback-warning { border-color: var(--warning); box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.24); }
+            .main-input.scan-feedback-error { border-color: var(--danger); box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.24); }
+            .main-input.scan-feedback-info { border-color: #64748b; box-shadow: 0 0 0 4px rgba(100, 116, 139, 0.2); }
+            .bottom-nav .nav-item[hidden] { display: none !important; }
+            .opname-buffer-tag { display:flex; align-items:center; gap:6px; padding:8px 10px; background:#dcfce7; border:1px solid #86efac; border-radius:8px; color:#14532d; font-size:0.85rem; font-weight:bold; }
+            .opname-buffer-tag button { display:grid; place-items:center; width:28px; height:28px; padding:0; border:0; border-radius:5px; background:transparent; color:#14532d; cursor:pointer; font-size:1rem; }
+            .opname-buffer-tag button:hover, .opname-buffer-tag button:focus-visible { background:rgba(20, 83, 45, 0.12); outline:2px solid #16a34a; outline-offset:1px; }
             .tab-content { 
             flex: 1; 
             overflow-y: auto; 

@@ -5,103 +5,128 @@
  * Main Functions: feedback(), playTone(), playChime(), playBoxCompleteChime().
  * Side Effects: Memutar audio, menggetarkan perangkat, mengubah DOM, dan menulis mode gelap.
  */
-const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-const audioMasterGain = audioCtx.createGain();
-const audioCompressor = audioCtx.createDynamicsCompressor();
-audioMasterGain.gain.value = 1.0;
-audioCompressor.threshold.value = -6;
-audioCompressor.knee.value = 6;
-audioCompressor.ratio.value = 12;
-audioCompressor.attack.value = 0.003;
-audioCompressor.release.value = 0.15;
-audioMasterGain.connect(audioCompressor);
-audioCompressor.connect(audioCtx.destination);
+const AudioContextConstructor = window.AudioContext || window.webkitAudioContext;
+const audioCtx = AudioContextConstructor ? new AudioContextConstructor() : null;
+const audioMasterGain = audioCtx ? audioCtx.createGain() : null;
+const audioCompressor = audioCtx ? audioCtx.createDynamicsCompressor() : null;
+let feedbackVisualTimer = null;
+let audioUnavailableNotified = false;
+
+if (audioCtx) {
+    audioMasterGain.gain.value = 1.0;
+    audioCompressor.threshold.value = -6;
+    audioCompressor.knee.value = 6;
+    audioCompressor.ratio.value = 12;
+    audioCompressor.attack.value = 0.003;
+    audioCompressor.release.value = 0.15;
+    audioMasterGain.connect(audioCompressor);
+    audioCompressor.connect(audioCtx.destination);
+}
 
 function feedback(type) {
     const body = document.body;
+    const visualType = ({
+        scan_normal: 'scan',
+        scan_complete: 'success',
+        scan_saved: 'success',
+        scan_over: 'error'
+    })[type] || type;
+    const input = document.getElementById('mainInput');
+    const visualClasses = ['scan', 'success', 'warning', 'error', 'info']
+        .map(state => `scan-feedback-${state}`);
+
+    if (input) {
+        input.classList.remove(...visualClasses);
+        input.classList.add(`scan-feedback-${visualType}`);
+        clearTimeout(feedbackVisualTimer);
+        feedbackVisualTimer = setTimeout(() => {
+            input.classList.remove(`scan-feedback-${visualType}`);
+        }, 500);
+    }
+
     if(type === 'success') {
         body.classList.add('flash-success');
         setTimeout(() => body.classList.remove('flash-success'), 500);
-        playTone(800, 'sine', 0.1);
+        playTone(850, 'sine', 0.09);
+        setTimeout(() => playTone(1150, 'sine', 0.12), 110);
         if(navigator.vibrate) navigator.vibrate(50); 
     } else if (type === 'error') {
         body.classList.add('flash-error');
         setTimeout(() => body.classList.remove('flash-error'), 500);
-        playTone(150, 'sawtooth', 0.3);
+        playTone(220, 'sawtooth', 0.14);
+        setTimeout(() => playTone(150, 'sawtooth', 0.2), 160);
         if(navigator.vibrate) navigator.vibrate([100, 50, 100]); 
     } else if (type === 'warning') {
-        // Double beep untuk warning konflik (tinggi, cepat, tidak menakutkan)
-        playTone(1000, 'sine', 0.08);
-        setTimeout(() => playTone(1000, 'sine', 0.08), 120);
+        playTone(650, 'triangle', 0.09);
+        setTimeout(() => playTone(520, 'triangle', 0.12), 130);
         if(navigator.vibrate) navigator.vibrate([40, 30, 40]); 
     } else if (type === 'scan') {
-        playTone(1200, 'sine', 0.05);
+        playTone(1350, 'sine', 0.07);
     } else if (type === 'scan_normal') {
-        // Beep standar untuk scan normal (qty masih kurang)
-        playTone(1200, 'sine', 0.05);
+        playTone(1050, 'sine', 0.07);
         if(navigator.vibrate) navigator.vibrate(30);
     } else if (type === 'scan_complete') {
-        // Nada berurutan "Ding ding ting" untuk scan komplit (sesuai target)
-        playTone(800, 'sine', 0.1);
-        setTimeout(() => playTone(1000, 'sine', 0.1), 120);
-        setTimeout(() => playTone(1200, 'sine', 0.15), 240);
+        playTone(850, 'sine', 0.09);
+        setTimeout(() => playTone(1100, 'sine', 0.09), 110);
+        setTimeout(() => playTone(1400, 'sine', 0.16), 220);
         if(navigator.vibrate) navigator.vibrate([50, 30, 50, 30, 50]);
     } else if (type === 'scan_over') {
-        // Nada error/harsh yang panjang dan jelas (qty berlebih)
-        playTone(150, 'sawtooth', 0.3);
+        playTone(520, 'triangle', 0.12);
+        setTimeout(() => playTone(260, 'sawtooth', 0.2), 150);
         if(navigator.vibrate) navigator.vibrate([100, 50, 100]);
     } else if (type === 'scan_saved') {
-        if(audioCtx.state === 'suspended') audioCtx.resume();
-        const t = audioCtx.currentTime; // Ambil waktu persis saat ini
-
-        // Fungsi khusus agar nada dijadwalkan langsung di dalam chip audio (anti-lag)
-        const scheduleTone = (freq, startTime, dur) => {
-            const osc = audioCtx.createOscillator();
-            const gain = audioCtx.createGain();
-            osc.type = 'sine';
-            osc.frequency.setValueAtTime(freq, startTime);
-            gain.gain.setValueAtTime(1.0, startTime);
-            
-            // Bikin efek fade-out super cepat biar perpindahan nada mulus (gak bunyi "klik")
-            gain.gain.setTargetAtTime(0, startTime + dur - 0.02, 0.015); 
-            
-            osc.connect(gain);
-            gain.connect(audioMasterGain);
-            osc.start(startTime);
-            osc.stop(startTime + dur);
-        };
-
-        // Jadwalkan 4 nada berurutan secara absolut (Jarak persis 0.1 detik)
-        scheduleTone(600, t, 0.1);        // Main sekarang
-        scheduleTone(800, t + 0.4, 0.2);  // Main di detik ke-0.1
-        scheduleTone(1000, t + 0.8, 0.2); // Main di detik ke-0.2
-        scheduleTone(1300, t + 1.2, 0.4); // Main di detik ke-0.3, durasi agak panjang
-        
+        playTone(600, 'sine', 0.08);
+        setTimeout(() => playTone(850, 'sine', 0.08), 110);
+        setTimeout(() => playTone(1100, 'sine', 0.08), 220);
+        setTimeout(() => playTone(1400, 'sine', 0.18), 330);
         if(navigator.vibrate) navigator.vibrate([50, 20, 50, 20, 50]);
+    } else if (type === 'info') {
+        playTone(760, 'sine', 0.08);
     }
 }
 
+function notifyAudioUnavailable() {
+    if (audioUnavailableNotified) return;
+    audioUnavailableNotified = true;
+    showToast('Suara feedback tidak aktif; periksa izin atau audio perangkat.');
+}
+
 function playTone(freq, type, duration) {
-    if(audioCtx.state === 'suspended') audioCtx.resume();
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    osc.type = type;
-    osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
-    gain.gain.setValueAtTime(1.0, audioCtx.currentTime);
-    osc.connect(gain);
-    gain.connect(audioMasterGain);
-    osc.start();
-    osc.stop(audioCtx.currentTime + duration);
+    if (!audioCtx) {
+        notifyAudioUnavailable();
+        return;
+    }
+
+    const scheduleTone = () => {
+        const startTime = audioCtx.currentTime;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, startTime);
+        gain.gain.setValueAtTime(0.35, startTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
+        osc.connect(gain);
+        gain.connect(audioMasterGain);
+        osc.start(startTime);
+        osc.stop(startTime + duration);
+    };
+
+    if (audioCtx.state === 'suspended') {
+        audioCtx.resume().then(scheduleTone).catch(error => {
+            console.warn('Audio feedback unavailable:', error);
+            notifyAudioUnavailable();
+        });
+    } else {
+        scheduleTone();
+    }
 }
 
 function playChime() {
-    if(audioCtx.state === 'suspended') audioCtx.resume();
     playTone(880, 'sine', 0.1); 
     setTimeout(() => playTone(1320, 'sine', 0.15), 150); 
 }
 
 function playBoxCompleteChime() {
-    if(audioCtx.state === 'suspended') audioCtx.resume();
     playTone(880, 'sine', 0.1);  
     setTimeout(() => playTone(1108, 'sine', 0.1), 150); 
     setTimeout(() => playTone(1320, 'sine', 0.3), 300); 

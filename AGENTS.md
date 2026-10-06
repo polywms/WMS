@@ -9,7 +9,7 @@
 ## Navigation Map
 | Layer | Primary File | Key Functions |
 |-------|--------------|----------------|
-| **UI/Entry** | index.html | 5 tabs (SIMPAN, OPNAME, DATA, OFF BS, PACKING) |
+| **UI/Entry** | index.html | Active: SIMPAN, OPNAME, DATA, SETTING; OFF BS and PACKING temporarily disabled |
 | **Init** | main.js | window.onload, SW register, wake lock |
 | **Business Logic** | core.js | processScan(), per-tab render functions |
 | **Data/Sync** | database.js | saveDB(), processSyncQueue(), IndexedDB ops |

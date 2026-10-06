@@ -2,7 +2,7 @@
  * Tujuan: Persistensi IndexedDB dan sinkronisasi latar dengan Google Sheets.
  * Caller: main.js, core.js, dan handler kontrol sinkronisasi di index.html.
  * Dependensi: config.js (db, antrean, sesi), IndexedDB, API_URL.
- * Main Functions: initDB(), loadDataFromLocal(), saveDB(), processSyncQueue(), autoSyncWithCloud().
+ * Main Functions: initDB(), loadDataFromLocal(), saveDB(), processSyncQueue(), autoSyncWithCloud() (aggregated sync status).
  * Side Effects: Membaca/menulis IndexedDB dan localStorage, mengirim HTTP request.
  */
 // js/database.js
@@ -674,25 +674,31 @@ async function autoSyncWithCloud(force = false) {
     updateFavicon(true); // Show upload indicator
     
     try {
+        let syncFailed = false;
+
         // 1. Upload pending local changes
         if (syncQueue.length > 0) {
-            await processSyncQueue();
+            if (!await processSyncQueue()) syncFailed = true;
         }
 
-        await triggerOffBsSync();
-        await triggerPackingSync();
+        if (await triggerOffBsSync() === false) syncFailed = true;
+        if (await triggerPackingSync() === false) syncFailed = true;
         
         // 2. Download and merge OFF BS data
         if (typeof offBsSession !== 'undefined') {
-            await autoSyncOffBsWithCloud();
+            if (!await autoSyncOffBsWithCloud()) syncFailed = true;
         }
         
         // 3. Download and merge PACKING data
         if (typeof packingSession !== 'undefined') {
-            await autoSyncPackingWithCloud();
+            if (!await autoSyncPackingWithCloud()) syncFailed = true;
         }
         
         const pendingCount = syncQueue.length + offBsSession.filter(item => !item.synced).length + packingSession.filter(item => !item.synced).length;
+        if (syncFailed) {
+            updateSyncUI('Sync gagal sebagian; data lokal aman');
+            return false;
+        }
         updateSyncUI(pendingCount
             ? `<i class="fas fa-clock"></i> ${pendingCount} menunggu sync; tersimpan lokal`
             : '<i class="fas fa-check-circle"></i> Tersinkron');
@@ -723,9 +729,11 @@ async function autoSyncOffBsWithCloud() {
             headers: { "Content-Type": "text/plain;charset=utf-8" },
             body: JSON.stringify({ action: "get_cloud_off_bs" })
         });
-        
+        if (!response.ok) throw new Error(`Cloud returned ${response.status}`);
         const result = await response.json();
-        if (result.status !== "success" || !Array.isArray(result.data)) return;
+        if (result.status !== "success" || !Array.isArray(result.data)) {
+            throw new Error('Invalid OFF BS response');
+        }
         
         const cloudData = result.data;
         const cloudSignatures = new Set(cloudData.map(item => (item.qr || "") + "_" + item.partNo));
@@ -747,8 +755,10 @@ async function autoSyncOffBsWithCloud() {
         
         lastCloudSyncTime = Date.now();
         localStorage.setItem('lastCloudSyncTime', lastCloudSyncTime);
+        return true;
     } catch (error) {
         console.error('Auto-sync OFF BS error:', error);
+        return false;
     }
 }
 
@@ -760,9 +770,11 @@ async function autoSyncPackingWithCloud() {
             headers: { "Content-Type": "text/plain;charset=utf-8" },
             body: JSON.stringify({ action: "get_cloud_packing" })
         });
-        
+        if (!response.ok) throw new Error(`Cloud returned ${response.status}`);
         const result = await response.json();
-        if (result.status !== "success" || !Array.isArray(result.data)) return;
+        if (result.status !== "success" || !Array.isArray(result.data)) {
+            throw new Error('Invalid PACKING response');
+        }
         
         const cloudData = result.data;
         const cloudSignatures = new Set(cloudData.map(item => (item.qr || "") + "_" + item.partNo));
@@ -781,8 +793,10 @@ async function autoSyncPackingWithCloud() {
             }
             console.log(`[Synced] Auto-synced PACKING: deleted ${beforeCount - packingSession.length} items from cloud`);
         }
+        return true;
     } catch (error) {
         console.error('Auto-sync PACKING error:', error);
+        return false;
     }
 }
 

@@ -2,7 +2,7 @@
     Tujuan: Entry point UI untuk workflow WMS Magelang.
     Caller: Browser/PWA shell; event handlers diteruskan ke main.js dan core.js.
     Dependensi: css/style.css, Font Awesome, dan modul JavaScript di js/.
-    Main Functions: Menyediakan navigasi, scanner, indikator box asal/tujuan B2B di bawah scanner, konfirmasi perpindahan, kontrol import/export, dan sinkronisasi manual.
+    Main Functions: Menyediakan navigasi, scanner, konfirmasi opname over-scan, kontrol import/export, dan sinkronisasi manual.
     Side Effects: Mengubah DOM, memicu scan, penyimpanan lokal, dan sinkronisasi cloud melalui handler.
 -->
 <!-- WMS Magelang - Entry point UI -->
@@ -44,10 +44,10 @@
             <button class="nav-item" data-tab="data" onclick="switchTab('data')" aria-label="Data">
                 <i class="fas fa-search" aria-hidden="true"></i><span>DATA</span>
             </button>
-            <button class="nav-item" data-tab="offbs" onclick="switchTab('offbs')" aria-label="Off BS">
+            <button class="nav-item" data-tab="offbs" onclick="switchTab('offbs')" aria-label="Off BS" aria-disabled="true" hidden>
                 <i class="fas fa-recycle" aria-hidden="true"></i><span>OFF BS</span>
             </button>
-            <button class="nav-item" data-tab="packing" onclick="switchTab('packing')" aria-label="Packing">
+            <button class="nav-item" data-tab="packing" onclick="switchTab('packing')" aria-label="Packing" aria-disabled="true" hidden>
                 <i class="fas fa-truck-loading" aria-hidden="true"></i><span>PACKING</span>
             </button>
             <button class="nav-item" data-tab="settings" onclick="switchTab('settings')" aria-label="Pengaturan">
@@ -489,6 +489,24 @@
                 </div>
                 <div id="btnGroupNew" style="display:none;">
                     <button class="btn btn-success" onclick="executeOpnameAction('add')"><i class="fas fa-plus-circle"></i> TAMBAHKAN KE BOX INI</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="overlay" id="opnameOverScanModal" role="dialog" aria-modal="true" aria-labelledby="opnameOverScanTitle" style="display:none;">
+            <div class="modal">
+                <div style="display:flex; align-items:center; gap:10px; color:var(--danger);">
+                    <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
+                    <h3 id="opnameOverScanTitle" style="margin:0;">Hitungan melewati target</h3>
+                </div>
+                <p style="text-align:center; margin:16px 0 6px;">Scan berikutnya akan membuat hitungan part melebihi stok import.</p>
+                <p style="text-align:center; font-weight:bold; margin:0 0 18px;">
+                    <span id="opnameOverScanPart"></span>:
+                    <span id="opnameOverScanQty"></span>
+                </p>
+                <div style="display:flex; gap:8px;">
+                    <button class="btn btn-outline" onclick="closeOpnameOverScanModal()" style="flex:1;">Batalkan scan</button>
+                    <button class="btn btn-danger" onclick="confirmOpnameOverScan()" style="flex:1;">Tetap tambah 1</button>
                 </div>
             </div>
         </div>
