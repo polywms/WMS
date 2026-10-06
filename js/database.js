@@ -2,7 +2,7 @@
  * Tujuan: Persistensi IndexedDB dan sinkronisasi latar dengan Google Sheets.
  * Caller: main.js, core.js, dan handler kontrol sinkronisasi di index.html.
  * Dependensi: config.js (db, antrean, sesi), IndexedDB, API_URL.
- * Main Functions: initDB(), loadDataFromLocal(), saveDB(), processSyncQueue(), autoSyncWithCloud() (aggregated sync status).
+ * Main Functions: initDB(), loadDataFromLocal(), saveDB(), saveDBBatch(), processSyncQueue(), autoSyncWithCloud().
  * Side Effects: Membaca/menulis IndexedDB dan localStorage, mengirim HTTP request.
  */
 // js/database.js
@@ -82,8 +82,16 @@ async function fetchInitialDataFromCloud() {
                     };
                     localRequest.onsuccess = () => {
                         const pendingIds = new Set(syncQueue.map(item => item.id));
+                        const localById = new Map(localRequest.result.map(item => [item.id, item]));
                         result.data.forEach(item => {
-                            if (!pendingIds.has(item.id)) store.put(item);
+                            if (pendingIds.has(item.id)) return;
+                            const localItem = localById.get(item.id);
+                            if ((!item.opnameCounts || Object.keys(item.opnameCounts).length === 0)
+                                && localItem?.opnameCounts
+                                && Object.keys(localItem.opnameCounts).length > 0) {
+                                item.opnameCounts = localItem.opnameCounts;
+                            }
+                            store.put(item);
                         });
                     };
                 } else {
@@ -113,6 +121,52 @@ function saveDB(item, actionName = "UPDATE", actionDetail = "") {
     localStorage.setItem('wms_syncLogs', JSON.stringify(syncLogs.slice(-100)));
     if (syncQueue.length > MAX_QUEUE_SIZE) updateSyncUI('<i class="fas fa-exclamation-triangle"></i> Lokal tersimpan; antrean sync panjang');
     else updateSyncUI('<i class="fas fa-spinner fa-spin"></i> Tersimpan lokal; menunggu sync');
+}
+
+function saveDBBatch(items, actionName = "UPDATE", actionDetail = "") {
+    if (!Array.isArray(items) || items.length === 0) return Promise.resolve([]);
+
+    const timestamp = Date.now();
+    const records = items.map(item => ({ ...item, updated_at: timestamp }));
+    return new Promise((resolve, reject) => {
+        let tx;
+        try {
+            tx = db.transaction('items', 'readwrite');
+            const store = tx.objectStore('items');
+            records.forEach(item => store.put(item));
+        } catch (error) {
+            reject(error);
+            return;
+        }
+
+        tx.oncomplete = () => {
+            try {
+                records.forEach(item => {
+                    const queuedIndex = syncQueue.findIndex(queuedItem => queuedItem.id === item.id);
+                    if (queuedIndex >= 0) syncQueue[queuedIndex] = item;
+                    else syncQueue.push(item);
+                    syncLogs.push({
+                        partNo: item.partNo,
+                        action: actionName,
+                        detail: typeof actionDetail === 'function' ? actionDetail(item) : actionDetail,
+                        timestamp
+                    });
+                });
+                syncLogs = syncLogs.slice(-100);
+                localStorage.setItem('wms_syncQueue', JSON.stringify(syncQueue));
+                localStorage.setItem('wms_syncLogs', JSON.stringify(syncLogs));
+                if (syncQueue.length > MAX_QUEUE_SIZE) updateSyncUI('<i class="fas fa-exclamation-triangle"></i> Lokal tersimpan; antrean sync panjang');
+                else updateSyncUI('<i class="fas fa-spinner fa-spin"></i> Tersimpan lokal; menunggu sync');
+                resolve(records);
+            } catch (error) {
+                console.error('IndexedDB batch tersimpan, tetapi antrean sync gagal dipersist:', error);
+                updateSyncUI('<i class="fas fa-exclamation-triangle"></i> IndexedDB tersimpan; antrean lokal gagal ditulis');
+                resolve(records);
+            }
+        };
+        tx.onerror = () => reject(tx.error || new Error('Gagal menyimpan batch ke IndexedDB.'));
+        tx.onabort = () => reject(tx.error || new Error('Penyimpanan batch dibatalkan.'));
+    });
 }
 
 async function processSyncQueue() {

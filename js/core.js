@@ -27,6 +27,7 @@
  * - resetCurrentBoxOpname() — Reset only the saved count, preserving part-to-box locations
  * - confirmOpnameOverScan()/decrementOpnameBuffer() — Confirm over-target scans and correct counted quantity
  * - commitOpnameBox()/restoreOpnameSession() — Persist and resume box count sessions
+ * - syncOpnameCountFromLocation() — Keep manual box-quantity edits aligned with OPNAME
  * - updateActivePartPanel(item) — Display part detail (location-only view)
  * - selectPartSimpan(item) — Select part dari list
  * - addToMultiScan()/processMultiScan(box) — Buffer dan relokasi batch SIMPAN
@@ -44,7 +45,7 @@
  * Side Effects: 
  * - DOM update (#simpanList, #activePartDetailsPanel)
  * - localStorage read (currentTab)
- * - IndexedDB write via saveDB() (SIMPAN tab: location save only)
+ * - IndexedDB writes via saveDB()/saveDBBatch() (SIMPAN locations, atomic OPNAME commits)
  * - Google Sheets sync via processSyncQueue()
  * - Opname session state persisted in localStorage; committed counts update IndexedDB
  * 
@@ -61,6 +62,7 @@
 // js/core.js
 let pendingOpnameOverScan = null;
 let opnameBufferStarted = false;
+let opnameCommitInProgress = false;
 
 // ===== QR CODE PARSER =====
 function parseQRCode(rawCode) {
@@ -1269,10 +1271,10 @@ function createNewItem(code) {
 function getOpnameBufferQty(itemId, item = null) {
     if (!Array.isArray(opnameBuffer)) return 0;
     const buf = opnameBuffer.find(entry => entry.item && entry.item.id === itemId);
-    if (opnameBufferStarted && opnameBufferBox === activeBoxFilter) {
+    const sourceItem = item || localItems.find(candidate => candidate.id === itemId);
+    if (opnameBufferStarted && opnameBufferBox === activeBoxFilter && !opnameBufferCommitted) {
         return buf ? (Number(buf.qty) || 0) : 0;
     }
-    const sourceItem = item || localItems.find(candidate => candidate.id === itemId);
     if (sourceItem?.opnameCounts && Object.prototype.hasOwnProperty.call(sourceItem.opnameCounts, activeBoxFilter)) {
         return Number(sourceItem.opnameCounts[activeBoxFilter]) || 0;
     }
@@ -1293,7 +1295,16 @@ function persistOpnameSession() {
 }
 
 function restoreOpnameSession() {
-    const saved = JSON.parse(localStorage.getItem('wms_opname_session') || 'null');
+    let saved;
+    try {
+        saved = JSON.parse(localStorage.getItem('wms_opname_session') || 'null');
+    } catch (error) {
+        console.error('Gagal memulihkan sesi OPNAME:', error);
+        localStorage.removeItem('wms_opname_session');
+        feedback('error');
+        showToast('Sesi scan rusak. Hasil yang sudah disimpan tetap aman; scan box untuk melanjutkan.');
+        return;
+    }
     if (!saved || !saved.box) return;
 
     opnameBufferBox = saved.box;
@@ -1311,6 +1322,11 @@ function restoreOpnameSession() {
 }
 
 function handleOpnameScan(rawCode, isBox) {
+    if (opnameCommitInProgress) {
+        feedback('warning');
+        showToast('Penyimpanan box sedang berlangsung. Tunggu hingga selesai.');
+        return;
+    }
     if (pendingOpnameOverScan) {
         feedback('error');
         showToast('Konfirmasi scan berlebih terlebih dahulu.');
@@ -1319,9 +1335,9 @@ function handleOpnameScan(rawCode, isBox) {
 
     if (isBox) {
         const box = rawCode.toUpperCase();
-        if (opnameBufferBox && opnameBufferBox !== box && opnameBuffer.length > 0 && !opnameBufferCommitted) {
+        if (opnameBufferBox && opnameBufferBox !== box && opnameBufferStarted && !opnameBufferCommitted) {
             feedback('warning');
-            showToast('Selesaikan atau bersihkan hitungan box aktif terlebih dahulu.');
+            showToast('Simpan hitungan box aktif (termasuk hasil 0) sebelum berpindah box.');
             return;
         }
 
@@ -1347,17 +1363,13 @@ function handleOpnameScan(rawCode, isBox) {
 
     const parsed = parseQRCode(rawCode);
     const partNo = (parsed ? parsed.partNo : rawCode).trim().toUpperCase();
-    const source = filteredItems.length ? filteredItems : localItems;
-    const item = source.find(candidate => candidate.partNo.toUpperCase() === partNo);
+    const matchingItems = localItems.filter(candidate => candidate.partNo.toUpperCase() === partNo);
+    const item = matchingItems.find(candidate => Number(candidate.locations && candidate.locations[activeBoxFilter]) > 0);
     if (!item) {
         feedback('error');
-        showToast(`Part ${partNo} tidak ada di daftar stok terpilih.`);
-        return;
-    }
-
-    if (!(Number(item.locations && item.locations[activeBoxFilter]) > 0)) {
-        feedback('error');
-        showToast(`Part ${partNo} tidak terdaftar di box ${activeBoxFilter}.`);
+        showToast(matchingItems.length
+            ? `Part ${partNo} tidak terdaftar di box ${activeBoxFilter}.`
+            : `Part ${partNo} tidak ada di daftar stok.`);
         return;
     }
 
@@ -1375,8 +1387,7 @@ function getOpnameBoxItems() {
     const box = activeBoxFilter;
     if (!box) return [];
     const seen = new Set();
-    const source = (filteredItems && filteredItems.length) ? filteredItems : localItems;
-    const dataset = source.filter(item => {
+    const dataset = localItems.filter(item => {
         if (!(Number(item.locations && item.locations[box]) > 0)) return false;
         if (seen.has(item.id)) return false;
         seen.add(item.id);
@@ -1525,21 +1536,42 @@ function executeOpnameAction(action) { const { item, box } = opnameConflictData;
 function closeOpnameConfirmModal() { document.getElementById('opnameConfirmModal').style.display = 'none'; opnameConflictData = null; document.getElementById('mainInput').focus(); }
 function showOpnameInfo(item) { tempPart = item; document.getElementById('opnameInfoPanel').style.display = 'block'; document.getElementById('infoPartNo').innerText = item.partNo; document.getElementById('infoPartDesc').innerText = item.desc; document.getElementById('infoLocList').innerText = Object.entries(item.locations).map(([k,v])=>`${k} (${v})`).join(', ') || "Belum ada lokasi"; document.getElementById('opnameList').style.display = 'none'; }
 
-function clearOpname() {
+async function clearOpname() {
     if (confirm("PERINGATAN!\n\nReset SEMUA HASIL OPNAME (Qty jadi 0)?")) {
         if (prompt("Ketik kata 'RESET' untuk melanjutkan:") === "RESET") {
-            let resetCount = 0;
+            if (opnameCommitInProgress) {
+                feedback('warning');
+                showToast('Penyimpanan OPNAME sedang berlangsung. Tunggu hingga selesai.');
+                return;
+            }
+            const changedItems = [];
             localItems.forEach(item => {
                 const boxes = new Set([
                     ...Object.keys(item.locations || {}),
                     ...Object.keys(item.opnameCounts || {})
                 ]);
                 if (boxes.size === 0) return;
-                if (!item.opnameCounts) item.opnameCounts = {};
-                boxes.forEach(box => { item.opnameCounts[box] = 0; });
-                saveDB(item, 'OPNAME', 'Reset semua hitungan: 0');
-                resetCount++;
+                const opnameCounts = { ...(item.opnameCounts || {}) };
+                boxes.forEach(box => { opnameCounts[box] = 0; });
+                changedItems.push({ ...item, opnameCounts });
             });
+            opnameCommitInProgress = true;
+            try {
+                const savedItems = await saveDBBatch(changedItems, 'OPNAME', 'Reset semua hitungan: 0');
+                savedItems.forEach(savedItem => {
+                    const index = localItems.findIndex(item => item.id === savedItem.id);
+                    if (index >= 0) localItems[index] = savedItem;
+                    const filteredIndex = filteredItems.findIndex(item => item.id === savedItem.id);
+                    if (filteredIndex >= 0) filteredItems[filteredIndex] = savedItem;
+                });
+            } catch (error) {
+                console.error('Gagal mereset seluruh OPNAME:', error);
+                feedback('error');
+                showToast('Reset gagal disimpan. Data OPNAME tidak diubah.');
+                return;
+            } finally {
+                opnameCommitInProgress = false;
+            }
             opnameBuffer = [];
             opnameBufferCommitted = true;
             opnameBufferStarted = Boolean(activeBoxFilter);
@@ -1548,23 +1580,43 @@ function clearOpname() {
             renderOpnameBuffer();
             handleOpnameRender();
             feedback('success');
-            showToast(`Selesai: hitungan ${resetCount} part direset; data box tetap.`);
+            showToast(`Selesai: hitungan ${changedItems.length} part direset; data box tetap.`);
         } else { alert('Batal mereset.'); }
     }
 }
 
-function resetCurrentBoxOpname() {
+async function resetCurrentBoxOpname() {
     if (!activeBoxFilter) return;
+    if (opnameCommitInProgress) {
+        feedback('warning');
+        showToast('Penyimpanan box sedang berlangsung. Tunggu hingga selesai.');
+        return;
+    }
     if (confirm(`PERINGATAN: ULANG PERHITUNGAN BOX: ${activeBoxFilter}?`)) {
         const box = activeBoxFilter;
-        const source = localItems;
-        source.forEach(item => {
+        const changedItems = [];
+        localItems.forEach(item => {
             if (!(Number(item.locations && item.locations[box]) > 0)) return;
-            if (!item.opnameCounts) item.opnameCounts = {};
-            if (Object.prototype.hasOwnProperty.call(item.opnameCounts, box) && Number(item.opnameCounts[box]) === 0) return;
-            item.opnameCounts[box] = 0;
-            saveDB(item, 'OPNAME', `Reset hitungan ${box}: 0`);
+            if (Object.prototype.hasOwnProperty.call(item.opnameCounts || {}, box) && Number(item.opnameCounts[box]) === 0) return;
+            changedItems.push({ ...item, opnameCounts: { ...(item.opnameCounts || {}), [box]: 0 } });
         });
+        opnameCommitInProgress = true;
+        try {
+            const savedItems = await saveDBBatch(changedItems, 'OPNAME', `Reset hitungan ${box}: 0`);
+            savedItems.forEach(savedItem => {
+                const index = localItems.findIndex(item => item.id === savedItem.id);
+                if (index >= 0) localItems[index] = savedItem;
+                const filteredIndex = filteredItems.findIndex(item => item.id === savedItem.id);
+                if (filteredIndex >= 0) filteredItems[filteredIndex] = savedItem;
+            });
+        } catch (error) {
+            console.error(`Gagal mereset hitungan box ${box}:`, error);
+            feedback('error');
+            showToast(`Reset box ${box} gagal disimpan. Data box tidak diubah.`);
+            return;
+        } finally {
+            opnameCommitInProgress = false;
+        }
         opnameBuffer = [];
         opnameBufferCommitted = true;
         opnameBufferStarted = true;
@@ -1634,24 +1686,139 @@ function openEditModal(id) {
     }
     
     const list = document.getElementById('editLocsList'); list.innerHTML='';
-    Object.keys(item.locations).forEach(box => { const r = document.createElement('div'); r.style.cssText="display:flex; justify-content:space-between; margin-bottom:8px; align-items:center;"; r.innerHTML=`<b>${box}</b> <div style="display:flex; gap:5px;"><input type="number" class="edit-qty-input" data-box="${box}" value="${item.locations[box]}" style="width:60px; padding:5px;"><button class="btn-trash" style="width:30px; height:30px;" onclick="deleteLocation(${id}, '${box}')"><i class="fas fa-trash"></i></button></div>`; list.appendChild(r); });
+    Object.keys(item.locations || {}).forEach(box => { const r = document.createElement('div'); r.style.cssText="display:flex; justify-content:space-between; margin-bottom:8px; align-items:center;"; r.innerHTML=`<b>${box}</b> <div style="display:flex; gap:5px;"><input type="number" min="0" step="1" class="edit-qty-input" data-box="${box}" value="${item.locations[box]}" style="width:60px; padding:5px;"><button class="btn-trash" style="width:30px; height:30px;" onclick="deleteLocation(${id}, '${box}')"><i class="fas fa-trash"></i></button></div>`; list.appendChild(r); });
     document.getElementById('editDeleteBtnContainer').innerHTML = item.desc === 'PART BARU' ? `<button class="btn btn-danger" style="margin-top:15px;" onclick="deletePartBaru(${item.id})"><i class="fas fa-trash-alt"></i> Hapus Part Ini Permanen</button>` : '';
 }
 
-function deleteLocation(id, box) { if(confirm(`Hapus part ini dari box ${box}?`)) { const item = localItems.find(i=>i.id===id); if (item) { delete item.locations[box]; saveDB(item); feedback('success'); if(document.getElementById('editModal').style.display === 'flex') openEditModal(id); if(currentTab === 'opname') handleOpnameRender(); if(currentTab === 'data') renderDataList(false); } } }
-function addManualLoc() { const box = document.getElementById('editNewBox').value.toUpperCase(); const qty = parseInt(document.getElementById('editNewQty').value); if (box && !isNaN(qty)) { const item = localItems.find(i => i.id === editId); item.locations[box] = qty || 0; saveDB(item); openEditModal(editId); } else { showToast("Box/Qty tak valid!"); } }
-function saveManualEdit() { 
-    const item = localItems.find(i=>i.id===editId); 
-    document.querySelectorAll('.edit-qty-input').forEach(inp => { const v = parseInt(inp.value); if(!isNaN(v)) item.locations[inp.dataset.box]=v; }); 
-    
+function syncOpnameCountFromLocation(item, box, qty, removed = false) {
+    if (!item.locations) item.locations = {};
+    if (!item.opnameCounts) item.opnameCounts = {};
+    if (removed) delete item.opnameCounts[box];
+    else item.opnameCounts[box] = qty;
+
+    if (opnameBufferBox !== box || !opnameBufferStarted) return;
+    const entryIndex = opnameBuffer.findIndex(entry => entry.item.id === item.id);
+    if (removed || qty <= 0) {
+        if (entryIndex >= 0) opnameBuffer.splice(entryIndex, 1);
+    } else if (entryIndex >= 0) {
+        opnameBuffer[entryIndex].qty = qty;
+    } else {
+        opnameBuffer.push({ item, qty });
+    }
+    persistOpnameSession();
+}
+
+function deleteLocation(id, box) {
+    if (opnameCommitInProgress) {
+        feedback('warning');
+        showToast('Penyimpanan OPNAME sedang berlangsung. Tunggu hingga selesai.');
+        return;
+    }
+    if (!confirm(`Hapus part ini dari box ${box}?`)) return;
+    const item = localItems.find(candidate => candidate.id === id);
+    if (!item) return;
+    delete item.locations[box];
+    syncOpnameCountFromLocation(item, box, 0, true);
+    item.updated_at = Date.now();
+    saveDB(item, 'LOCATION', `Hapus lokasi ${box}`);
+    feedback('success');
+    openEditModal(id);
+    renderOpnameBuffer();
+    if (currentTab === 'opname') handleOpnameRender();
+    if (currentTab === 'data') renderDataList(false);
+}
+
+function addManualLoc() {
+    if (opnameCommitInProgress) {
+        feedback('warning');
+        showToast('Penyimpanan OPNAME sedang berlangsung. Tunggu hingga selesai.');
+        return;
+    }
+    const box = document.getElementById('editNewBox').value.trim().toUpperCase();
+    const qtyInput = document.getElementById('editNewQty').value.trim();
+    const qty = Number(qtyInput);
+    const item = localItems.find(candidate => candidate.id === editId);
+    if (!box || !qtyInput || !Number.isInteger(qty) || qty < 0 || !item) {
+        feedback('error');
+        showToast('Kode box dan qty bilangan bulat >= 0 wajib diisi.');
+        return;
+    }
+    if (!item.locations) item.locations = {};
+    item.locations[box] = qty;
+    syncOpnameCountFromLocation(item, box, qty);
+    item.updated_at = Date.now();
+    saveDB(item, 'LOCATION', `Ubah ${box}: ${qty}`);
+    renderOpnameBuffer();
+    handleOpnameRender();
+    openEditModal(editId);
+}
+
+async function saveManualEdit() {
+    if (opnameCommitInProgress) {
+        feedback('warning');
+        showToast('Penyimpanan OPNAME sedang berlangsung. Tunggu hingga selesai.');
+        return;
+    }
+    const itemIndex = localItems.findIndex(candidate => candidate.id === editId);
+    if (itemIndex < 0) return;
+    const item = localItems[itemIndex];
+    const locationEdits = [...document.querySelectorAll('.edit-qty-input')].map(input => ({
+        box: input.dataset.box,
+        value: input.value.trim(),
+        qty: Number(input.value)
+    }));
+    if (locationEdits.some(edit => !edit.box || !edit.value || !Number.isInteger(edit.qty) || edit.qty < 0)) {
+        feedback('error');
+        showToast('Qty lokasi harus berupa bilangan bulat >= 0.');
+        return;
+    }
+    const updatedItem = {
+        ...item,
+        locations: { ...(item.locations || {}) },
+        opnameCounts: { ...(item.opnameCounts || {}) }
+    };
+    const previousBuffer = opnameBuffer.map(entry => ({ ...entry }));
+    const previousCommitted = opnameBufferCommitted;
+    const previousStarted = opnameBufferStarted;
+    locationEdits.forEach(({ box, qty }) => {
+        updatedItem.locations[box] = qty;
+        syncOpnameCountFromLocation(updatedItem, box, qty);
+    });
+
     // Save lastOpnameDate ONLY if from OPNAME tab
     if (currentTab === 'opname') {
         const opnameDate = document.getElementById('editLastOpnameDate').value || new Date().toISOString().split('T')[0];
-        item.lastOpnameDate = opnameDate;
+        updatedItem.lastOpnameDate = opnameDate;
     }
     
-    saveDB(item); 
+    updatedItem.updated_at = Date.now();
+    const editsActiveBox = locationEdits.some(edit => edit.box === opnameBufferBox);
+    if (editsActiveBox && opnameBufferStarted) {
+        opnameBufferCommitted = false;
+        persistOpnameSession();
+    }
+    try {
+        const [savedItem] = await saveDBBatch([updatedItem], 'LOCATION', 'Simpan qty lokasi manual');
+        localItems[itemIndex] = savedItem;
+        const filteredIndex = filteredItems.findIndex(candidate => candidate.id === savedItem.id);
+        if (filteredIndex >= 0) filteredItems[filteredIndex] = savedItem;
+        opnameBuffer.forEach(entry => {
+            if (entry.item.id === savedItem.id) entry.item = savedItem;
+        });
+        opnameBufferCommitted = previousCommitted;
+        persistOpnameSession();
+    } catch (error) {
+        console.error('Gagal menyimpan qty lokasi:', error);
+        opnameBuffer = previousBuffer;
+        opnameBufferCommitted = previousCommitted;
+        opnameBufferStarted = previousStarted;
+        persistOpnameSession();
+        feedback('error');
+        showToast('Qty lokasi gagal disimpan. Perubahan dibatalkan; coba lagi.');
+        return;
+    }
     document.getElementById('editModal').style.display='none'; 
+    renderOpnameBuffer();
     handleOpnameRender(); 
     renderDataList(false); 
     document.getElementById('mainInput').focus(); 
@@ -1790,6 +1957,10 @@ function switchTab(id) {
         renderCollyUI();
         renderPackingList();
     }
+    if (id === 'opname') {
+        renderOpnameBuffer();
+        handleOpnameRender(true);
+    }
     if (id === 'offbs' && typeof renderOffBsList === 'function') {
         renderOffBsList();
     }
@@ -1883,45 +2054,79 @@ function decrementOpnameBuffer(index) {
     showToast(`${entry.item.partNo}: hitungan dikurangi 1.`);
 }
 
-function processOpnameBuffer(boxCode) {
+async function processOpnameBuffer(boxCode) {
     const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
 
+    if (opnameCommitInProgress) return;
     if (boxCode !== activeBoxFilter || boxCode !== opnameBufferBox) {
         feedback('error');
         showToast('Box aktif berubah. Scan ulang box sebelum menyimpan.');
         return;
     }
 
-    const source = localItems;
+    opnameCommitInProgress = true;
+    const commitButton = document.querySelector('#activeBoxPanel .btn-success');
+    if (commitButton) {
+        commitButton.disabled = true;
+        commitButton.textContent = 'MENYIMPAN...';
+    }
+    showToast(`Menyimpan hasil hitung box ${boxCode}...`);
+    const changedItems = [];
     const countsById = new Map(opnameBuffer.map(entry => [entry.item.id, entry.qty]));
-    let processedCount = 0;
-    source.forEach(item => {
+    localItems.forEach(item => {
         if (!(Number(item.locations && item.locations[boxCode]) > 0)) return;
         const countedQty = countsById.get(item.id) || 0;
-        if (!item.opnameCounts) item.opnameCounts = {};
-        const countChanged = !Object.prototype.hasOwnProperty.call(item.opnameCounts, boxCode)
-            || (Number(item.opnameCounts[boxCode]) || 0) !== countedQty;
+        const currentCounts = item.opnameCounts || {};
+        const countChanged = !Object.prototype.hasOwnProperty.call(currentCounts, boxCode)
+            || (Number(currentCounts[boxCode]) || 0) !== countedQty;
         const scannedToday = countsById.has(item.id);
         const dateChanged = scannedToday && item.lastOpnameDate !== today;
         if (!countChanged && !dateChanged) return;
 
-        if (countChanged) item.opnameCounts[boxCode] = countedQty;
-        if (scannedToday) item.lastOpnameDate = today;
-        saveDB(item, 'OPNAME', `Simpan hitungan ${boxCode}: ${countedQty}`);
-        processedCount++;
+        const updatedItem = {
+            ...item,
+            opnameCounts: { ...currentCounts, [boxCode]: countedQty },
+            lastOpnameDate: scannedToday ? today : item.lastOpnameDate
+        };
+        changedItems.push(updatedItem);
     });
 
-    // Feedback
-    feedback('success');
-    playChime();
-    showToast(`<i class="fas fa-box"></i> Box ${boxCode}: hasil hitung ${opnameBuffer.reduce((total, entry) => total + entry.qty, 0)} pcs disimpan (${processedCount} perubahan).`);
+    try {
+        const savedItems = await saveDBBatch(
+            changedItems,
+            'OPNAME',
+            item => `Simpan hitungan ${boxCode}: ${item.opnameCounts[boxCode]}`
+        );
+        savedItems.forEach(savedItem => {
+            const index = localItems.findIndex(item => item.id === savedItem.id);
+            if (index >= 0) localItems[index] = savedItem;
+            const filteredIndex = filteredItems.findIndex(item => item.id === savedItem.id);
+            if (filteredIndex >= 0) filteredItems[filteredIndex] = savedItem;
+            opnameBuffer.forEach(entry => {
+                if (entry.item.id === savedItem.id) entry.item = savedItem;
+            });
+        });
+        opnameBufferCommitted = true;
+        persistOpnameSession();
+        renderOpnameBuffer();
+        handleOpnameRender();
 
-    addHistoryLog(`Buffer→${boxCode}`, `${processedCount} items`);
+        feedback('success');
+        playChime();
+        showToast(`<i class="fas fa-box"></i> Box ${boxCode}: ${opnameBuffer.reduce((total, entry) => total + entry.qty, 0)} pcs tersimpan (${savedItems.length} perubahan).`);
+        addHistoryLog(`Buffer→${boxCode}`, `${savedItems.length} items`);
+    } catch (error) {
+        console.error('Gagal menyimpan hasil OPNAME:', error);
+        feedback('error');
+        showToast(`Gagal menyimpan box ${boxCode}. Hitungan tetap di buffer; coba simpan lagi.`);
+    } finally {
+        opnameCommitInProgress = false;
+        if (commitButton) {
+            commitButton.disabled = false;
+            commitButton.textContent = 'SELESAI';
+        }
+    }
 
-    opnameBufferCommitted = true;
-    persistOpnameSession();
-    renderOpnameBuffer();
-    handleOpnameRender();
 }
 
 function commitOpnameBox() {
@@ -1938,9 +2143,9 @@ function commitOpnameBox() {
 }
 
 function unlockOpnameBox() {
-    if (opnameBuffer.length > 0 && !opnameBufferCommitted) {
+    if (opnameBufferStarted && !opnameBufferCommitted) {
         feedback('warning');
-        showToast('Simpan atau bersihkan hitungan sebelum mengganti box.');
+        showToast('Simpan hitungan box aktif (termasuk hasil 0) sebelum mengganti box.');
         return;
     }
     clearOpnameBoxFilter();
@@ -1997,7 +2202,7 @@ function clearOpnameBuffer() {
     document.getElementById('opnameBufferTagsContainer').innerHTML = '';
     document.getElementById('opnameBufferCount').textContent = '0';
     feedback('info');
-    showToast('Buffer dihapus');
+    showToast('Buffer dikosongkan. Tekan SELESAI untuk menyimpan hasil 0.');
     handleOpnameRender();
 }
 

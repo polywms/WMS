@@ -2,7 +2,7 @@
     Tujuan: Entry point UI untuk workflow WMS Magelang.
     Caller: Browser/PWA shell; event handlers diteruskan ke main.js dan core.js.
     Dependensi: css/style.css, Font Awesome, dan modul JavaScript di js/.
-    Main Functions: Menyediakan navigasi, scanner, konfirmasi opname over-scan, kontrol import/export, dan sinkronisasi manual.
+    Main Functions: Menyediakan navigasi, scanner, konfirmasi over-scan, buffer OPNAME ringkas, kontrol import/export, dan sinkronisasi manual.
     Side Effects: Mengubah DOM, memicu scan, penyimpanan lokal, dan sinkronisasi cloud melalui handler.
 -->
 <!-- WMS Magelang - Entry point UI -->
@@ -225,13 +225,13 @@
                         </div>
                     </div>
                 </div>
-                <div id="opnameBufferPanel" class="multi-panel" style="display:none; background:#f0fdf4; border:1px solid #86efac; margin-bottom:15px;">
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; gap:8px;">
+                <div id="opnameBufferPanel" class="multi-panel opname-buffer-panel" style="display:none;">
+                    <div class="opname-buffer-header">
                         <b style="color:#14532d;"><i class="fas fa-calculator"></i> Buffer: <span id="opnameBufferCount">0</span> part / <span id="opnameBufferPcs">0</span> pcs</b>
-                        <button class="btn-sm btn-danger" onclick="clearOpnameBuffer(true)">Clear</button>
+                        <button class="btn-sm btn-danger" onclick="clearOpnameBuffer()">Clear</button>
                     </div>
-                    <div id="opnameBufferTagsContainer" style="max-height:120px; overflow-y:auto; padding-bottom:5px; display:flex; flex-wrap:wrap; gap:5px;"></div>
-                    <div style="margin-top:10px; font-size:0.85rem; font-weight:bold; color:#14532d; text-align:center;"><i class="fas fa-arrow-right"></i> SELESAI atau scan box yang sama untuk simpan</div>
+                    <div id="opnameBufferTagsContainer" class="opname-buffer-tags"></div>
+                    <div class="opname-buffer-hint"><i class="fas fa-arrow-right"></i> SELESAI atau scan box yang sama untuk simpan</div>
                 </div>
                 <div id="opnameInfoPanel" class="info-mode-panel">
                     <i class="fas fa-search" style="font-size:2rem; color:#f97316; margin-bottom:10px;"></i>

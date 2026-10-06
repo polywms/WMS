@@ -64,7 +64,7 @@ processSyncQueue() [database.js] — Background/manual POST to Google Sheets; re
 ```
 Scan box → handleOpnameScan() → setOpnameBoxFilter()
   ↓
-handleOpnameRender() — Show only parts registered in active box with X/Y (counted / sysQty)
+handleOpnameRender() — Show all parts registered in active box with X/Y (counted / sysQty), independent of SIMPAN filters
   ↓
 Scan part QR → handleOpnameScan() — Reject parts not registered in the active box
   ↓
@@ -72,6 +72,8 @@ When box is selected with no active recount, show saved count from `item.opnameC
   (legacy rows without a saved count fall back to `item.locations[box]`)
   ↓
 First scan starts a fresh recount; scanned items read X from the session buffer, unscanned items read 0
+  ↓
+Any uncommitted recount blocks box changes, even when buffer quantities reach 0; tab navigation keeps the session
   ↓
 addToOpnameBuffer() — Imported stock `sysQty` is Y; one scan adds 1
   ↓
@@ -81,12 +83,14 @@ Buffer controls decrement X by one or clear that part; committed corrections upd
   ↓
 Persist box + counts in localStorage; SELISIH shows counted parts where X != Y, BELUM shows active-box parts with X = 0
   ↓
-SELESAI → processOpnameBuffer() — Save counted values to `opnameCounts[box]`
+SELESAI → processOpnameBuffer() — Atomically save all changed box counts to `opnameCounts[box]`
   (locations remains the source of part-to-box membership)
+  ↓
+Manual qty edits in `editLocsList` update the location and matching saved OPNAME count/session
   ↓
 Reset current box → set its saved X to 0; preserve locations and box membership
   ↓
-saveDB() for changed items → IndexedDB + sync queue
+saveDBBatch() for changed items → one IndexedDB transaction + sync queue
   ↓
 After switching boxes and selecting a previously saved box, X is restored from its saved opnameCounts value
 ```
@@ -156,25 +160,19 @@ Render packed items in colly
 ```
 User enters OPNAME tab
   ↓
-Scan Box (RTF-XXX format)
+Scan box code
   ↓
 opnameBufferBox = boxCode
   ↓
 Scan Part 1, 2, 3...
   ↓
-addToOpnameBuffer(item) → buffer += 1 qty per scan
+addToOpnameBuffer(item) → session count +1; every scan persists the session in localStorage
   ↓
-Scan DIFFERENT box (to finalize)
+SELESAI → atomic save all counted and unscanned box members
   ↓
-processOpnameBuffer(newBox) → bulk apply to first box
+saveDBBatch(items) → IndexedDB transaction, then sync queue
   ↓
-For each buffered item: item.locations[box] += qty
-  ↓
-saveDB() per item + set lastOpnameDate = today
-  ↓
-clearOpnameBuffer()
-  ↓
-Show warn if any item exceeds sysQty
+Keep the committed count in `item.opnameCounts[box]`; never alter location membership during counting
 ```
 
 ### Flow 7: Data Sync (Background / Batch Processed)
@@ -290,6 +288,7 @@ WMS/
 - `initDB()` — Buka IndexedDB, tampilkan data lokal dulu, lalu refresh cloud di latar
 - `loadDataFromLocal()` — Read all items dari IndexedDB → localItems
 - `saveDB(item, actionName, actionDetail)` — Write item ke IndexedDB + queue sync
+- `saveDBBatch(items, actionName, actionDetail)` — Atomically write related items and then update the sync queue
 - `processSyncQueue()` — POST queued items ke Google Sheets
 - `autoSyncWithCloud(force)` / `window.manualSync()` — Retry master, OFF BS, dan PACKING otomatis/manual
 - `fetchInitialDataFromCloud()` — Fetch data dari Google Sheets di awal
@@ -311,8 +310,9 @@ WMS/
 - `confirmBoxToBoxYesToAll()` — Gabungkan semua part saat ini dan aktifkan auto-approval sampai mode dimatikan
 - `updateBoxToBoxIndicator()` — Render box sumber/tujuan dengan status validasi tujuan
 - `checkSimpanConflict(item, newBox)` — Prompt move/split decision
-- `handleOpnameRender()` — Filter & render opname list per box
+- `handleOpnameRender()` — Filter & render opname list per box using session or committed counts, independent of SIMPAN filters
 - `getOpnameBufferQty(itemId, item)` — Read current recount counts or saved box quantities while idle
+- `saveManualEdit()` / `syncOpnameCountFromLocation()` — Keep manual location-qty edits aligned with OPNAME counts
 - `resetCurrentBoxOpname()` — Set saved X to zero without changing box membership
 - `confirmOpnameOverScan()` — Confirm an opname scan that exceeds imported `sysQty`
 - `decrementOpnameBuffer()` / `removeFromOpnameBuffer()` — Reduce one or all counted units for a part
@@ -324,7 +324,7 @@ WMS/
 
 **Peran**: Logika business utama; orchestrator antara UI dan DB  
 **Caller**: event handlers (onclick, onkeydown), scanner.js (onScanSuccess)  
-**Dependensi**: database.js (saveDB), config.js (localItems, filteredItems)  
+**Dependensi**: database.js (saveDB, saveDBBatch), config.js (localItems, filteredItems)  
 **Side Effects**: DOM updates, saveDB calls, feedback() audio/vibrate
 
 ---
