@@ -1,4 +1,10 @@
-// js/excel.js
+/*
+ * Tujuan: Import, export, backup, dan restore data WMS melalui file Excel/JSON.
+ * Caller: Tombol data/settings di index.html.
+ * Dependensi: SheetJS, database.js (IndexedDB/sync), dan UI utilities.
+ * Main Functions: handleImport(), exportData(), backupJson(), restoreJson(), import harga.
+ * Side Effects: Membaca file, menulis IndexedDB/cloud, mengunduh file, dan reload aplikasi.
+ */
 
 function handleImport(input) {
     const f = input.files[0]; 
@@ -264,7 +270,7 @@ function restoreJson(input) {
                     updateCount++; 
                 }
             });
-            tx.oncomplete = () => { hideLoading(); alert(`RESTORE SELESAI!\\n${updateCount} part di-update (termasuk harga).`); location.reload(); };
+            tx.oncomplete = () => { hideLoading(); alert(`RESTORE SELESAI!\n${updateCount} part di-update (termasuk harga).`); location.reload(); };
         };
     }; r.readAsText(f);
 }
@@ -351,9 +357,9 @@ function handleImportHarga(input) {
                     hideLoading();
                     
                     if (result.status === "success") {
-                        alert(`IMPORT HARGA SELESAI!\\n\\n${updatedCount} Part berhasil di-update harganya\\n${notFoundCount} Part tidak ditemukan (diabaikan)\\nData sudah tersimpan lokal & cloud`);
+                        alert(`IMPORT HARGA SELESAI!\n\n${updatedCount} Part berhasil di-update harganya\n${notFoundCount} Part tidak ditemukan (diabaikan)\nData sudah tersimpan lokal & cloud`);
                     } else {
-                        alert(`PERHATIAN: Import Lokal Selesai (${updatedCount} part)!\\nTapi upload ke cloud: ${result.message}`);
+                        alert(`PERHATIAN: Import Lokal Selesai (${updatedCount} part)!\nTapi upload ke cloud: ${result.message}`);
                     }
                     
                     input.value = '';
@@ -362,7 +368,7 @@ function handleImportHarga(input) {
                 } catch (err) {
                     hideLoading();
                     console.error('Import Harga Cloud Error:', err);
-                    alert(` SUKSES: Harga sudah tersimpan lokal (${updatedCount} part)!\\nPERHATIAN: Tapi gagal upload ke cloud: ${err.message}`);
+                    alert(` SUKSES: Harga sudah tersimpan lokal (${updatedCount} part)!\nPERHATIAN: Tapi gagal upload ke cloud: ${err.message}`);
                     input.value = '';
                     updateSyncUI('<i class="fas fa-exclamation-triangle"></i> Warning');
                     setTimeout(() => location.reload(), 2000);
@@ -464,7 +470,7 @@ function handleImportOffBS(input) {
             
             if (result.status === "success") {
                 hideLoading();
-                alert(`IMPORT OFF BS SELESAI!\\n\\nData yang diimpor: ${offBsData.length} baris\\nSheet Master_Off_BS sudah diperbarui di Google Sheets`);
+                alert(`IMPORT OFF BS SELESAI!\n\nData yang diimpor: ${offBsData.length} baris\nSheet Master_Off_BS sudah diperbarui di Google Sheets`);
                 input.value = '';
                 updateSyncUI('<i class="fas fa-circle" style="color: #22c55e; font-size: 0.6rem; margin-right: 4px;"></i> Siap');
             } else {

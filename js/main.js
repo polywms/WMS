@@ -32,7 +32,7 @@ async function checkForUpdates() {
         const savedVersion = localStorage.getItem('appVersion');
         
         if (savedVersion && data.version !== savedVersion) {
-            if (confirm('UPDATE TERSEDIA!\\n\\nReload aplikasi untuk versi terbaru?')) {
+            if (confirm('UPDATE TERSEDIA!\n\nReload aplikasi untuk versi terbaru?')) {
                 localStorage.setItem('appVersion', data.version);
                 
                 window.location.reload();
