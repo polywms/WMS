@@ -530,15 +530,52 @@
             .opname-box-panel {
                 background: #f0fdf4;
                 border-color: #86efac;
-                padding: 6px 9px;
-                justify-content: space-between;
-                flex-wrap: wrap;
+                display: grid;
+                grid-template-rows: auto auto;
                 gap: 6px;
+                padding: 7px 9px;
             }
-            .opname-box-panel #activeBoxName { font-size: 1.15rem !important; }
-            .opname-box-actions { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
-            .opname-box-actions .btn-sm { padding: 5px 7px; font-size: 0.75rem; }
-            .opname-stats { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+            .opname-box-top-row {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 8px;
+                min-width: 0;
+            }
+            .opname-box-identity {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                min-width: 0;
+                color: #166534;
+            }
+            .opname-box-identity > i {
+                flex: 0 0 auto;
+                font-size: 1.1rem;
+            }
+            .opname-box-panel #activeBoxName {
+                display: block;
+                min-width: 0;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+                font-size: 1.05rem;
+                line-height: 1.2;
+                color: #14532d;
+            }
+            .opname-box-actions { display: flex; align-items: center; gap: 5px; flex: 0 0 auto; }
+            .opname-box-actions .btn-sm { min-height: 30px; padding: 3px 7px; font-size: 0.72rem; }
+            .opname-box-actions .icon-only { width: 30px !important; height: 30px !important; min-height: 30px !important; padding: 3px !important; }
+            .opname-box-actions .btn-outline {
+                border: 1px solid #64748b !important;
+                box-shadow: 0 0 0 1px rgba(51, 65, 85, 0.12);
+            }
+            .opname-stats {
+                display: grid;
+                grid-template-columns: repeat(4, minmax(0, 1fr));
+                gap: 5px;
+                width: 100%;
+            }
             .opname-stat {
                 font-size: 0.72rem;
                 font-weight: 700;
@@ -547,6 +584,10 @@
                 background: #fff;
                 border: 1px solid #86efac;
                 color: #14532d;
+                text-align: center;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
             }
             .opname-stat.diff { border-color: #fca5a5; color: #991b1b; background: #fef2f2; }
             .opname-stat.zero { border-color: #cbd5e1; color: #475569; background: #f8fafc; }

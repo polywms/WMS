@@ -433,6 +433,7 @@ WMS/
 - Simpan Conflict (move vs split decision)
 - Opname Conflict (location conflict resolution)
 - Opname Over-Scan (confirm adding a scan above imported stock target)
+- Active OPNAME box panel has two rows: box identity/actions, then four equal-width stats
 - Edit Modal (manual qty/location edit)
 - Label Report (quality issues)
 - Rak Summary (missing stock per rack)
