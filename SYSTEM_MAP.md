@@ -348,7 +348,7 @@ WMS/
 
 ### [excel.js](js/excel.js)
 **Fungsi Publik Utama**:
-- `handleImport(input)` — Read Excel, consolidate data, save to IndexedDB + bulk cloud POST; validasi JSON/status response dan laporkan HTTP/deployment error; simpan waktu upload terakhir setelah cloud mengonfirmasi sukses
+- `handleImport(input)` — Read Excel, consolidate data (SPAREPART BAIK satu record per part number), save to IndexedDB + bulk cloud POST; bulk import memperbarui deskripsi/qty dan membersihkan duplikat SPAREPART BAIK berdasarkan identitas part/type; simpan waktu upload setelah cloud mengonfirmasi sukses
 - `exportData()` — Export localItems ke XLSX file
 - `exportOffBsData()` — Export offBsSession ke XLSX
 - `downloadNewParts()` — Download "PART BARU" list
@@ -389,6 +389,7 @@ WMS/
 - `doGet(e)` — GET endpoint; return all items dari DB_MASTER sheet as JSON
 - `doPost(e)` — POST endpoint; handle sync actions (sync, sync_off_bs, bulk_import, delete_off_bs)
 - `mergeDataFast(sheet, incomingItems)` — Merge logic untuk avoid duplicates
+- `reconcileBulkImportRows(sheet, incomingItems)` — Refresh description/qty by imported part/type and retain one imported `SPAREPART BAIK` row per part number
 
 **Peran**: Backend server logic; data persist ke Google Sheets; deduplication  
 **Caller**: database.js (manual `downloadFromServer()` and `processSyncQueue()`)
@@ -400,7 +401,7 @@ WMS/
 **Actions Supported**:
 - `sync` — Merge regular item updates
 - `sync_off_bs` — Append off BS items, detect duplicates via (partNo_docNo)
-- `bulk_import` — Replace DB_MASTER from Excel, log all changes
+- `bulk_import` — Merge hasil Excel ke DB_MASTER, refresh deskripsi/qty, deduplicate imported `SPAREPART BAIK`, dan simpan timestamp impor ke META
 - `delete_off_bs` — Remove items from TEMP_OFF_BS by QR
 
 **Side Effects**: Google Sheets data mutation, sheet operations

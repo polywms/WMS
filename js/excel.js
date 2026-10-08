@@ -2,7 +2,7 @@
  * Tujuan: Import, export, backup, dan restore data WMS melalui file Excel/JSON.
  * Caller: Tombol data/settings di index.html.
  * Dependensi: SheetJS, database.js (IndexedDB/sync), dan UI utilities.
- * Main Functions: handleImport() validates local import and cloud responses, exportData(), backupJson(), restoreJson(), import harga.
+ * Main Functions: handleImport() consolidates stock imports and validates cloud responses, exportData(), backupJson(), restoreJson(), import harga.
  * Side Effects: Membaca file, menulis IndexedDB/cloud dan waktu upload ke localStorage, mengunduh file, dan reload aplikasi.
  */
 
@@ -24,7 +24,9 @@ function handleImport(input) {
         oldItems.forEach(item => {
             const pNo = item.partNo.trim().toUpperCase();
             if (Object.keys(item.locations).length > 0) { if (!locationPool[pNo]) locationPool[pNo] = {}; Object.assign(locationPool[pNo], item.locations); }
-            const itemKey = `${pNo}_${(item.locType||'').toUpperCase()}_${(item.techName||'').toUpperCase()}`;
+            const locTypeKey = (item.locType || '').trim().toUpperCase();
+            const techNameKey = locTypeKey === 'SPAREPART BAIK' ? '' : (item.techName || '').trim().toUpperCase();
+            const itemKey = `${pNo}_${locTypeKey}_${techNameKey}`;
             idMap[itemKey] = item.id;
             if (item.opnameCounts) opnameCountMap[itemKey] = item.opnameCounts;
         });
@@ -37,7 +39,9 @@ function handleImport(input) {
             if (locType.toUpperCase().startsWith('FG')) { fgSkippedCount++; return; } // Filter FG
 
             const techName = (row['Nama']||'').trim(); const qty = parseInt(row['Available QTY']||0) || 0;
-            const compositeKey = `${pNo}_${locType.toUpperCase()}_${techName.toUpperCase()}`;
+            const locTypeKey = locType.trim().toUpperCase();
+            const techNameKey = locTypeKey === 'SPAREPART BAIK' ? '' : techName.toUpperCase();
+            const compositeKey = `${pNo}_${locTypeKey}_${techNameKey}`;
             
             if (consolidatedExcel[compositeKey]) { consolidatedExcel[compositeKey].sysQty += qty; } 
             else { consolidatedExcel[compositeKey] = { locType: locType, techName: techName, partNo: rawPartNo, desc: row['Deskripsi Part']||'', sysQty: qty, raw: row, basePartNo: pNo, compositeKey: compositeKey }; }

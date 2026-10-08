@@ -2,7 +2,7 @@
  * Tujuan: Endpoint Google Apps Script untuk sinkronisasi data WMS dan sesi terkait.
  * Caller: js/database.js melalui Google Sheets API.
  * Dependensi: SpreadsheetApp, ContentService, sheet DB_MASTER/LOG_SCAN.
- * Main Functions: doGet(), doPost(), mergeDataFast().
+ * Main Functions: doGet(), doPost(), mergeDataFast(), reconcileBulkImportRows().
  * Side Effects: Membaca/menulis Google Sheets dan mengirim respons HTTP.
  */
 
@@ -372,10 +372,14 @@ function doPost(e) {
         const logData = logs.map(l => [new Date(), l.partNo, l.action, l.detail]);
         logSheet.getRange(logSheet.getLastRow() + 1, 1, logData.length, 4).setValues(logData);
       }
-      if (items.length > 0) mergeDataFast(dbSheet, items);
+      if (items.length > 0) {
+        mergeDataFast(dbSheet, items);
+        if (action === "bulk_import") reconcileBulkImportRows(dbSheet, items);
+      }
 
       // Update META sheet with lastStockUploadAt so clients can read shared timestamp
-      try {
+      if (action === "bulk_import") {
+        try {
         let metaSheet = ss.getSheetByName('META');
         if (!metaSheet) metaSheet = ss.insertSheet('META');
         // Ensure header
@@ -396,9 +400,15 @@ function doPost(e) {
         } else {
           metaSheet.getRange(metaSheet.getLastRow() + 1, 1, 1, 2).setValues([[key, value]]);
         }
-      } catch (metaErr) {
-        // Non-fatal: ignore meta write errors but log
-        try { logSheet.getRange(logSheet.getLastRow() + 1, 1, 1, 4).setValues([[new Date(), 'META', 'WRITE_ERROR', String(metaErr)]]); } catch(e) {}
+        } catch (metaErr) {
+          // Metadata failure is logged, but stock data import itself remains successful.
+          try {
+            logSheet.getRange(logSheet.getLastRow() + 1, 1, 1, 4)
+              .setValues([[new Date(), 'META', 'WRITE_ERROR', String(metaErr)]]);
+          } catch (logError) {
+            console.error('Failed to log META write error:', logError);
+          }
+        }
       }
 
       return ContentService.createTextOutput(JSON.stringify({ status: "success", message: "Data berhasil disinkronisasi" })).setMimeType(ContentService.MimeType.JSON);
@@ -409,6 +419,84 @@ function doPost(e) {
   } catch (error) {
     return ContentService.createTextOutput(JSON.stringify({ status: "error", message: error.toString() })).setMimeType(ContentService.MimeType.JSON);
   }
+}
+
+function reconcileBulkImportRows(sheet, incomingItems) {
+  const incomingByKey = new Map();
+  const keyFor = (partNo, locType, techName) => {
+    const normalizedType = String(locType || '').trim().toUpperCase();
+    const normalizedTech = normalizedType === 'SPAREPART BAIK'
+      ? ''
+      : String(techName || '').trim().toUpperCase();
+    return `${String(partNo || '').trim().toUpperCase()}|${normalizedType}|${normalizedTech}`;
+  };
+
+  incomingItems.forEach(item => {
+    const key = keyFor(item.partNo, item.locType, item.techName);
+    if (key.startsWith('|')) return;
+    incomingByKey.set(key, item);
+  });
+
+  if (incomingByKey.size === 0) return;
+
+  const data = sheet.getDataRange().getValues();
+  const incomingRowIndexes = new Map();
+  const existingRowsByKey = new Map();
+
+  for (let i = 1; i < data.length; i++) {
+    const row = data[i];
+    const key = keyFor(row[1], row[3], row[4]);
+    if (!incomingByKey.has(key)) continue;
+
+    if (!existingRowsByKey.has(key)) existingRowsByKey.set(key, []);
+    existingRowsByKey.get(key).push(i);
+  }
+
+  incomingByKey.forEach((item, key) => {
+    const rows = existingRowsByKey.get(key) || [];
+    const matchingIdIndex = rows.find(index =>
+      String(data[index][0]) === String(item.id)
+    );
+    if (matchingIdIndex !== undefined) incomingRowIndexes.set(key, matchingIdIndex);
+    else if (rows.length > 0) incomingRowIndexes.set(key, rows[0]);
+  });
+
+  const reconciled = [data[0]];
+  const retainedSparepartKeys = new Set();
+
+  for (let i = 1; i < data.length; i++) {
+    const row = data[i];
+    const key = keyFor(row[1], row[3], row[4]);
+    const importedItem = incomingByKey.get(key);
+
+    if (!importedItem) {
+      reconciled.push(row);
+      continue;
+    }
+
+    const isSparepartBaik =
+      String(row[3] || '').trim().toUpperCase() === 'SPAREPART BAIK';
+    if (isSparepartBaik) {
+      if (retainedSparepartKeys.has(key)) continue;
+      retainedSparepartKeys.add(key);
+      const selectedIndex = incomingRowIndexes.get(key);
+      const canonicalRow = selectedIndex === undefined ? row : data[selectedIndex].slice();
+      canonicalRow[2] = importedItem.desc || '';
+      canonicalRow[5] = Number(importedItem.sysQty) || 0;
+      reconciled.push(canonicalRow);
+      continue;
+    }
+
+    row[2] = importedItem.desc || '';
+    row[5] = Number(importedItem.sysQty) || 0;
+    reconciled.push(row);
+  }
+
+  const columnCount = Math.max(data[0].length, ...reconciled.map(row => row.length));
+  reconciled.forEach(row => {
+    while (row.length < columnCount) row.push('');
+  });
+  sheet.getRange(1, 1, reconciled.length, columnCount).setValues(reconciled);
 }
 
 function mergeDataFast(sheet, incomingItems) {
