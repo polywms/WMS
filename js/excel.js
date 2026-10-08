@@ -2,7 +2,7 @@
  * Tujuan: Import, export, backup, dan restore data WMS melalui file Excel/JSON.
  * Caller: Tombol data/settings di index.html.
  * Dependensi: SheetJS, database.js (IndexedDB/sync), dan UI utilities.
- * Main Functions: handleImport(), exportData(), backupJson(), restoreJson(), import harga.
+ * Main Functions: handleImport() validates local import and cloud responses, exportData(), backupJson(), restoreJson(), import harga.
  * Side Effects: Membaca file, menulis IndexedDB/cloud dan waktu upload ke localStorage, mengunduh file, dan reload aplikasi.
  */
 
@@ -75,9 +75,20 @@ function handleImport(input) {
             updateSyncUI('<i class="fas fa-paper-plane"></i> Mengirim ke Cloud (Mohon Tunggu)...');
             try {
                 const response = await fetch(API_URL, { method: "POST", redirect: "follow", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ action: "bulk_import", data: bulkDataToUpload, logs: [{ partNo: "SEMUA", action: "IMPORT EXCEL", detail: `Import ${bulkDataToUpload.length} Baris Data` }] }) });
-                const result = await response.json();
+                const responseText = await response.text();
+                let result;
+                try {
+                    result = JSON.parse(responseText);
+                } catch {
+                    const contentType = response.headers.get('content-type') || 'unknown content type';
+                    const preview = responseText.replace(/\s+/g, ' ').slice(0, 180);
+                    const deploymentHint = response.status === 404
+                        ? ' URL/deployment Web App Apps Script tidak ditemukan; periksa URL deployment terbaru dan aksesnya.'
+                        : ` Cuplikan respons: ${preview || '(kosong)'}`;
+                    throw new Error(`Endpoint Cloud mengembalikan respons bukan JSON (HTTP ${response.status}, ${contentType}).${deploymentHint}`);
+                }
                 if (!response.ok || result.status !== "success") {
-                    throw new Error(result.message || "Server tidak mengonfirmasi upload.");
+                    throw new Error(result.message || `Server tidak mengonfirmasi upload (HTTP ${response.status}).`);
                 }
                 localStorage.setItem('lastStockUploadAt', new Date().toISOString());
                 hideLoading();

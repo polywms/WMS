@@ -345,7 +345,7 @@ WMS/
 
 ### [excel.js](js/excel.js)
 **Fungsi Publik Utama**:
-- `handleImport(input)` — Read Excel, consolidate data, save to IndexedDB + bulk cloud POST; simpan waktu upload terakhir setelah cloud mengonfirmasi sukses
+- `handleImport(input)` — Read Excel, consolidate data, save to IndexedDB + bulk cloud POST; validasi JSON/status response dan laporkan HTTP/deployment error; simpan waktu upload terakhir setelah cloud mengonfirmasi sukses
 - `exportData()` — Export localItems ke XLSX file
 - `exportOffBsData()` — Export offBsSession ke XLSX
 - `downloadNewParts()` — Download "PART BARU" list
