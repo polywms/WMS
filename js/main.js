@@ -3,7 +3,7 @@
  * Caller: Browser melalui window.onload.
  * Dependensi: database.js (initDB), core.js (render dan state SIMPAN), Service Worker API.
  * Main Functions: registerServiceWorker(), checkForUpdates(), window.onload.
- * Side Effects: IndexedDB init, registrasi cache, wake lock, dan sinkronisasi tampilan.
+ * Side Effects: IndexedDB init, registrasi cache, wake lock, pembacaan waktu upload dari localStorage, dan sinkronisasi tampilan.
  */
 let wakeLock = null;
 
@@ -75,6 +75,12 @@ document.addEventListener('click', (e) => {
 window.onload = async () => {
     await initDB();
     if(localStorage.getItem('darkMode') === 'true') document.body.classList.add('dark-mode');
+    const lastStockUploadAt = localStorage.getItem('lastStockUploadAt');
+    const lastStockUploadDate = lastStockUploadAt ? new Date(lastStockUploadAt) : null;
+    const lastStockUploadElement = document.getElementById('lastStockUploadAt');
+    if (lastStockUploadElement && lastStockUploadDate && !Number.isNaN(lastStockUploadDate.getTime())) {
+        lastStockUploadElement.textContent = `Upload terakhir: ${lastStockUploadDate.toLocaleString('id-ID')}`;
+    }
     requestWakeLock();
     document.getElementById('mainInput').focus();
     

@@ -273,13 +273,13 @@ WMS/
 
 ### [main.js](js/main.js)
 **Fungsi Publik**:
-- `window.onload()` — Inisialisasi DB, register SW, request wake lock
+- `window.onload()` — Inisialisasi DB, register SW, request wake lock, dan tampilkan waktu upload DATA STOCK terakhir
 - `document.addEventListener('click')` — Auto-focus scanner input
 
 **Peran**: Entry point aplikasi; setup lifecycle  
 **Caller**: Browser load event  
 **Dependensi**: database.js (initDB), core.js (renderLimit handler, SIMPAN mode state)
-**Side Effects**: IndexedDB open, SW register, Screen wake lock acquire
+**Side Effects**: IndexedDB open, baca waktu upload DATA STOCK dari localStorage, SW register, Screen wake lock acquire
 **Multi-Scan**: Memulihkan checkbox, ikon, dan panel sesuai `simpanMode` tersimpan.
 
 ---
@@ -345,7 +345,7 @@ WMS/
 
 ### [excel.js](js/excel.js)
 **Fungsi Publik Utama**:
-- `handleImport(input)` — Read Excel, consolidate data, save to IndexedDB + bulk cloud POST
+- `handleImport(input)` — Read Excel, consolidate data, save to IndexedDB + bulk cloud POST; simpan waktu upload terakhir setelah cloud mengonfirmasi sukses
 - `exportData()` — Export localItems ke XLSX file
 - `exportOffBsData()` — Export offBsSession ke XLSX
 - `downloadNewParts()` — Download "PART BARU" list
@@ -355,7 +355,7 @@ WMS/
 **Peran**: Data import/export; backup/restore utility  
 **Caller**: HTML menu buttons (Import/Export)  
 **Dependensi**: config.js (localItems), database.js (saveDB, db transaction), XLSX library (external)  
-**Side Effects**: IndexedDB clear/write, file download, location.reload()
+**Side Effects**: IndexedDB clear/write, localStorage write untuk waktu upload DATA STOCK, file download, location.reload()
 
 ---
 

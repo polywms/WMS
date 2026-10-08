@@ -423,11 +423,14 @@
                             <i class="fas fa-download"></i>
                             <span>Impor Data</span>
                         </div>
-                        <div style="display: flex; gap: 10px; margin-bottom: 15px;">
-                            <button style="flex: 1; display: flex; align-items: center; background-color: #0ea5e9; color: white; border: none; border-radius: 6px; padding: 12px 8px; cursor: pointer;" onclick="document.getElementById('fileInput').click()">
-                                <i class="fas fa-boxes" style="font-size: 1.5rem; flex-shrink: 0; width: 30px; text-align: center;"></i>
-                                <span style="flex: 1; text-align: center; line-height: 1.2; font-size: 0.8rem; font-weight: bold;">DATA<br>STOCK</span>
-                            </button>
+                        <div style="display: flex; align-items: flex-start; gap: 10px; margin-bottom: 15px;">
+                            <div style="flex: 1; min-width: 0;">
+                                <button style="width: 100%; display: flex; align-items: center; background-color: #0ea5e9; color: white; border: none; border-radius: 6px; padding: 12px 8px; cursor: pointer;" onclick="document.getElementById('fileInput').click()">
+                                    <i class="fas fa-boxes" style="font-size: 1.5rem; flex-shrink: 0; width: 30px; text-align: center;"></i>
+                                    <span style="flex: 1; text-align: center; line-height: 1.2; font-size: 0.8rem; font-weight: bold;">DATA<br>STOCK</span>
+                                </button>
+                                <div id="lastStockUploadAt" style="margin-top: 4px; color: var(--secondary); font-size: 0.68rem; line-height: 1.2; text-align: center;">Upload terakhir: belum pernah</div>
+                            </div>
                             <button style="flex: 1; display: flex; align-items: center; background-color: #10b981; color: white; border: none; border-radius: 6px; padding: 12px 8px; cursor: pointer;" onclick="document.getElementById('offBsFileInput').click()">
                                 <i class="fas fa-recycle" style="font-size: 1.5rem; flex-shrink: 0; width: 30px; text-align: center;"></i>
                                 <span style="flex: 1; text-align: center; line-height: 1.2; font-size: 0.8rem; font-weight: bold;">DATA<br>OFF BS</span>

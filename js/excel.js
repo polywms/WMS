@@ -3,7 +3,7 @@
  * Caller: Tombol data/settings di index.html.
  * Dependensi: SheetJS, database.js (IndexedDB/sync), dan UI utilities.
  * Main Functions: handleImport(), exportData(), backupJson(), restoreJson(), import harga.
- * Side Effects: Membaca file, menulis IndexedDB/cloud, mengunduh file, dan reload aplikasi.
+ * Side Effects: Membaca file, menulis IndexedDB/cloud dan waktu upload ke localStorage, mengunduh file, dan reload aplikasi.
  */
 
 function handleImport(input) {
@@ -74,10 +74,15 @@ function handleImport(input) {
             showLoading('<i class="fas fa-download"></i> Import Stock', 'Mengirim ke cloud...');
             updateSyncUI('<i class="fas fa-paper-plane"></i> Mengirim ke Cloud (Mohon Tunggu)...');
             try {
-                await fetch(API_URL, { method: "POST", redirect: "follow", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ action: "bulk_import", data: bulkDataToUpload, logs: [{ partNo: "SEMUA", action: "IMPORT EXCEL", detail: `Import ${bulkDataToUpload.length} Baris Data` }] }) });
+                const response = await fetch(API_URL, { method: "POST", redirect: "follow", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ action: "bulk_import", data: bulkDataToUpload, logs: [{ partNo: "SEMUA", action: "IMPORT EXCEL", detail: `Import ${bulkDataToUpload.length} Baris Data` }] }) });
+                const result = await response.json();
+                if (!response.ok || result.status !== "success") {
+                    throw new Error(result.message || "Server tidak mengonfirmasi upload.");
+                }
+                localStorage.setItem('lastStockUploadAt', new Date().toISOString());
                 hideLoading();
                 alert(`IMPORT & SYNC SELESAI!\nDATA BERHASIL MASUK GOOGLE SHEETS.\n${rescuedCount} Part Temuan dipertahankan.\n${fgSkippedCount} Baris 'FG' dibuang.`);
-            } catch (err) { hideLoading(); alert(`Import Lokal Selesai, tapi GAGAL tersambung ke Cloud.`); }
+            } catch (err) { hideLoading(); alert(`Import Lokal Selesai, tapi upload ke Cloud gagal: ${err instanceof Error ? err.message : String(err)}`); }
             location.reload(); 
         };
     }; 
