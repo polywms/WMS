@@ -140,6 +140,9 @@ window.onload = async () => {
     
     // Check for updates after 3 seconds
     setTimeout(checkForUpdates, 3000);
+
+    // Also fetch shared server meta (including lastStockUploadAt) and update UI
+    if (typeof fetchServerMeta === 'function') fetchServerMeta();
     
     const scrollBtn = document.getElementById('scrollTopBtn');
     const setupScroll = (id, callback) => {
@@ -156,3 +159,26 @@ window.onload = async () => {
 };
 
 // The version check registers the worker with a release-specific URL.
+
+// Fetch server meta (shared values) and update UI
+async function fetchServerMeta() {
+    try {
+        const resp = await fetch(API_URL + '?meta=true&t=' + Date.now());
+        if (!resp.ok) return;
+        const data = await resp.json();
+        if (data && data.status === 'success' && data.meta && data.meta.lastStockUploadAt) {
+            const elem = document.getElementById('lastStockUploadAt');
+            if (elem) {
+                const d = new Date(data.meta.lastStockUploadAt);
+                if (!Number.isNaN(d.getTime())) {
+                    elem.textContent = `Upload terakhir (cloud): ${d.toLocaleString('id-ID')}`;
+                    // Also persist a server-shared value for reference
+                    localStorage.setItem('lastStockUploadAtServer', data.meta.lastStockUploadAt);
+                }
+            }
+        }
+    } catch (e) {
+        // ignore; offline or CORS - keep local value
+        console.log('fetchServerMeta skipped:', e && e.message ? e.message : e);
+    }
+}

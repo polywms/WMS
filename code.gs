@@ -12,6 +12,26 @@ const SHEET_LOG = "LOG_SCAN";
 
 function doGet(e) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  // If client requests meta info, return META sheet values
+  try {
+    if (e && e.parameter && e.parameter.meta === 'true') {
+      const metaSheet = ss.getSheetByName('META');
+      const meta = {};
+      if (metaSheet) {
+        const rows = metaSheet.getDataRange().getValues();
+        for (let i = 1; i < rows.length; i++) {
+          const k = String(rows[i][0] || '').trim();
+          const v = rows[i][1] || '';
+          if (k) meta[k] = v;
+        }
+      }
+      return ContentService.createTextOutput(JSON.stringify({ status: 'success', meta: meta })).setMimeType(ContentService.MimeType.JSON);
+    }
+  } catch (metaErr) {
+    // fall through to normal response on error
+  }
+
   const sheet = ss.getSheetByName(SHEET_DB);
   const data = sheet.getDataRange().getValues();
   const items = [];
@@ -352,7 +372,35 @@ function doPost(e) {
         const logData = logs.map(l => [new Date(), l.partNo, l.action, l.detail]);
         logSheet.getRange(logSheet.getLastRow() + 1, 1, logData.length, 4).setValues(logData);
       }
-      if (items.length > 0) mergeDataFast(dbSheet, items); 
+      if (items.length > 0) mergeDataFast(dbSheet, items);
+
+      // Update META sheet with lastStockUploadAt so clients can read shared timestamp
+      try {
+        let metaSheet = ss.getSheetByName('META');
+        if (!metaSheet) metaSheet = ss.insertSheet('META');
+        // Ensure header
+        const header = metaSheet.getRange(1,1,1,2).getValues()[0];
+        if (header[0] !== 'key' || header[1] !== 'value') {
+          metaSheet.clearContents();
+          metaSheet.getRange(1,1,1,2).setValues([['key','value']]);
+        }
+        const key = 'lastStockUploadAt';
+        const value = new Date().toISOString();
+        const data = metaSheet.getDataRange().getValues();
+        let foundRow = -1;
+        for (let i = 1; i < data.length; i++) {
+          if (String(data[i][0]) === key) { foundRow = i + 1; break; }
+        }
+        if (foundRow !== -1) {
+          metaSheet.getRange(foundRow, 2).setValue(value);
+        } else {
+          metaSheet.getRange(metaSheet.getLastRow() + 1, 1, 1, 2).setValues([[key, value]]);
+        }
+      } catch (metaErr) {
+        // Non-fatal: ignore meta write errors but log
+        try { logSheet.getRange(logSheet.getLastRow() + 1, 1, 1, 4).setValues([[new Date(), 'META', 'WRITE_ERROR', String(metaErr)]]); } catch(e) {}
+      }
+
       return ContentService.createTextOutput(JSON.stringify({ status: "success", message: "Data berhasil disinkronisasi" })).setMimeType(ContentService.MimeType.JSON);
     }
 

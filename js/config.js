@@ -28,7 +28,7 @@
 
 // js/config.js
 const DB_NAME = 'WMS_Stock_v10';
-const API_URL = "https://script.google.com/macros/s/AKfycbxDQBLQEyIaNwQsA2Ubs4KDhFI5v7aNs4pfrs_e8MDmVGwj1zuwHWoCMiGuB27flOsS/exec";
+const API_URL = "https://script.google.com/macros/s/AKfycbxdGnnZunAV5rr_2FN3nQ4kcxpBN3pM6he048bngAjkunoNaNre7LTDUeSsdBz17K1Q/exec";
 
 // ===== QUEUE & SYNC CONFIG =====
 const MAX_SYNC_BATCH = 100;      // Max items per sync POST
