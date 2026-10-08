@@ -2,7 +2,7 @@
  * Tujuan: Inisialisasi aplikasi WMS dan lifecycle PWA.
  * Caller: Browser melalui window.onload.
  * Dependensi: database.js (initDB), core.js (render dan state SIMPAN), Service Worker API.
- * Main Functions: registerServiceWorker(), checkForUpdates(), window.onload.
+ * Main Functions: registerServiceWorker(), checkForUpdates() updates the header version label, window.onload.
  * Side Effects: IndexedDB init, registrasi cache, wake lock, pembacaan waktu upload dari localStorage, dan sinkronisasi tampilan.
  */
 let wakeLock = null;
@@ -24,12 +24,22 @@ async function registerServiceWorker(version) {
 
 async function checkForUpdates() {
     try {
+        const versionLabel = document.getElementById('appVersion');
+        const savedVersion = localStorage.getItem('appVersion');
+        if (versionLabel && savedVersion) {
+            versionLabel.textContent = `v${savedVersion}`;
+            versionLabel.hidden = false;
+        }
+
         const response = await fetch('./version.json?t=' + Date.now());
         if (!response.ok) return;
         
         const data = await response.json();
+        if (versionLabel) {
+            versionLabel.textContent = `v${data.version}`;
+            versionLabel.hidden = false;
+        }
         await registerServiceWorker(data.version);
-        const savedVersion = localStorage.getItem('appVersion');
         
         if (savedVersion && data.version !== savedVersion) {
             if (confirm('UPDATE TERSEDIA!\n\nReload aplikasi untuk versi terbaru?')) {

@@ -216,6 +216,8 @@ Fetch version.json with cache bypass
   ↓
 Parse currentVersion.version
   ↓
+Display current app version below the WMS title in the fixed header
+  ↓
 Register sw.js?v=currentVersion with updateViaCache: none
   ↓
 Install versioned worker and cache namespace
@@ -274,6 +276,7 @@ WMS/
 ### [main.js](js/main.js)
 **Fungsi Publik**:
 - `window.onload()` — Inisialisasi DB, register SW, request wake lock, dan tampilkan waktu upload DATA STOCK terakhir
+- `checkForUpdates()` — Muat versi dari `version.json`, tampilkan di bawah judul header, dan cek pembaruan cache
 - `document.addEventListener('click')` — Auto-focus scanner input
 
 **Peran**: Entry point aplikasi; setup lifecycle  
