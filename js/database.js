@@ -1,8 +1,8 @@
 /*
- * Tujuan: Persistensi IndexedDB dan sinkronisasi manual dengan Google Sheets.
+ * Tujuan: Persistensi IndexedDB, sinkronisasi Admin, dan refresh baca otomatis untuk User.
  * Caller: main.js, core.js, dan handler kontrol sinkronisasi di index.html.
  * Dependensi: auth.js (Admin-authorized writes), config.js (db, antrean, sesi), IndexedDB, API_URL.
- * Main Functions: initDB(), loadDataFromLocal(), saveDB(), saveDBBatch(), uploadToServer(), downloadFromServer().
+ * Main Functions: initDB(), loadDataFromLocal(), saveDB(), saveDBBatch(), uploadToServer(), downloadFromServer(), refreshUserDataInBackground().
  * Side Effects: Membaca/menulis IndexedDB dan localStorage, mengirim HTTP request; protects pending/newer local state on download.
  */
 // js/database.js
@@ -15,8 +15,31 @@ let packingSession = JSON.parse(localStorage.getItem('wms_packing')) || [];
 let collyList = JSON.parse(localStorage.getItem('wms_colly_list')) || [];
 let activeColly = localStorage.getItem('wms_active_colly') || null;
 let isCloudSyncing = false;
+let userRefreshPromise = null;
 
 function updateSyncUI(text) { const el = document.getElementById('syncStatus'); if(el) el.innerHTML = text; }
+
+function areWmsRecordsEqual(left, right) {
+    const normalize = value => {
+        if (Array.isArray(value)) return value.map(normalize);
+        if (value && typeof value === 'object') {
+            return Object.keys(value).sort().reduce((result, key) => {
+                result[key] = normalize(value[key]);
+                return result;
+            }, {});
+        }
+        return value;
+    };
+    return JSON.stringify(normalize(left)) === JSON.stringify(normalize(right));
+}
+
+function refreshUserDataInBackground() {
+    if (currentRole !== 'user') return Promise.resolve(false);
+    if (userRefreshPromise) return userRefreshPromise;
+    userRefreshPromise = downloadFromServer({ background: true, reloadOnUpdate: true })
+        .finally(() => { userRefreshPromise = null; });
+    return userRefreshPromise;
+}
 
 function initDB() {
     return new Promise((resolve, reject) => {
@@ -54,19 +77,22 @@ function loadDataFromLocal() {
     });
 }
 
-async function downloadFromServer() {
-    if (!requireAdminAccess('mengunduh data cloud')) return false;
+async function downloadFromServer(options = {}) {
+    const backgroundUserRefresh = options.background === true && currentRole === 'user';
+    if (!backgroundUserRefresh && !requireAdminAccess('mengunduh data cloud')) return false;
     if (!navigator.onLine) {
         updateSyncUI('<i class="fas fa-circle" style="color: #ef4444; font-size: 0.6rem; margin-right: 4px;"></i> Offline; data lokal aman');
-        showToast('Tidak ada koneksi. Data lokal tetap tersimpan.');
+        if (!backgroundUserRefresh) showToast('Tidak ada koneksi. Data lokal tetap tersimpan.');
         return false;
     }
     if (isSyncing || isCloudSyncing) {
-        showToast('Sinkronisasi sedang berjalan. Tunggu hingga selesai.');
+        if (!backgroundUserRefresh) showToast('Sinkronisasi sedang berjalan. Tunggu hingga selesai.');
         return false;
     }
     isCloudSyncing = true;
-    updateSyncUI('<i class="fas fa-spinner fa-spin"></i> Mengunduh data...');
+    updateSyncUI(backgroundUserRefresh
+        ? '<i class="fas fa-spinner fa-spin"></i> Memeriksa update; data lokal tetap tersedia'
+        : '<i class="fas fa-spinner fa-spin"></i> Mengunduh data...');
     let timeoutId;
     try {
         const controller = new AbortController();
@@ -115,22 +141,27 @@ async function downloadFromServer() {
             });
         const candidates = mergeCandidates.filter(Boolean);
         const conflictCandidates = candidates.filter(candidate => candidate.locationConflict);
-        const useCloudLocations = conflictCandidates.length > 0
+        const useCloudLocations = !backgroundUserRefresh && conflictCandidates.length > 0
             && confirm(`Cloud dan lokal memiliki lokasi berbeda pada ${conflictCandidates.length} part. Gunakan lokasi dari Cloud untuk part tersebut? Pilih Batal untuk mempertahankan lokasi lokal yang konflik.`);
         const mergedItems = candidates.map(candidate => {
-            if (candidate.locationConflict && !useCloudLocations) {
+            if (candidate.locationConflict && !backgroundUserRefresh && !useCloudLocations) {
                 candidate.merged.locations = candidate.localItem.locations || {};
             }
             return candidate.merged;
         });
+        const changedItems = mergedItems.filter(item => {
+            const localItem = localById.get(item.id)
+                || localByKey.get(getWmsItemIdentityKey(item));
+            return !localItem || !areWmsRecordsEqual(localItem, item);
+        });
 
-        if (mergedItems.length > 0) {
+        if (changedItems.length > 0) {
             await new Promise((resolve, reject) => {
                 let tx;
                 try {
                     tx = db.transaction('items', 'readwrite');
                     const store = tx.objectStore('items');
-                    mergedItems.forEach(item => store.put(item));
+                    changedItems.forEach(item => store.put(item));
                 } catch (error) {
                     reject(error);
                     return;
@@ -139,10 +170,19 @@ async function downloadFromServer() {
                 tx.onerror = () => reject(tx.error || new Error('Gagal menyimpan hasil download.'));
                 tx.onabort = () => reject(tx.error || new Error('Download lokal dibatalkan.'));
             });
+            if (backgroundUserRefresh && options.reloadOnUpdate) {
+                updateSyncUI(`<i class="fas fa-check-circle"></i> ${changedItems.length} update diterapkan; memuat ulang...`);
+                window.location.reload();
+                return true;
+            }
             await loadDataFromLocal();
         }
-        updateSyncUI(`<i class="fas fa-check-circle"></i> Download selesai; ${mergedItems.length} data digabung, konflik lokasi: ${conflictCandidates.length}`);
-        showToast(`Download selesai: ${mergedItems.length} data digabung. ${conflictCandidates.length} konflik lokasi ${useCloudLocations ? 'diambil dari Cloud' : 'dipertahankan lokal'}. Antrean pending tidak dihapus.`);
+        updateSyncUI(backgroundUserRefresh
+            ? '<i class="fas fa-check-circle"></i> Data lokal sudah terbaru'
+            : `<i class="fas fa-check-circle"></i> Download selesai; ${changedItems.length} data diperbarui, konflik lokasi: ${conflictCandidates.length}`);
+        if (!backgroundUserRefresh) {
+            showToast(`Download selesai: ${changedItems.length} data diperbarui. ${conflictCandidates.length} konflik lokasi ${useCloudLocations ? 'diambil dari Cloud' : 'dipertahankan lokal'}. Antrean pending tidak dihapus.`);
+        }
         return true;
     } catch (error) {
         if (timeoutId) clearTimeout(timeoutId);
@@ -150,7 +190,7 @@ async function downloadFromServer() {
         updateSyncUI(error.name === 'AbortError'
             ? '<i class="fas fa-times-circle"></i> Download timeout; data lokal aman'
             : '<i class="fas fa-times-circle"></i> Download gagal; data lokal aman');
-        showToast(`Download gagal: ${error.message}. Data lokal tidak dihapus.`);
+        if (!backgroundUserRefresh) showToast(`Download gagal: ${error.message}. Data lokal tidak dihapus.`);
         return false;
     } finally {
         isCloudSyncing = false;

@@ -1,5 +1,5 @@
 /*
- * Tujuan: Endpoint Google Apps Script untuk otorisasi sesi Admin, sinkronisasi WMS, dan import qty-only.
+ * Tujuan: Endpoint Google Apps Script untuk otorisasi sesi Admin (password minimal 4 karakter), sinkronisasi WMS, dan import qty-only.
  * Caller: js/database.js melalui Google Sheets API.
  * Dependensi: SpreadsheetApp, ContentService, sheet DB_MASTER/LOG_SCAN.
  * Main Functions: doGet(), doPost(), setupAdminPassword(), handleAdminLogin(), validateAdminSession(), revokeAdminSession(), ensureDbMasterLocationProtection(), mergeDataFast(), mergeStockQuantities().
@@ -12,6 +12,7 @@ const SHEET_LOG = "LOG_SCAN";
 const SHEET_ROLE = "WMS_USER_ROLE";
 const ADMIN_SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 const PASSWORD_HASH_ITERATIONS = 12000;
+const ADMIN_PASSWORD_MIN_LENGTH = 4;
 
 function doGet(e) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -72,11 +73,11 @@ function doGet(e) {
 
 function setupAdminPassword() {
   const ui = SpreadsheetApp.getUi();
-  const first = ui.prompt("WMS Admin", "Buat password Admin (minimal 12 karakter). Password tidak disimpan sebagai teks.", ui.ButtonSet.OK_CANCEL);
+  const first = ui.prompt("WMS Admin", "Buat password Admin (minimal 4 karakter). Password tidak disimpan sebagai teks.", ui.ButtonSet.OK_CANCEL);
   if (first.getSelectedButton() !== ui.Button.OK) return;
   const password = first.getResponseText();
-  if (password.length < 12) {
-    ui.alert("Password harus memiliki minimal 12 karakter.");
+  if (password.length < ADMIN_PASSWORD_MIN_LENGTH) {
+    ui.alert("Password harus memiliki minimal 4 karakter.");
     return;
   }
   const second = ui.prompt("Konfirmasi Password Admin", "Masukkan kembali password Admin.", ui.ButtonSet.OK_CANCEL);
@@ -141,7 +142,9 @@ function handleAdminLogin(password) {
   const cache = CacheService.getScriptCache();
   const attempts = Number(cache.get("WMS_ADMIN_LOGIN_FAILURES") || 0);
   if (attempts >= 5) throw new Error("Terlalu banyak percobaan login. Coba lagi setelah 15 menit.");
-  if (typeof password !== "string" || !password) throw new Error("Password Admin wajib diisi.");
+  if (typeof password !== "string" || password.length < ADMIN_PASSWORD_MIN_LENGTH) {
+    throw new Error("Password Admin harus memiliki minimal 4 karakter.");
+  }
 
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_ROLE);
   if (!sheet) throw new Error("Password Admin belum disiapkan. Jalankan setupAdminPassword() dari editor Apps Script.");

@@ -29,7 +29,9 @@ Arsitektur layering sederhana: View (HTML/Tab) → Controller (core.js processSc
 
 **Role & Lokasi Fisik**
 - Startup meminta pilihan Admin (password diverifikasi server) atau User (langsung ke Cari).
-- User hanya dapat mencari data lokal dengan mengetik atau scan kamera; navigasi dan handler membatasi tab serta aksi tulis.
+- Password Admin dibuat lewat `setupAdminPassword()` dengan minimum 4 karakter; password yang lebih panjang tetap diterima dan server memvalidasi batas minimum saat setup serta login.
+- User hanya dapat mencari data lokal dengan mengetik atau scan kamera; navigasi dan handler membatasi tab serta aksi tulis. Pilihan User diingat, data lokal tampil segera, lalu GET read-only memeriksa update di latar belakang; bila data baru tersimpan, halaman reload otomatis ke Cari.
+- Refresh User tidak menampilkan kontrol sinkronisasi manual dan tidak menulis ke cloud. Record berantrean atau bertimestamp lokal lebih baru tetap dipertahankan; untuk record lain, snapshot cloud terbaru (termasuk perpindahan lokasi Admin yang sudah tersinkron) diterapkan.
 - Sesi Admin berlaku 8 jam; semua POST tulis diverifikasi token di `code.gs`. Guard UI tidak menggantikan validasi server.
 - Import stock mencocokkan identitas part, memperbarui hanya qty dan timestamp sinkronisasi server untuk record lama, menambah record baru tanpa lokasi, dan merekonsiliasi ID server.
 - Kolom G `DB_MASTER` diproteksi dari editor spreadsheet. Import tidak menulis ulang kolom G record lama; part baru diinisialisasi dengan lokasi kosong. Lokasi hanya berubah lewat alur scan SIMPAN.
@@ -223,6 +225,8 @@ Pilih Admin/User saat startup
 Admin → admin_login → hash+salt diverifikasi dari WMS_USER_ROLE → token sesi 8 jam
 User → tab Cari saja → ketik cariInput atau scan kamera → render data lokal read-only
   ↓
+GET read-only otomatis di latar belakang → merge aman ke IndexedDB → reload hanya jika record benar-benar berubah
+  ↓
 Admin import stock → Excel dikelompokkan dengan identitas part/type/teknisi
   ↓
 IndexedDB: record lama mempertahankan lokasi dan metadata, hanya sysQty berubah; record baru tanpa lokasi
@@ -333,13 +337,14 @@ WMS/
 - `processSyncQueue()` — POST queued items only when `uploadToServer()` is explicitly requested
 - `uploadToServer()` — Upload pending master records from the sync dialog
 - `downloadFromServer()` — GET and merge cloud records without deleting local-only or pending data
+- `refreshUserDataInBackground()` — User-only read refresh; keeps cached data visible and reloads only after changed cloud data is committed locally
 - `window.manualSync()` — Open the manual Upload/Download dialog
 
 **Peran**: Semua operasi data persistence dan cloud sync; jantung database layer  
 **Caller**: main.js (initDB), core.js (saveDB), UI handlers  
 **Dependensi**: auth.js (Admin-authorized writes), config.js (localItems, syncQueue), API_URL (Google Sheets)  
-**Side Effects**: IndexedDB read/write, user-triggered POST/GET HTTP requests, localStorage setItem
-**Sync Status**: No startup fetch, timer, or online-event retry; cloud operations run only from explicit dialog actions.
+**Side Effects**: IndexedDB read/write, background User GET and user-triggered Admin POST/GET requests, localStorage setItem
+**Sync Status**: User GET refresh runs on role selection and User startup; Admin cloud operations remain explicit through the sync dialog. No periodic or online-event retry.
 
 ---
 
@@ -609,7 +614,7 @@ Not found — Pure client-side app; no server-side artifacts.
 ### Google Sheets API (code.gs Macro)
 **Service**: `API_URL` from `js/config.js` (deployment endpoint; not duplicated in docs)  
 **Caller Modules**: database.js:
-- `downloadFromServer()` — GET data only after explicit user action; merges without clearing local-only records or pending queue
+- `downloadFromServer()` — GET read-only cloud data; Admin can request manually and User refreshes automatically without clearing local-only records or pending queue
 - `processSyncQueue()` — POST items & logs untuk sync (doPost:action=sync)
 - `handleImport()` in excel.js — POST bulk import (doPost:action=bulk_import)
 - `auth.js` — POST admin_login and attach Admin token to all write actions

@@ -3,7 +3,7 @@
  * Caller: Browser melalui window.onload.
  * Dependensi: database.js (initDB), core.js (render dan state SIMPAN), Service Worker API.
  * Main Functions: registerServiceWorker(), checkForUpdates() updates the header version label, role-aware window.onload restores the SIMPAN buffer.
- * Side Effects: IndexedDB init, registrasi cache, wake lock, pembacaan waktu upload dari localStorage, dan sinkronisasi tampilan.
+ * Side Effects: IndexedDB init, registrasi cache, wake lock, pembacaan waktu upload dari localStorage, background refresh User, dan sinkronisasi tampilan.
  */
 let wakeLock = null;
 
@@ -87,6 +87,7 @@ window.onload = async () => {
     restoreMultiScanBufferReferences();
     initializeRoleSession();
     if (currentRole === 'admin') switchTab('simpan');
+    if (currentRole === 'user') refreshUserDataInBackground();
     if(localStorage.getItem('darkMode') === 'true') document.body.classList.add('dark-mode');
     const lastStockUploadAt = localStorage.getItem('lastStockUploadAt');
     const lastStockUploadDate = lastStockUploadAt ? new Date(lastStockUploadAt) : null;

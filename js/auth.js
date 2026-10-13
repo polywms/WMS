@@ -1,12 +1,13 @@
 /*
- * Tujuan: Mengatur sesi Admin/User, tampilan sesuai role, dan request API terotorisasi.
+ * Tujuan: Mengatur sesi Admin/User, tampilan sesuai role, refresh baca User, dan request API terotorisasi.
  * Caller: main.js, core.js, database.js, excel.js, dan event handler role di index.html.
  * Dependensi: config.js (API_URL), Apps Script role endpoint, dan localStorage.
- * Main Functions: authenticateAdmin(), chooseUserRole(), endRoleSession(), requireAdminAccess(), postWmsAction().
+ * Main Functions: authenticateAdmin(), chooseUserRole(), initializeRoleSession(), endRoleSession(), requireAdminAccess(), postWmsAction().
  * Side Effects: Membaca/menulis sesi lokal dan mengirim request autentikasi/API.
  */
 
 const ADMIN_SESSION_KEY = 'wms_admin_session';
+const USER_ROLE_KEY = 'wms_selected_role';
 let currentRole = null;
 let adminSession = null;
 
@@ -107,11 +108,13 @@ function chooseUserRole() {
     currentRole = 'user';
     adminSession = null;
     localStorage.removeItem(ADMIN_SESSION_KEY);
+    localStorage.setItem(USER_ROLE_KEY, 'user');
     applyRoleUi();
     document.getElementById('roleGate').style.display = 'none';
     switchTab('data', { bufferConfirmed: true });
     const search = document.getElementById('cariInput');
     if (search) search.focus();
+    refreshUserDataInBackground();
 }
 
 async function authenticateAdmin() {
@@ -139,6 +142,7 @@ async function authenticateAdmin() {
         }
         adminSession = { token: result.sessionToken, expiresAt: Number(result.expiresAt) };
         localStorage.setItem(ADMIN_SESSION_KEY, JSON.stringify(adminSession));
+        localStorage.removeItem(USER_ROLE_KEY);
         currentRole = 'admin';
         applyRoleUi();
         document.getElementById('roleGate').style.display = 'none';
@@ -168,6 +172,7 @@ async function endRoleSession() {
     }
     adminSession = null;
     localStorage.removeItem(ADMIN_SESSION_KEY);
+    localStorage.removeItem(USER_ROLE_KEY);
     showRoleGate();
 }
 
@@ -180,6 +185,13 @@ function initializeRoleSession() {
         return;
     }
     localStorage.removeItem(ADMIN_SESSION_KEY);
+    if (localStorage.getItem(USER_ROLE_KEY) === 'user') {
+        currentRole = 'user';
+        applyRoleUi();
+        document.getElementById('roleGate').style.display = 'none';
+        switchTab('data', { bufferConfirmed: true });
+        return;
+    }
     showRoleGate();
     applyRoleUi();
 }

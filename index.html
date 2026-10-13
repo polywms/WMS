@@ -2,7 +2,7 @@
     Tujuan: Entry point UI untuk workflow WMS Magelang.
     Caller: Browser/PWA shell; event handlers diteruskan ke main.js dan core.js.
     Dependensi: css/style.css, Font Awesome, dan modul JavaScript di js/.
-    Main Functions: Menyediakan role gate Admin/User, navigasi, Cari dengan scanner kamera, kontrol SIMPAN, konfirmasi over-scan, impor/ekspor Admin, dan sinkronisasi manual.
+    Main Functions: Menyediakan role gate Admin/User dengan password minimal 4 karakter, navigasi, Cari dengan scanner kamera, kontrol SIMPAN, konfirmasi over-scan, impor/ekspor Admin, dan sinkronisasi manual.
     Side Effects: Mengubah DOM, memicu scan, penyimpanan lokal, dan sinkronisasi cloud melalui handler.
 -->
 <!-- WMS Magelang - Entry point UI -->
@@ -32,7 +32,7 @@
                 </div>
                 <form id="adminLoginForm" style="display:none;" onsubmit="event.preventDefault(); authenticateAdmin();">
                     <label for="adminPassword">Password Admin</label>
-                    <input id="adminPassword" type="password" autocomplete="current-password" required>
+                    <input id="adminPassword" type="password" autocomplete="current-password" minlength="4" required>
                     <div id="adminLoginError" role="alert"></div>
                     <button id="adminLoginButton" type="submit" class="btn btn-primary">Masuk Admin</button>
                     <button type="button" class="btn btn-outline" onclick="showRoleGate()">Kembali</button>
