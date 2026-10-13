@@ -316,7 +316,7 @@ WMS/
 - `checkSimpanConflict(item, newBox)` — Prompt move/split decision
 - `handleOpnameRender()` — Filter & render opname list per box using latest saved counts, independent of SIMPAN filters
 - `getOpnameBufferQty(itemId, item)` — Read latest saved cumulative count for the active box
-- `saveManualEdit()` / `syncOpnameCountFromLocation()` — Keep manual location-qty edits aligned with OPNAME counts
+- `saveManualEdit()` / `syncOpnameCountFromLocation()` — Edit qty/counts only for existing locations; adding/removing location codes is reserved for the scanned SIMPAN flow
 - `resetCurrentBoxOpname()` — Set saved X to zero without changing box membership
 - `confirmOpnameOverScan()` — Confirm an opname scan that exceeds imported `sysQty`
 - `decrementOpnameBuffer()` / `removeFromOpnameBuffer()` — Reduce one or all counted units for a part
@@ -348,7 +348,7 @@ WMS/
 
 ### [excel.js](js/excel.js)
 **Fungsi Publik Utama**:
-- `handleImport(input)` — Read Excel, consolidate data (SPAREPART BAIK satu record per part number), save to IndexedDB + bulk cloud POST; bulk import memperbarui deskripsi/qty dan membersihkan duplikat SPAREPART BAIK berdasarkan identitas part/type; simpan waktu upload setelah cloud mengonfirmasi sukses
+- `handleImport(input)` — Read Excel, consolidate data (SPAREPART BAIK satu record per part number), save to IndexedDB + bulk cloud POST; bulk import memperbarui deskripsi/qty dan membersihkan duplikat SPAREPART BAIK berdasarkan identitas part/type tanpa mengubah lokasi fisik DB_MASTER; simpan waktu upload setelah cloud mengonfirmasi sukses
 - `exportData()` — Export localItems ke XLSX file
 - `exportOffBsData()` — Export offBsSession ke XLSX
 - `downloadNewParts()` — Download "PART BARU" list
@@ -386,8 +386,9 @@ WMS/
 
 ### [code.gs](code.gs) — Google Apps Script Macro
 **Fungsi Publik**:
-- `doGet(e)` — GET endpoint; return all items dari DB_MASTER sheet as JSON
+- `doGet(e)` — GET endpoint; kunci kolom lokasi fisik DB_MASTER dan return all items dari DB_MASTER sheet as JSON
 - `doPost(e)` — POST endpoint; handle sync actions (sync, sync_off_bs, bulk_import, delete_off_bs)
+- `ensureDbMasterLocationProtection(sheet)` — Protect kolom G (lokasi fisik) dari edit langsung editor spreadsheet; akun eksekusi Apps Script dapat menulis lewat aplikasi (pemilik spreadsheet tetap mengikuti hak istimewa Google)
 - `mergeDataFast(sheet, incomingItems)` — Merge logic untuk avoid duplicates
 - `reconcileBulkImportRows(sheet, incomingItems)` — Refresh description/qty by imported part/type and retain one imported `SPAREPART BAIK` row per part number
 
@@ -401,7 +402,9 @@ WMS/
 **Actions Supported**:
 - `sync` — Merge regular item updates
 - `sync_off_bs` — Append off BS items, detect duplicates via (partNo_docNo)
-- `bulk_import` — Merge hasil Excel ke DB_MASTER, refresh deskripsi/qty, deduplicate imported `SPAREPART BAIK`, dan simpan timestamp impor ke META
+- `bulk_import` — Merge hasil Excel ke DB_MASTER, refresh deskripsi/qty, deduplicate imported `SPAREPART BAIK`, pertahankan lokasi fisik yang sudah tersimpan (baris baru dimulai tanpa lokasi), dan simpan timestamp impor ke META
+- `sync` — Terima lokasi dari alur scan/pindah aplikasi; tidak digunakan untuk impor Excel
+- `DB_MASTER` column G — Protected from direct edits by spreadsheet editors; code locations are changed through scanned app workflows (spreadsheet owners retain Google owner privileges)
 - `delete_off_bs` — Remove items from TEMP_OFF_BS by QR
 
 **Side Effects**: Google Sheets data mutation, sheet operations

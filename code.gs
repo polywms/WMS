@@ -2,7 +2,7 @@
  * Tujuan: Endpoint Google Apps Script untuk sinkronisasi data WMS dan sesi terkait.
  * Caller: js/database.js melalui Google Sheets API.
  * Dependensi: SpreadsheetApp, ContentService, sheet DB_MASTER/LOG_SCAN.
- * Main Functions: doGet(), doPost(), mergeDataFast(), reconcileBulkImportRows().
+ * Main Functions: doGet(), doPost(), ensureDbMasterLocationProtection(), mergeDataFast(), reconcileBulkImportRows().
  * Side Effects: Membaca/menulis Google Sheets dan mengirim respons HTTP.
  */
 
@@ -33,6 +33,8 @@ function doGet(e) {
   }
 
   const sheet = ss.getSheetByName(SHEET_DB);
+  if (!sheet) throw new Error("Sheet DB_MASTER tidak ditemukan!");
+  ensureDbMasterLocationProtection(sheet);
   const data = sheet.getDataRange().getValues();
   const items = [];
 
@@ -63,6 +65,32 @@ function doGet(e) {
   }
 
   return ContentService.createTextOutput(JSON.stringify({ status: "success", data: items })).setMimeType(ContentService.MimeType.JSON);
+}
+
+function ensureDbMasterLocationProtection(sheet) {
+  const description = "WMS: DB_MASTER physical locations managed by app";
+  const locationRange = sheet.getRange("G:G");
+  const protections = sheet.getProtections(SpreadsheetApp.ProtectionType.RANGE);
+  let protection = protections.find(item => item.getDescription() === description);
+
+  if (!protection) protection = locationRange.protect();
+  protection.setDescription(description);
+  if (protection.getRange().getA1Notation() !== locationRange.getA1Notation()) {
+    protection.setRange(locationRange);
+  }
+  protection.setWarningOnly(false);
+  if (protection.canDomainEdit()) protection.setDomainEdit(false);
+
+  const effectiveUser = Session.getEffectiveUser();
+  const effectiveEmail = effectiveUser.getEmail();
+  if (!effectiveEmail) {
+    throw new Error("Tidak dapat mengunci kolom lokasi DB_MASTER: email akun eksekusi tidak tersedia.");
+  }
+
+  const otherEditors = protection.getEditors()
+    .filter(editor => editor.getEmail() !== effectiveEmail);
+  if (otherEditors.length > 0) protection.removeEditors(otherEditors);
+  protection.addEditor(effectiveUser);
 }
 
 function doPost(e) {
@@ -368,12 +396,14 @@ function doPost(e) {
     else if (action === "sync" || action === "bulk_import") {
       const dbSheet = ss.getSheetByName(SHEET_DB); 
       const logSheet = ss.getSheetByName(SHEET_LOG); 
+      if (!dbSheet) throw new Error("Sheet DB_MASTER tidak ditemukan!");
+      ensureDbMasterLocationProtection(dbSheet);
       if (logs.length > 0) {
         const logData = logs.map(l => [new Date(), l.partNo, l.action, l.detail]);
         logSheet.getRange(logSheet.getLastRow() + 1, 1, logData.length, 4).setValues(logData);
       }
       if (items.length > 0) {
-        mergeDataFast(dbSheet, items);
+        mergeDataFast(dbSheet, items, action === "bulk_import");
         if (action === "bulk_import") reconcileBulkImportRows(dbSheet, items);
       }
 
@@ -499,7 +529,7 @@ function reconcileBulkImportRows(sheet, incomingItems) {
   sheet.getRange(1, 1, reconciled.length, columnCount).setValues(reconciled);
 }
 
-function mergeDataFast(sheet, incomingItems) {
+function mergeDataFast(sheet, incomingItems, preserveExistingLocations = false) {
   const data = sheet.getDataRange().getValues();
   if (data.length === 0) data.push([]);
   const columnCount = Math.max(data[0].length, 10);
@@ -512,9 +542,14 @@ function mergeDataFast(sheet, incomingItems) {
   for (let i = 1; i < data.length; i++) { if (data[i][0]) idMap[data[i][0]] = i; }
   const now = new Date();
   incomingItems.forEach(item => {
-    const locString = JSON.stringify(item.locations || {});
-    const labelString = JSON.stringify(item.labelIssues || {});
     const existingRow = idMap[item.id] ? data[idMap[item.id]] : null;
+    const locations = preserveExistingLocations
+      ? (existingRow ? existingRow[6] : {})
+      : (item.locations || {});
+    const locString = typeof locations === "string"
+      ? locations
+      : JSON.stringify(locations);
+    const labelString = JSON.stringify(item.labelIssues || {});
     const opnameCounts = item.opnameCounts === undefined && existingRow
       ? existingRow[9]
       : JSON.stringify(item.opnameCounts || {});

@@ -27,7 +27,8 @@
  * - resetCurrentBoxOpname() — Reset only the saved count, preserving part-to-box locations
  * - confirmOpnameOverScan()/decrementOpnameBuffer() — Confirm over-target scans and correct counted quantity
  * - addToOpnameBuffer()/commitOpnameBox() — Persist every cumulative scan immediately; SELESAI only closes the box flow
- * - syncOpnameCountFromLocation() — Keep manual box-quantity edits aligned with OPNAME
+ * - syncOpnameCountFromLocation() — Keep quantity edits for existing boxes aligned with OPNAME
+ * - saveManualEdit() — Edit existing-box counts without changing location membership
  * - updateActivePartPanel(item) — Display part detail (location-only view)
  * - selectPartSimpan(item) — Select part dari list
  * - addToMultiScan()/processMultiScan(box) — Buffer dan relokasi batch SIMPAN
@@ -1722,7 +1723,8 @@ function openEditModal(id) {
     }
     
     const list = document.getElementById('editLocsList'); list.innerHTML='';
-    Object.keys(item.locations || {}).forEach(box => { const r = document.createElement('div'); r.style.cssText="display:flex; justify-content:space-between; margin-bottom:8px; align-items:center;"; r.innerHTML=`<b>${box}</b> <div style="display:flex; gap:5px;"><input type="number" min="0" step="1" class="edit-qty-input" data-box="${box}" value="${item.locations[box]}" style="width:60px; padding:5px;"><button class="btn-trash" style="width:30px; height:30px;" onclick="deleteLocation(${id}, '${box}')"><i class="fas fa-trash"></i></button></div>`; list.appendChild(r); });
+    Object.keys(item.locations || {}).forEach(box => { const r = document.createElement('div'); r.style.cssText="display:flex; justify-content:space-between; margin-bottom:8px; align-items:center;"; r.innerHTML=`<b>${box}</b> <div style="display:flex; gap:5px;"><input type="number" min="0" step="1" class="edit-qty-input" data-box="${box}" value="${item.locations[box]}" style="width:60px; padding:5px;"></div>`; list.appendChild(r); });
+    document.getElementById('editNewBox').parentElement.parentElement.style.display = 'none';
     document.getElementById('editDeleteBtnContainer').innerHTML = item.desc === 'PART BARU' ? `<button class="btn btn-danger" style="margin-top:15px;" onclick="deletePartBaru(${item.id})"><i class="fas fa-trash-alt"></i> Hapus Part Ini Permanen</button>` : '';
 }
 
@@ -1745,48 +1747,13 @@ function syncOpnameCountFromLocation(item, box, qty, removed = false) {
 }
 
 function deleteLocation(id, box) {
-    if (opnameCommitInProgress) {
-        feedback('warning');
-        showToast('Penyimpanan OPNAME sedang berlangsung. Tunggu hingga selesai.');
-        return;
-    }
-    if (!confirm(`Hapus part ini dari box ${box}?`)) return;
-    const item = localItems.find(candidate => candidate.id === id);
-    if (!item) return;
-    delete item.locations[box];
-    syncOpnameCountFromLocation(item, box, 0, true);
-    item.updated_at = Date.now();
-    saveDB(item, 'LOCATION', `Hapus lokasi ${box}`);
-    feedback('success');
-    openEditModal(id);
-    renderOpnameBuffer();
-    if (currentTab === 'opname') handleOpnameRender();
-    if (currentTab === 'data') renderDataList(false);
+    feedback('warning');
+    showToast('Kode lokasi hanya dapat diubah melalui scan pindah.');
 }
 
 function addManualLoc() {
-    if (opnameCommitInProgress) {
-        feedback('warning');
-        showToast('Penyimpanan OPNAME sedang berlangsung. Tunggu hingga selesai.');
-        return;
-    }
-    const box = document.getElementById('editNewBox').value.trim().toUpperCase();
-    const qtyInput = document.getElementById('editNewQty').value.trim();
-    const qty = Number(qtyInput);
-    const item = localItems.find(candidate => candidate.id === editId);
-    if (!box || !qtyInput || !Number.isInteger(qty) || qty < 0 || !item) {
-        feedback('error');
-        showToast('Kode box dan qty bilangan bulat >= 0 wajib diisi.');
-        return;
-    }
-    if (!item.locations) item.locations = {};
-    item.locations[box] = qty;
-    syncOpnameCountFromLocation(item, box, qty);
-    item.updated_at = Date.now();
-    saveDB(item, 'LOCATION', `Ubah ${box}: ${qty}`);
-    renderOpnameBuffer();
-    handleOpnameRender();
-    openEditModal(editId);
+    feedback('warning');
+    showToast('Kode lokasi hanya dapat ditambahkan melalui scan part dan scan box.');
 }
 
 async function saveManualEdit() {
@@ -1803,6 +1770,12 @@ async function saveManualEdit() {
         value: input.value.trim(),
         qty: Number(input.value)
     }));
+    const existingLocations = item.locations || {};
+    if (locationEdits.some(edit => !Object.prototype.hasOwnProperty.call(existingLocations, edit.box))) {
+        feedback('error');
+        showToast('Kode lokasi hanya dapat diubah melalui scan pindah.');
+        return;
+    }
     if (locationEdits.some(edit => !edit.box || !edit.value || !Number.isInteger(edit.qty) || edit.qty < 0)) {
         feedback('error');
         showToast('Qty lokasi harus berupa bilangan bulat >= 0.');
