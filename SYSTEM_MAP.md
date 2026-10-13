@@ -432,7 +432,7 @@ WMS/
 **Fungsi Publik**:
 - `doGet(e)` — Read-only GET endpoint untuk DB_MASTER/META; returns items as JSON
 - `doPost(e)` — POST endpoint; verifikasi token Admin untuk semua aksi tulis, lalu handle sync/import
-- `setupAdminPassword()` — Hash+salt password and initialize DB_MASTER location protection
+- `setupAdminPassword()` — Run from the bound Apps Script editor; creates hash+salt credentials, protects role/location sheets, and reports the failing setup stage in execution details
 - `handleAdminLogin()` / `validateAdminSession()` / `revokeAdminSession()` — Kelola token sesi Admin
 - `ensureDbMasterLocationProtection(sheet)` — Protect kolom G (lokasi fisik) dari edit langsung editor spreadsheet; akun eksekusi Apps Script dapat menulis lewat aplikasi (pemilik spreadsheet tetap mengikuti hak istimewa Google)
 - `mergeDataFast(sheet, incomingItems)` — Apply queued Admin scans and validate location destinations

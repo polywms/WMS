@@ -72,50 +72,64 @@ function doGet(e) {
 }
 
 function setupAdminPassword() {
-  const ui = SpreadsheetApp.getUi();
-  const first = ui.prompt("WMS Admin", "Buat password Admin (minimal 4 karakter). Password tidak disimpan sebagai teks.", ui.ButtonSet.OK_CANCEL);
-  if (first.getSelectedButton() !== ui.Button.OK) return;
-  const password = first.getResponseText();
-  if (password.length < ADMIN_PASSWORD_MIN_LENGTH) {
-    ui.alert("Password harus memiliki minimal 4 karakter.");
-    return;
-  }
-  const second = ui.prompt("Konfirmasi Password Admin", "Masukkan kembali password Admin.", ui.ButtonSet.OK_CANCEL);
-  if (second.getSelectedButton() !== ui.Button.OK) return;
-  if (password !== second.getResponseText()) {
-    ui.alert("Konfirmasi password tidak cocok. Password belum diubah.");
-    return;
-  }
+  let setupStage = "membuka dialog setup";
+  try {
+    const ui = SpreadsheetApp.getUi();
+    const first = ui.prompt("WMS Admin", "Buat password Admin (minimal 4 karakter). Password tidak disimpan sebagai teks.", ui.ButtonSet.OK_CANCEL);
+    if (first.getSelectedButton() !== ui.Button.OK) return;
+    const password = first.getResponseText();
+    if (password.length < ADMIN_PASSWORD_MIN_LENGTH) {
+      ui.alert("Password harus memiliki minimal 4 karakter.");
+      return;
+    }
+    const second = ui.prompt("Konfirmasi Password Admin", "Masukkan kembali password Admin.", ui.ButtonSet.OK_CANCEL);
+    if (second.getSelectedButton() !== ui.Button.OK) return;
+    if (password !== second.getResponseText()) {
+      ui.alert("Konfirmasi password tidak cocok. Password belum diubah.");
+      return;
+    }
 
-  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
-  let sheet = spreadsheet.getSheetByName(SHEET_ROLE);
-  if (!sheet) sheet = spreadsheet.insertSheet(SHEET_ROLE);
-  const salt = Utilities.getUuid() + Utilities.getUuid();
-  const hash = hashAdminPassword(password, salt);
-  sheet.clearContents();
-  sheet.getRange(1, 1, 2, 4).setValues([
-    ["role", "salt", "password_hash", "iterations"],
-    ["ADMIN", salt, hash, PASSWORD_HASH_ITERATIONS]
-  ]);
-  sheet.hideSheet();
+    setupStage = "memeriksa spreadsheet dan akun eksekusi";
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    if (!spreadsheet) throw new Error("Spreadsheet aktif tidak tersedia.");
+    const masterSheet = spreadsheet.getSheetByName(SHEET_DB);
+    if (!masterSheet) throw new Error("Sheet DB_MASTER tidak ditemukan.");
+    const effectiveUser = Session.getEffectiveUser();
+    const email = effectiveUser.getEmail();
+    if (!email) throw new Error("Email akun eksekusi tidak tersedia.");
 
-  const description = "WMS: protect Admin role credential";
-  const protections = sheet.getProtections(SpreadsheetApp.ProtectionType.SHEET);
-  let protection = protections.find(item => item.getDescription() === description);
-  if (!protection) protection = sheet.protect();
-  protection.setDescription(description);
-  protection.setWarningOnly(false);
-  if (protection.canDomainEdit()) protection.setDomainEdit(false);
-  const effectiveUser = Session.getEffectiveUser();
-  const email = effectiveUser.getEmail();
-  if (!email) throw new Error("Tidak dapat mengunci sheet role: email akun eksekusi tidak tersedia.");
-  const otherEditors = protection.getEditors().filter(editor => editor.getEmail() !== email);
-  if (otherEditors.length > 0) protection.removeEditors(otherEditors);
-  protection.addEditor(effectiveUser);
-  const masterSheet = spreadsheet.getSheetByName(SHEET_DB);
-  if (!masterSheet) throw new Error("Sheet DB_MASTER tidak ditemukan; password tersimpan, tetapi proteksi lokasi belum dipasang.");
-  ensureDbMasterLocationProtection(masterSheet);
-  ui.alert("Password Admin tersimpan sebagai hash + salt pada sheet terlindungi.");
+    setupStage = "menyimpan hash password ke sheet role";
+    let sheet = spreadsheet.getSheetByName(SHEET_ROLE);
+    if (!sheet) sheet = spreadsheet.insertSheet(SHEET_ROLE);
+    const salt = Utilities.getUuid() + Utilities.getUuid();
+    const hash = hashAdminPassword(password, salt);
+    sheet.clearContents();
+    sheet.getRange(1, 1, 2, 4).setValues([
+      ["role", "salt", "password_hash", "iterations"],
+      ["ADMIN", salt, hash, PASSWORD_HASH_ITERATIONS]
+    ]);
+    sheet.hideSheet();
+
+    setupStage = "memasang proteksi sheet role";
+    const description = "WMS: protect Admin role credential";
+    const protections = sheet.getProtections(SpreadsheetApp.ProtectionType.SHEET);
+    let protection = protections.find(item => item.getDescription() === description);
+    if (!protection) protection = sheet.protect();
+    protection.setDescription(description);
+    protection.setWarningOnly(false);
+    if (protection.canDomainEdit()) protection.setDomainEdit(false);
+    const otherEditors = protection.getEditors().filter(editor => editor.getEmail() !== email);
+    if (otherEditors.length > 0) protection.removeEditors(otherEditors);
+    protection.addEditor(effectiveUser);
+
+    setupStage = "memasang proteksi lokasi DB_MASTER";
+    ensureDbMasterLocationProtection(masterSheet);
+    ui.alert("Password Admin tersimpan sebagai hash + salt pada sheet terlindungi.");
+  } catch (error) {
+    const detail = error && error.message ? error.message : String(error);
+    console.error(`setupAdminPassword gagal pada tahap "${setupStage}".`, error);
+    throw new Error(`setupAdminPassword gagal pada tahap "${setupStage}": ${detail}`);
+  }
 }
 
 function hashAdminPassword(password, salt, iterations = PASSWORD_HASH_ITERATIONS) {
