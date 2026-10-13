@@ -3,10 +3,10 @@
  * CORE LOGIC - WMS Magelang V6
  * ========================================
  * 
- * Tujuan: Main controller untuk routing scan berdasarkan tab aktif
+ * Tujuan: Main controller untuk role-aware scan routing, per-tab business rules, dan renders.
  * Caller: main.js (via window.onload), UI events (onclick), keyboard (onkeydown)
- * Dependensi: database.js (saveDB), utils.js (feedback), config.js (QR_PARSERS)
- * Box codes: legacy and X-XY-YY formats are recognized by BOX_CODE_PATTERN
+ * Dependensi: auth.js (role guards), database.js (saveDB), utils.js (feedback), config.js (QR_PARSERS/box rules)
+ * Box codes: legacy codes remain recognizable as sources; only new-format codes are valid destinations.
  * 
  * SIMPAN Tab (Penyimpanan): Save part to box (location-only, no qty tracking)
  * - Scan part → Select & show detail panel (display existing locations from DB)
@@ -17,7 +17,8 @@
  * 
  * Main Functions:
  * - processScan(code) — Route scan per currentTab
- * - toggleBoxToBoxMode() — Aktifkan/nonaktifkan relokasi box berulang
+ * - switchTab(id) — Enforce User-only Cari and stop SIMPAN modes safely when leaving
+ * - toggleMultipleScanMode()/toggleBoxToBoxMode() — Mutually exclusive SIMPAN relocation modes
  * - updateBoxToBoxIndicator() — Render box asal/tujuan; pertahankan pasangan valid sampai scan box berikutnya
  * - getBoxToBoxItems() — Temukan part sumber berdasarkan kode box yang dinormalisasi
  * - confirmBoxToBoxYesToAll() — Setujui semua part dan lewati konfirmasi hingga mode B2B dimatikan
@@ -38,8 +39,8 @@
  * - renderSimpanList/handleOpnameRender/renderDataList — Per-tab UI renders
  * 
  * Other Tabs:
- * - OPNAME: Scan box, hitung satu unit per QR, bandingkan hasil sesi X dengan stok Y
- * - DATA: Search/view semua parts dengan edit capability
+ * - OPNAME: Scan box, hitung satu unit per QR, bandingkan hasil sesi X dengan stok Y; qty 0 hidden
+ * - DATA/CARI: Admin search/edit; User read-only search by typing or QR scan
  * - OFF BS: Off-balance-sheet tracking dengan cloud sync
  * - PACKING: Shipment/colly management
  * 
@@ -147,21 +148,35 @@ function toggleMultiMode() {
 }
 
 function toggleMultipleScanMode() {
-    // Toggle antara SINGLE vs MULTIPLE scan mode
+    if (!requireAdminAccess('mengubah lokasi')) return;
     const chk = document.getElementById('chkMultipleScan');
-    simpanMode = chk.checked ? 'multiple' : 'single';
+    const enabling = simpanMode !== 'multiple';
+    chk.checked = enabling;
+    if (enabling && boxToBoxModeActive) {
+        chk.checked = false;
+        showToast('Matikan mode Box ke Box terlebih dahulu.');
+        return;
+    }
+    if (!enabling && multiScanBuffer.length > 0
+        && !confirm(`Buffer Multi-Scan berisi ${multiScanBuffer.length} part. Nonaktifkan mode dan simpan buffer untuk dilanjutkan nanti?`)) {
+        chk.checked = true;
+        return;
+    }
+    simpanMode = enabling ? 'multiple' : 'single';
     localStorage.setItem('wms_simpanMode', simpanMode);
     const panel = document.getElementById('multiScanPanel');
-    if (panel) panel.style.display = simpanMode === 'multiple' ? 'block' : 'none';
-    
-    if (simpanMode === 'multiple') {
-        showToast('<i class="fas fa-layer-group"></i> Multi-Scan aktif - scan part lalu scan box tujuan');
-        multiScanBuffer = [];
-        renderMultiScanList();
-    } else {
-        showToast('<i class="fas fa-cube"></i> Mode SINGLE - scan part lalu box');
-        clearMultiScan();  // Clear buffer
-    }
+    if (panel) panel.style.display = enabling || multiScanBuffer.length > 0 ? 'block' : 'none';
+    const instruction = panel && panel.querySelector('.multi-scan-instruction');
+    if (instruction) instruction.textContent = enabling
+        ? 'SCAN BOX TUJUAN UNTUK KONFIRMASI PINDAH'
+        : 'Buffer dipertahankan; aktifkan Multi-Scan untuk melanjutkan.';
+    const button = document.getElementById('multipleScanIcon');
+    if (button) button.setAttribute('aria-pressed', String(enabling));
+    if (enabling) showToast('<i class="fas fa-layer-group"></i> Multi-Scan aktif - scan part lalu scan box tujuan');
+    else showToast(multiScanBuffer.length
+        ? 'Mode Multi-Scan nonaktif. Buffer dipertahankan; aktifkan lagi untuk melanjutkan.'
+        : '<i class="fas fa-cube"></i> Mode SINGLE - scan part lalu box');
+    renderMultiScanList();
     document.getElementById('mainInput').focus();
 }
 
@@ -200,9 +215,22 @@ function toggleOptionsAccordion() {
 }
 
 function toggleBoxToBoxMode() {
+    if (!requireAdminAccess('mengubah lokasi')) return;
     const btn = document.getElementById('boxToBoxBtn');
     if (!btn) return;
 
+    if (!boxToBoxModeActive && multiScanBuffer.length > 0) {
+        showToast('Selesaikan atau bersihkan buffer Multi-Scan sebelum mengaktifkan Box ke Box.');
+        return;
+    }
+    if (!boxToBoxModeActive && simpanMode === 'multiple') {
+        document.getElementById('chkMultipleScan').checked = false;
+        simpanMode = 'single';
+        localStorage.setItem('wms_simpanMode', simpanMode);
+        const multiButton = document.getElementById('multipleScanIcon');
+        if (multiButton) multiButton.setAttribute('aria-pressed', 'false');
+        document.getElementById('multiScanPanel').style.display = 'none';
+    }
     boxToBoxModeActive = !boxToBoxModeActive;
     boxToBoxSourceBox = null;
     boxToBoxYesToAll = false;
@@ -212,6 +240,7 @@ function toggleBoxToBoxMode() {
         btn.style.color = 'white';
         btn.style.borderColor = 'var(--active-color)';
         btn.title = 'Box to Box: scan box sumber';
+        btn.setAttribute('aria-pressed', 'true');
         updateBoxToBoxIndicator();
         showToast('<i class="fas fa-exchange-alt"></i> Mode Box to Box aktif. Scan box sumber dulu.');
     } else {
@@ -219,6 +248,7 @@ function toggleBoxToBoxMode() {
         btn.style.color = 'var(--secondary)';
         btn.style.borderColor = '#cbd5e1';
         btn.title = 'Box to Box';
+        btn.setAttribute('aria-pressed', 'false');
         updateBoxToBoxIndicator();
         showToast('<i class="fas fa-times"></i> Mode Box to Box dibatalkan');
     }
@@ -257,7 +287,7 @@ function getBoxToBoxLocationKey(locations, boxCode) {
 
 function getBoxToBoxItems(sourceBox) {
     return localItems.filter(item => {
-        if (!item || !item.locations) return false;
+        if (!item || !item.locations || Number(item.sysQty) <= 0) return false;
         const locationKey = getBoxToBoxLocationKey(item.locations, sourceBox);
         return locationKey !== undefined && Boolean(item.locations[locationKey]);
     });
@@ -301,6 +331,17 @@ function showBoxToBoxSelectionModal(sourceBox, targetBox) {
 }
 
 function applyBoxToBoxSelection(sourceBox, targetBox, selectedItems, isYesToAll = false) {
+    if (!requireAdminAccess('memindahkan lokasi')) return;
+    if (!BOX_CODE_PATTERN.test(targetBox)) {
+        feedback('error');
+        showToast(`Format lokasi tujuan ${targetBox} tidak valid.`);
+        return;
+    }
+    if (isLegacyBoxCode(targetBox)) {
+        feedback('error');
+        showToast(`Lokasi legacy ${targetBox} tidak dapat menjadi tujuan.`);
+        return;
+    }
     let affectedCount = 0;
 
     selectedItems.forEach(item => {
@@ -346,6 +387,7 @@ function confirmBoxToBoxSelection() {
 }
 
 function confirmBoxToBoxYesToAll() {
+    if (!requireAdminAccess('memindahkan lokasi')) return;
     if (!boxToBoxPending) return;
 
     boxToBoxYesToAll = true;
@@ -406,6 +448,32 @@ function renderHistoryLog() {
 }
 
 function processScan(code) {
+    if (!currentRole) {
+        showRoleGate();
+        return;
+    }
+    if (currentRole === 'user') {
+        if (currentTab !== 'data') {
+            feedback('warning');
+            showToast('Mode User hanya dapat mencari lokasi.');
+            return;
+        }
+        const parsed = parseQRCode(code.trim().toUpperCase());
+        const query = parsed ? parsed.partNo : code.trim();
+        const search = document.getElementById('cariInput');
+        if (search) search.value = query;
+        renderDataList(true);
+        const found = localItems.some(item => String(item.partNo || '').toUpperCase() === String(query).toUpperCase());
+        if (found) {
+            feedback('success');
+            showToast(`Hasil pencarian: ${query}`);
+        } else {
+            feedback('warning');
+            showToast(`Part ${query} tidak ditemukan.`);
+        }
+        return;
+    }
+    if (!requireAdminAccess('melakukan scan atau mengubah data')) return;
     let rawCode = code.trim().toUpperCase();
     let parsedCode = rawCode.includes('|') ? rawCode.split('|')[0].trim() : rawCode;
 
@@ -528,6 +596,13 @@ if (currentTab === 'packing') {
     // --- LOGIKA NORMAL (SIMPAN, OPNAME, DATA) ---
     const item = filteredItems.find(i => i.partNo.toUpperCase() === parsedCode);
     
+    if (currentTab === 'simpan' && isBox && isLegacyBoxCode(parsedCode)
+        && !(boxToBoxModeActive && !boxToBoxSourceBox)) {
+        feedback('error');
+        showToast(`Lokasi legacy ${parsedCode} sudah ditutup sebagai lokasi tujuan.`);
+        return;
+    }
+
     if (boxToBoxModeActive && currentTab === 'simpan' && isBox) {
         const normalizedBox = parsedCode.toUpperCase();
         if (!boxToBoxSourceBox) {
@@ -654,6 +729,7 @@ function registerUndo(type, itemId, box, oldState = null) {
 }
 
 function executeUndo() {
+    if (!requireAdminAccess('membatalkan perubahan')) return;
     if (!lastAction) return;
     const { type, itemId, box, oldState } = lastAction;
     const item = localItems.find(i => i.id === itemId);
@@ -678,8 +754,9 @@ function renderSimpanList(reset = true) {
     if(reset) renderLimit = 50;
     const container = document.getElementById('simpanList'); const filterNoBoxEl = document.getElementById('chkFilterNoBox');
     if(reset) container.innerHTML = ''; if(filteredItems.length === 0) return;
+    const visibleItems = filteredItems.filter(item => Number(item.sysQty) > 0);
     const isFilterActive = filterNoBoxEl && filterNoBoxEl.checked;
-    const show = filteredItems.slice(0, renderLimit);
+    const show = visibleItems.slice(0, renderLimit);
     
     show.forEach(i => {
         const isActive = tempPart && tempPart.id === i.id;
@@ -831,7 +908,34 @@ function selectPartSimpan(item) {
     if(typeof renderSmartSuggestion === 'function') renderSmartSuggestion(item);
 }
 
+function persistMultiScanBuffer() {
+    try {
+        localStorage.setItem(MULTI_SCAN_BUFFER_KEY, JSON.stringify(multiScanBuffer));
+        return true;
+    } catch (error) {
+        console.error('Buffer Multi-Scan gagal disimpan:', error);
+        showToast('Buffer Multi-Scan gagal disimpan ke perangkat. Jangan tutup aplikasi sebelum ditangani.');
+        return false;
+    }
+}
+
+function restoreMultiScanBufferReferences() {
+    if (multiScanBufferLoadError) {
+        console.error('Buffer Multi-Scan tersimpan tidak dapat dibaca:', multiScanBufferLoadError);
+        showToast('Buffer Multi-Scan tersimpan rusak dan tidak dimuat. Data mentah tetap ada di penyimpanan perangkat.');
+        return;
+    }
+    multiScanBuffer = multiScanBuffer.map(bufferItem => {
+        const savedItem = bufferItem.item;
+        const currentItem = localItems.find(item => item.id === savedItem.id)
+            || localItems.find(item => getWmsItemIdentityKey(item) === getWmsItemIdentityKey(savedItem));
+        return currentItem ? { ...bufferItem, item: currentItem } : bufferItem;
+    });
+    persistMultiScanBuffer();
+}
+
 function addToMultiScan(item) {
+    if (!requireAdminAccess('menambahkan part ke buffer SIMPAN')) return;
     if (!item) return;
     
     const isDuplicate = multiScanBuffer.some(b => b.item.id === item.id && b.item.partNo === item.partNo);
@@ -847,6 +951,7 @@ function addToMultiScan(item) {
         selected: true,
         scannedTime: new Date()
     });
+    persistMultiScanBuffer();
     feedback('scan');
     showToast(`${item.partNo} ➔ Ditambah (${multiScanBuffer.length} total)`);
     renderMultiScanList();
@@ -877,6 +982,7 @@ function renderMultiScanList() {
         checkbox.setAttribute('aria-label', `Pilih ${bufferItem.item.partNo} untuk dipindahkan`);
         checkbox.addEventListener('change', () => {
             bufferItem.selected = checkbox.checked;
+            persistMultiScanBuffer();
         });
 
         const details = document.createElement('div');
@@ -908,18 +1014,25 @@ function renderMultiScanList() {
 }
 
 function removeFromMultiScan(index) {
+    if (!requireAdminAccess('mengubah buffer Multi-Scan')) return;
     multiScanBuffer.splice(index, 1);
+    persistMultiScanBuffer();
     renderMultiScanList();
     feedback('success');
     showToast(`Part dihapus (${multiScanBuffer.length} sisa)`);
 }
 
 function clearMultiScan() {
+    if (!requireAdminAccess('menghapus buffer Multi-Scan')) return;
+    if (multiScanBuffer.length > 0
+        && !confirm(`Hapus ${multiScanBuffer.length} part dari buffer Multi-Scan?`)) return;
     multiScanBuffer = [];
+    persistMultiScanBuffer();
     renderMultiScanList();
 }
 
-function processMultiScan(boxCode) {
+async function processMultiScan(boxCode) {
+    if (!requireAdminAccess('memindahkan part')) return;
     if (multiScanBuffer.length === 0) {
         feedback('error');
         showToast('Belum ada part di buffer');
@@ -932,25 +1045,59 @@ function processMultiScan(boxCode) {
         showToast('Pilih minimal satu part untuk dipindahkan');
         return;
     }
+    const rebasedItems = selectedItems.map(bufferItem => {
+        const currentItem = localItems.find(item => item.id === bufferItem.item.id)
+            || localItems.find(item => getWmsItemIdentityKey(item) === getWmsItemIdentityKey(bufferItem.item));
+        return currentItem ? { bufferItem, currentItem } : null;
+    });
+    if (rebasedItems.some(entry => !entry)) {
+        feedback('error');
+        showToast('Sebagian part buffer tidak lagi ada di data lokal. Buffer dipertahankan; periksa atau hapus part yang hilang.');
+        return;
+    }
 
     if (!BOX_CODE_PATTERN.test(boxCode)) {
         feedback('error');
         showToast('Format box tidak valid (misal: A2-01 atau A-A3-01)');
         return;
     }
+    if (isLegacyBoxCode(boxCode)) {
+        feedback('error');
+        showToast(`Lokasi legacy ${boxCode} tidak dapat menjadi tujuan.`);
+        return;
+    }
 
     const confirmed = confirm(`Pindahkan ${selectedItems.length} part ke box ${boxCode}?\n\n${selectedItems.map(entry => entry.item.partNo).join('\n')}`);
     if (!confirmed) return;
 
-    selectedItems.forEach(bufferItem => {
-        const item = bufferItem.item;
-        item.locations = { [boxCode]: 1 };
-        item.lastBox = boxCode;
-        saveDB(item);
+    const updatedItems = rebasedItems.map(({ bufferItem, currentItem }) => {
+        bufferItem.item = currentItem;
+        bufferItem.sourceLocations = Object.keys(currentItem.locations || {});
+        return {
+            ...currentItem,
+            locations: { [boxCode]: 1 },
+            lastBox: boxCode
+        };
+    });
+    persistMultiScanBuffer();
+    let savedItems;
+    try {
+        savedItems = await saveDBBatch(updatedItems, 'MOVE', `Multi-Scan ke ${boxCode}`);
+    } catch (error) {
+        console.error('Pemindahan Multi-Scan gagal disimpan:', error);
+        feedback('error');
+        showToast('Pemindahan gagal disimpan. Buffer tetap dipertahankan; coba lagi.');
+        return;
+    }
+    savedItems.forEach(item => {
+        const localIndex = localItems.findIndex(candidate => candidate.id === item.id);
+        if (localIndex >= 0) localItems[localIndex] = item;
+        const filteredIndex = filteredItems.findIndex(candidate => candidate.id === item.id);
+        if (filteredIndex >= 0) filteredItems[filteredIndex] = item;
         addHistoryLog(item.partNo, boxCode);
     });
-
     multiScanBuffer = multiScanBuffer.filter(bufferItem => bufferItem.selected === false);
+    persistMultiScanBuffer();
     feedback('success');
     showToast(`${selectedItems.length} part dipindahkan ke ${boxCode}`);
     renderMultiScanList();
@@ -982,64 +1129,12 @@ function clearActivePart() {
     if (chevron) chevron.style.transform = 'rotate(0deg)';
 }
 
-function checkSimpanConflict(item, newBox) {
-    const existingLocs = Object.keys(item.locations); 
-    const oldState = JSON.parse(JSON.stringify(item.locations));
-    
-    // Kalau tidak ada lokasi existing, langsung set lokasi baru
-    if (existingLocs.length === 0) { 
-        item.locations[newBox] = 0; 
-        saveDB(item); 
-        addHistoryLog(item.partNo, newBox); 
-        feedback('success'); 
-        showToast(`Lokasi diset: ${newBox}`); 
-        registerUndo('simpan_set', item.id, newBox, oldState); 
-        clearActivePart(); 
-        return; 
-    }
-    
-    // Kalau lokasi baru sama dengan lokasi existing, skip
-    if (existingLocs.includes(newBox)) { 
-        showToast(`Part sudah ada di ${newBox}`); 
-        clearActivePart(); 
-        return; 
-    }
-    
-    // === WORKFLOW MODES ===
-    
-    // MODE 1: PENYIMPANAN (Normal) - Direct save without asking
-    if (workflowMode === 'simpan') {
-        // Auto-add ke lokasi baru tanpa tanya (assume split/tambah)
-        if (!item.locations[newBox]) item.locations[newBox] = 0;
-        const qty = simpanBuffer.length > 0 ? simpanBuffer[0].qty : 1;
-        item.locations[newBox] += qty;
-        
-        saveDB(item);
-        addHistoryLog(`${item.partNo} → ${newBox}`, `+${qty}`);
-        feedback('scan_saved');
-        showToast(`<i class="fas fa-check-circle"></i> Stok baru (+${qty}) ditambah ke ${newBox}`);
-        clearSimpanBuffer();
-        renderSimpanList(true);
-        return;
-    }
-    
-    // MODE 2: PINDAH/SPLIT - Show modal dengan pilihan
-    if (workflowMode === 'pindah_split') {
-        feedback('error'); 
-        const qty = simpanBuffer.length > 0 ? simpanBuffer[0].qty : 1;
-        simpanConflictData = { item, newBox, qty, oldState }; 
-        
-        // Tampilkan modal dengan pilihan move/split
-        document.getElementById('simpanConflictModal').style.display = 'flex';
-        document.getElementById('scmPart').innerText = item.partNo; 
-        document.getElementById('scmOldLoc').innerText = existingLocs.join(', '); 
-        document.getElementById('scmNewBox').innerText = newBox;
-        
-        return;
-    }
-}
-
 function showSimpanConflictModal(item, newBox) {
+    if (isLegacyBoxCode(newBox)) {
+        feedback('error');
+        showToast(`Lokasi legacy ${newBox} sudah ditutup sebagai lokasi tujuan.`);
+        return;
+    }
     // Store current conflict context
     simpanConflictData = { item, newBox };
     
@@ -1058,6 +1153,13 @@ function showSimpanConflictModal(item, newBox) {
 function executeSimpanAction(action) {
     if (!simpanConflictData) return;
     const { item, newBox } = simpanConflictData;
+    if (!requireAdminAccess('memindahkan part')) return;
+    if (isLegacyBoxCode(newBox)) {
+        closeSimpanConflictModal();
+        feedback('error');
+        showToast(`Lokasi legacy ${newBox} sudah ditutup sebagai lokasi tujuan.`);
+        return;
+    }
     const oldLocs = Object.keys(item.locations);
     
     if (action === 'move') {
@@ -1094,64 +1196,6 @@ function closeSimpanConflictModal() {
     document.getElementById('simpanConflictModal').style.display = 'none';
     simpanConflictData = null;
     document.getElementById('mainInput').focus();
-}
-
-// === OLD FUNCTIONS (KEPT FOR REFERENCE, NOT USED) ===
-function checkSimpanConflict(item, newBox) {
-    const existingLocs = Object.keys(item.locations); 
-    const oldState = JSON.parse(JSON.stringify(item.locations));
-    
-    // Kalau tidak ada lokasi existing, langsung set lokasi baru
-    if (existingLocs.length === 0) { 
-        item.locations[newBox] = 0; 
-        saveDB(item); 
-        addHistoryLog(item.partNo, newBox); 
-        feedback('success'); 
-        showToast(`Lokasi diset: ${newBox}`); 
-        registerUndo('simpan_set', item.id, newBox, oldState); 
-        clearActivePart(); 
-        return; 
-    }
-    
-    // Kalau lokasi baru sama dengan lokasi existing, skip
-    if (existingLocs.includes(newBox)) { 
-        showToast(`Part sudah ada di ${newBox}`); 
-        clearActivePart(); 
-        return; 
-    }
-    
-    // === WORKFLOW MODES ===
-    
-    // MODE 1: PENYIMPANAN (Normal) - Direct save without asking
-    if (workflowMode === 'simpan') {
-        // Auto-add ke lokasi baru tanpa tanya (assume split/tambah)
-        if (!item.locations[newBox]) item.locations[newBox] = 0;
-        const qty = simpanBuffer.length > 0 ? simpanBuffer[0].qty : 1;
-        item.locations[newBox] += qty;
-        
-        saveDB(item);
-        addHistoryLog(`${item.partNo} → ${newBox}`, `+${qty}`);
-        feedback('scan_saved');
-        showToast(`<i class="fas fa-check-circle"></i> Stok baru (+${qty}) ditambah ke ${newBox}`);
-        clearSimpanBuffer();
-        renderSimpanList(true);
-        return;
-    }
-    
-    // MODE 2: PINDAH/SPLIT - Show modal dengan pilihan
-    if (workflowMode === 'pindah_split') {
-        feedback('error'); 
-        const qty = simpanBuffer.length > 0 ? simpanBuffer[0].qty : 1;
-        simpanConflictData = { item, newBox, qty, oldState }; 
-        
-        // Tampilkan modal dengan pilihan move/split
-        document.getElementById('simpanConflictModal').style.display = 'flex';
-        document.getElementById('scmPart').innerText = item.partNo; 
-        document.getElementById('scmOldLoc').innerText = existingLocs.join(', '); 
-        document.getElementById('scmNewBox').innerText = newBox;
-        
-        return;
-    }
 }
 
 function addToMultiBuffer(item) {
@@ -1232,35 +1276,6 @@ function clearMultiBuffer() {
     multiBuffer = []; 
     renderMultiBuffer(); 
     document.querySelectorAll('.item-card').forEach(el => el.classList.remove('selected')); 
-}
-
-function processMultiBatchMove(box, actionType = 'move') {
-    if (!Array.isArray(multiBuffer) || multiBuffer.length === 0) {
-        feedback('error');
-        showToast("Buffer kosong!");
-        return;
-    }
-    
-    let successCount = 0;
-    multiBuffer.forEach(bufferItem => {
-        const item = bufferItem.item;
-        const qty = bufferItem.qty;
-        
-        if (actionType === 'move') {
-            item.locations = {};  // Clear old locations
-        }
-        if (item.locations[box] === undefined) {
-            item.locations[box] = 0;
-        }
-        item.locations[box] += qty;  // Add accumulated qty
-        saveDB(item);
-        successCount++;
-    });
-    
-    feedback('success'); 
-    showToast(`<i class="fas fa-check-circle"></i> ${successCount} Item (${multiBuffer.reduce((a,b)=>a+b.qty, 0)} pcs) berhasil di-${actionType} ke ${box}`); 
-    clearMultiBuffer(); 
-    renderSimpanList(false); 
 }
 
 function createNewItem(code) {
@@ -1462,7 +1477,7 @@ function updateOpnameStats() {
         return;
     }
     let match = 0, diff = 0, zero = 0, pcs = 0;
-    getOpnameBoxItems().forEach(i => {
+    getOpnameBoxItems().filter(i => Number(i.sysQty) > 0).forEach(i => {
         const counted = getOpnameBufferQty(i.id, i);
         pcs += counted;
         if (counted === 0) zero++;
@@ -1488,7 +1503,7 @@ function handleOpnameRender(reset = true) {
     }
     if (!filteredItems.length && !localItems.length) return;
 
-    const dataset = filterOpnameDataset(getOpnameBoxItems());
+    const dataset = filterOpnameDataset(getOpnameBoxItems().filter(item => Number(item.sysQty) > 0));
     updateOpnameStats();
 
     if (dataset.length === 0) {
@@ -1556,21 +1571,6 @@ function clearOpnameBoxFilter() {
 }
 function setOpnameFilter(type, btn) { opnameFilter = type; document.querySelectorAll('.segment-btn').forEach(b => b.classList.remove('active')); btn.classList.add('active'); handleOpnameRender(true); }
 
-function promptOpnameConflict(item, box) {
-    opnameConflictData = { item, box }; const existingLocs = Object.entries(item.locations);
-    document.getElementById('opnameConfirmModal').style.display = 'flex'; document.getElementById('opnameTargetBox').innerText = box;
-    if (existingLocs.length > 0) {
-        document.getElementById('opnameModalTitle').innerText = "Konflik Lokasi"; const totalFisik = Object.values(item.locations).reduce((a,b)=>a+b,0);
-        document.getElementById('opnameModalDesc').innerHTML = `<div style="background:#f8fafc; border:1px solid #cbd5e1; padding:10px; border-radius:6px; text-align:left; font-size:0.9rem; margin-bottom:10px; color:#334155;"><div style="margin-bottom:5px;">Sudah tercatat di lokasi lain:</div>${existingLocs.map(([k,v]) => `• Box <b>${k}</b> : ${v} pcs`).join('<br>')}<hr style="border-top:1px dashed #cbd5e1; margin:8px 0;"><div>Total Fisik: <b>${totalFisik}</b> | Target Sistem: <b>${item.sysQty}</b></div></div>`;
-        document.getElementById('btnGroupConflict').style.display = 'block'; document.getElementById('btnGroupNew').style.display = 'none';
-    } else {
-        document.getElementById('opnameModalTitle').innerText = "Stok Kosong"; document.getElementById('opnameModalDesc').innerHTML = "Belum punya lokasi.";
-        document.getElementById('btnGroupConflict').style.display = 'none'; document.getElementById('btnGroupNew').style.display = 'block';
-    }
-}
-
-function executeOpnameAction(action) { const { item, box } = opnameConflictData; if (action === 'move') { item.locations = {}; item.locations[box] = 1; } else if (action === 'add') { item.locations[box] = 1; } saveDB(item); feedback('success'); handleOpnameRender(); closeOpnameConfirmModal(); }
-function closeOpnameConfirmModal() { document.getElementById('opnameConfirmModal').style.display = 'none'; opnameConflictData = null; document.getElementById('mainInput').focus(); }
 function showOpnameInfo(item) { tempPart = item; document.getElementById('opnameInfoPanel').style.display = 'block'; document.getElementById('infoPartNo').innerText = item.partNo; document.getElementById('infoPartDesc').innerText = item.desc; document.getElementById('infoLocList').innerText = Object.entries(item.locations).map(([k,v])=>`${k} (${v})`).join(', ') || "Belum ada lokasi"; document.getElementById('opnameList').style.display = 'none'; }
 
 async function clearOpname() {
@@ -1669,8 +1669,9 @@ async function resetCurrentBoxOpname() {
 function renderDataList(reset = false) {
     if(reset) renderLimit = 50; const q = document.getElementById('cariInput').value.toLowerCase(); const container = document.getElementById('dataList');
     if(reset || container.innerHTML === '') container.innerHTML = '';
-    let dataset = filteredItems; if(filterNewOnly) dataset = dataset.filter(i => i.desc === 'PART BARU'); 
-    if(q) dataset = dataset.filter(i => i.partNo.toLowerCase().includes(q) || i.desc.toLowerCase().includes(q) || (i.locType && i.locType.toLowerCase().includes(q)));
+    let dataset = currentRole === 'user' ? localItems : filteredItems;
+    if(currentRole !== 'user' && filterNewOnly) dataset = dataset.filter(i => i.desc === 'PART BARU'); 
+    if(q) dataset = dataset.filter(i => String(i.partNo || '').toLowerCase().includes(q) || String(i.desc || '').toLowerCase().includes(q) || String(i.locType || '').toLowerCase().includes(q) || Object.keys(i.locations || {}).some(box => box.toLowerCase().includes(q)));
     const show = dataset.slice(0, renderLimit); if(show.length===0) { container.innerHTML='<div style="text-align:center; padding:20px; color:#999">Tidak ditemukan</div>'; return; }
     let html = '';
     show.forEach(i => {
@@ -1684,7 +1685,7 @@ function renderDataList(reset = false) {
         // Format harga sebagai Rupiah
         const hargaFormatted = (i.harga || 0) > 0 ? new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(i.harga || 0) : '-';
         
-        html += `<div class="item-card" id="data-row-${i.id}" onclick="openEditModal(${i.id})" style="${cardStyle}">
+        html += `<div class="item-card" id="data-row-${i.id}" ${currentRole === 'user' ? '' : `onclick="openEditModal(${i.id})"`} style="${cardStyle}">
             <div style="flex:1;">
                 <div style="display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:4px;">
                     <b style="font-size:1.05rem;">${i.partNo}</b> 
@@ -1710,6 +1711,7 @@ function jumpToItem(partNo) {
 }
 
 function openEditModal(id) {
+    if (!requireAdminAccess('mengedit data part')) return;
     editId = id; const item = localItems.find(i=>i.id===id); if(!item) return; document.getElementById('editModal').style.display='flex'; document.getElementById('editPartTitle').innerText = item.partNo;
     
     // Auto-set lastOpnameDate ONLY if from OPNAME tab
@@ -1757,6 +1759,7 @@ function addManualLoc() {
 }
 
 async function saveManualEdit() {
+    if (!requireAdminAccess('mengubah qty lokasi')) return;
     if (opnameCommitInProgress) {
         feedback('warning');
         showToast('Penyimpanan OPNAME sedang berlangsung. Tunggu hingga selesai.');
@@ -1832,10 +1835,10 @@ async function saveManualEdit() {
     renderDataList(false); 
     document.getElementById('mainInput').focus(); 
 }
-function deletePartBaru(id) { if(confirm('Hapus Part Baru ini permanen?')) { const tx = db.transaction('items', 'readwrite'); tx.objectStore('items').delete(id); tx.oncomplete = () => { localItems = localItems.filter(i => i.id !== id); filteredItems = filteredItems.filter(i => i.id !== id); document.getElementById('editModal').style.display='none'; renderDataList(true); showToast('Dihapus.'); }; } }
-function addLabelIssue(type) { if (!tempPart) return; if (!tempPart.labelIssues) tempPart.labelIssues = { DAMAGED: 0, NO_LABEL: 0 }; let typeName = type === 'DAMAGED' ? 'Rusak' : 'Tanpa Label'; let input = prompt(`Berapa buah part ${tempPart.partNo} yang labelnya ${typeName}? \n(Ketik angka saja)`, "1"); let qty = parseInt(input); if (!isNaN(qty) && qty > 0) { tempPart.labelIssues[type] += qty; saveDB(tempPart); feedback('success'); showToast(`${qty} part ditandai`); selectPartSimpan(tempPart); } }
-function openLabelReport() { const container = document.getElementById('labelReportList'); let html = ''; let count = 0; localItems.forEach(i => { if (i.labelIssues && (i.labelIssues.DAMAGED > 0 || i.labelIssues.NO_LABEL > 0)) { count++; html += `<div style="padding:10px; border:1px solid var(--border); border-radius:6px; background:#fef2f2;"><b>${i.partNo}</b> <span style="font-size:0.8rem; color:var(--secondary)">${i.desc}</span><div style="display:flex; gap:15px; margin-top:8px; font-size:0.85rem; font-weight:bold;">${i.labelIssues.NO_LABEL > 0 ? `<span style="color:var(--danger);"><i class="fas fa-tag"></i> Hilang: ${i.labelIssues.NO_LABEL} pcs</span>` : ''}${i.labelIssues.DAMAGED > 0 ? `<span style="color:#d97706;"><i class="fas fa-tags"></i> Rusak: ${i.labelIssues.DAMAGED} pcs</span>` : ''}</div><div style="font-size:0.75rem; color:var(--secondary); margin-top:6px;">Lokasi: ${Object.keys(i.locations).join(', ') || 'Belum Box'}</div></div>`; } }); if (count === 0) html = '<div style="text-align:center; padding:30px; color:var(--opname);"><i class="fas fa-check-circle" style="font-size:2rem; margin-bottom:10px; display:block;"></i>Semua Label Aman!</div>'; container.innerHTML = html; document.getElementById('labelReportModal').style.display = 'flex'; }
-function openRakModal() { const raks = new Set(); localItems.forEach(i => Object.keys(i.locations).forEach(box => raks.add(box.charAt(0).toUpperCase()))); const sel = document.getElementById('rakSelect'); sel.innerHTML = '<option value="">-- Pilih Rak --</option>'; [...raks].sort().forEach(r => sel.innerHTML += `<option value="${r}">Rak ${r}</option>`); document.getElementById('rakSummaryList').innerHTML = '<div style="text-align:center; color:#999; padding:20px;">Pilih rak di atas</div>'; document.getElementById('rakModal').style.display = 'flex'; }
+function deletePartBaru(id) { if (!requireAdminAccess('menghapus part baru')) return; if(confirm('Hapus Part Baru ini permanen?')) { const tx = db.transaction('items', 'readwrite'); tx.objectStore('items').delete(id); tx.oncomplete = () => { localItems = localItems.filter(i => i.id !== id); filteredItems = filteredItems.filter(i => i.id !== id); document.getElementById('editModal').style.display='none'; renderDataList(true); showToast('Dihapus.'); }; } }
+function addLabelIssue(type) { if (!requireAdminAccess('memperbarui label part') || !tempPart) return; if (!tempPart.labelIssues) tempPart.labelIssues = { DAMAGED: 0, NO_LABEL: 0 }; let typeName = type === 'DAMAGED' ? 'Rusak' : 'Tanpa Label'; let input = prompt(`Berapa buah part ${tempPart.partNo} yang labelnya ${typeName}? \n(Ketik angka saja)`, "1"); let qty = parseInt(input); if (!isNaN(qty) && qty > 0) { tempPart.labelIssues[type] += qty; saveDB(tempPart); feedback('success'); showToast(`${qty} part ditandai`); selectPartSimpan(tempPart); } }
+function openLabelReport() { if (!requireAdminAccess('melihat laporan label')) return; const container = document.getElementById('labelReportList'); let html = ''; let count = 0; localItems.forEach(i => { if (i.labelIssues && (i.labelIssues.DAMAGED > 0 || i.labelIssues.NO_LABEL > 0)) { count++; html += `<div style="padding:10px; border:1px solid var(--border); border-radius:6px; background:#fef2f2;"><b>${i.partNo}</b> <span style="font-size:0.8rem; color:var(--secondary)">${i.desc}</span><div style="display:flex; gap:15px; margin-top:8px; font-size:0.85rem; font-weight:bold;">${i.labelIssues.NO_LABEL > 0 ? `<span style="color:var(--danger);"><i class="fas fa-tag"></i> Hilang: ${i.labelIssues.NO_LABEL} pcs</span>` : ''}${i.labelIssues.DAMAGED > 0 ? `<span style="color:#d97706;"><i class="fas fa-tags"></i> Rusak: ${i.labelIssues.DAMAGED} pcs</span>` : ''}</div><div style="font-size:0.75rem; color:var(--secondary); margin-top:6px;">Lokasi: ${Object.keys(i.locations).join(', ') || 'Belum Box'}</div></div>`; } }); if (count === 0) html = '<div style="text-align:center; padding:30px; color:var(--opname);"><i class="fas fa-check-circle" style="font-size:2rem; margin-bottom:10px; display:block;"></i>Semua Label Aman!</div>'; container.innerHTML = html; document.getElementById('labelReportModal').style.display = 'flex'; }
+function openRakModal() { if (!requireAdminAccess('membuka laporan rak')) return; const raks = new Set(); localItems.forEach(i => Object.keys(i.locations).forEach(box => raks.add(box.charAt(0).toUpperCase()))); const sel = document.getElementById('rakSelect'); sel.innerHTML = '<option value="">-- Pilih Rak --</option>'; [...raks].sort().forEach(r => sel.innerHTML += `<option value="${r}">Rak ${r}</option>`); document.getElementById('rakSummaryList').innerHTML = '<div style="text-align:center; color:#999; padding:20px;">Pilih rak di atas</div>'; document.getElementById('rakModal').style.display = 'flex'; }
 function renderRakSummary() { const rak = document.getElementById('rakSelect').value; const container = document.getElementById('rakSummaryList'); if (!rak) { container.innerHTML = ''; return; } let html = ''; let missingCount = 0; localItems.forEach(i => { const boxesInRak = Object.keys(i.locations).filter(b => b.startsWith(rak)); if (boxesInRak.length > 0) { const totalFisik = Object.values(i.locations).reduce((a,b)=>a+b,0); if (totalFisik < i.sysQty) { missingCount++; html += `<div style="padding:10px; border-left:4px solid var(--danger); background:#fef2f2; border-radius:4px;"><div style="display:flex; justify-content:space-between;"><b style="color:var(--danger)">${i.partNo}</b><span style="font-size:0.8rem; font-weight:bold; color:var(--danger)">${totalFisik} / ${i.sysQty}</span></div><div style="font-size:0.8rem; color:#666; margin-top:4px;">Harusnya di: ${boxesInRak.map(b => `${b}(${i.locations[b]})`).join(', ')}</div></div>`; } } }); if (missingCount === 0) html = '<div style="text-align:center; padding:30px; color:#16a34a; font-weight:bold;"><i class="fas fa-check-circle" style="font-size:3rem; margin-bottom:10px; display:block;"></i>Aman & Komplit!</div>'; container.innerHTML = html; }
 
 // ============================================
@@ -1915,21 +1918,63 @@ function renderSmartSuggestion(item) {
     chevron.style.transform = 'rotate(0deg)';
 }
 
-function switchTab(id) {
+function switchTab(id, options = {}) {
+    if (!currentRole) {
+        showRoleGate();
+        return false;
+    }
+    if (currentRole === 'user' && id !== 'data') {
+        feedback('warning');
+        showToast('Mode User hanya memiliki akses ke Cari.');
+        return false;
+    }
+    if (currentRole === 'admin' && !isAdminSessionActive()) {
+        requireAdminAccess('membuka tab Admin');
+        return false;
+    }
     if (id === 'offbs' || id === 'packing') {
         feedback('error');
         showToast(`${id === 'offbs' ? 'OFF BS' : 'PACKING'} sementara dinonaktifkan.`);
-        return;
+        return false;
     }
 
-    // Clean up when leaving SIMPAN tab (display-only now)
+    // Preserve unprocessed parts in the multi-scan buffer when leaving SIMPAN.
     if (currentTab === 'simpan' && currentTab !== id) {
+        if (multiScanBuffer.length > 0
+            && !options.bufferConfirmed
+            && !confirm(`Buffer Multi-Scan berisi ${multiScanBuffer.length} part. Keluar dari SIMPAN dan pertahankan buffer untuk dilanjutkan nanti?`)) {
+            return false;
+        }
+        const hasPendingMultiScan = multiScanBuffer.length > 0;
+        if (simpanMode === 'multiple') {
+            simpanMode = 'single';
+            localStorage.setItem('wms_simpanMode', simpanMode);
+            const multiButton = document.getElementById('multipleScanIcon');
+            if (multiButton) multiButton.setAttribute('aria-pressed', 'false');
+            const multiPanel = document.getElementById('multiScanPanel');
+            if (multiPanel) multiPanel.style.display = multiScanBuffer.length ? 'block' : 'none';
+            const instruction = multiPanel && multiPanel.querySelector('.multi-scan-instruction');
+            if (instruction && multiScanBuffer.length) {
+                instruction.textContent = 'Buffer dipertahankan; aktifkan Multi-Scan untuk melanjutkan.';
+            }
+        }
+        if (boxToBoxModeActive) {
+            boxToBoxModeActive = false;
+            boxToBoxSourceBox = null;
+            boxToBoxYesToAll = false;
+            const boxButton = document.getElementById('boxToBoxBtn');
+            if (boxButton) boxButton.setAttribute('aria-pressed', 'false');
+            updateBoxToBoxIndicator();
+            showToast('Mode Box ke Box dihentikan saat keluar dari SIMPAN.');
+        }
         tempPart = null;
         document.getElementById('activePartDetailsPanel').style.display = 'none';
+        if (hasPendingMultiScan) showToast('Buffer Multi-Scan dipertahankan. Kembali ke SIMPAN untuk melanjutkan.');
     }
     
     currentTab = id;
     document.body.classList.toggle('data-view-active', id === 'data');
+    document.body.classList.toggle('simpan-tab-active', currentRole === 'admin' && id === 'simpan');
     
     // Update tab content
     document.querySelectorAll('.tab-content').forEach(e=>e.classList.remove('active'));
@@ -1943,7 +1988,7 @@ function switchTab(id) {
     const tabTitles = {
         'simpan': { name: 'Penyimpanan', icon: 'fa-dolly' },
         'opname': { name: 'Inventory Check', icon: 'fa-clipboard-check' },
-        'data': { name: 'Data', icon: 'fa-search' },
+        'data': { name: currentRole === 'user' ? 'Cari' : 'Data', icon: 'fa-search' },
         'offbs': { name: 'Off BS', icon: 'fa-recycle' },
         'packing': { name: 'Packing', icon: 'fa-truck-loading' },
         'settings': { name: 'Pengaturan', icon: 'fa-cog' }
@@ -1973,7 +2018,8 @@ function switchTab(id) {
     if (id === 'offbs' && typeof renderOffBsList === 'function') {
         renderOffBsList();
     }
-    
+    if (id === 'data') renderDataList(true);
+    return true;
 }
 
 // ============================================
@@ -2215,7 +2261,7 @@ function showOpnameBufferPanel() {
     renderOpnameBuffer();
 }
 
-function clearData() { if(confirm('Hapus Semua?')) { const tx = db.transaction('items','readwrite'); tx.objectStore('items').clear(); tx.oncomplete = () => location.reload(); } }
+function clearData() { if (!requireAdminAccess('menghapus semua data lokal')) return; if(confirm('Hapus Semua?')) { const tx = db.transaction('items','readwrite'); tx.objectStore('items').clear(); tx.oncomplete = () => location.reload(); } }
 
 // ============================================
 // SIMPAN BUFFER FUNCTIONS (Cashier Mode)

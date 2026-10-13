@@ -17,6 +17,7 @@ const urlsToCache = [
   './version.json',
   './css/style.css',
   './js/config.js',
+  './js/auth.js',
   './js/utils.js',
   './js/database.js',
   './js/excel.js',

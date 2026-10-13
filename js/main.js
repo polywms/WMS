@@ -2,7 +2,7 @@
  * Tujuan: Inisialisasi aplikasi WMS dan lifecycle PWA.
  * Caller: Browser melalui window.onload.
  * Dependensi: database.js (initDB), core.js (render dan state SIMPAN), Service Worker API.
- * Main Functions: registerServiceWorker(), checkForUpdates() updates the header version label, window.onload.
+ * Main Functions: registerServiceWorker(), checkForUpdates() updates the header version label, role-aware window.onload restores the SIMPAN buffer.
  * Side Effects: IndexedDB init, registrasi cache, wake lock, pembacaan waktu upload dari localStorage, dan sinkronisasi tampilan.
  */
 let wakeLock = null;
@@ -84,6 +84,9 @@ document.addEventListener('click', (e) => {
 
 window.onload = async () => {
     await initDB();
+    restoreMultiScanBufferReferences();
+    initializeRoleSession();
+    if (currentRole === 'admin') switchTab('simpan');
     if(localStorage.getItem('darkMode') === 'true') document.body.classList.add('dark-mode');
     const lastStockUploadAt = localStorage.getItem('lastStockUploadAt');
     const lastStockUploadDate = lastStockUploadAt ? new Date(lastStockUploadAt) : null;
@@ -92,7 +95,7 @@ window.onload = async () => {
         lastStockUploadElement.textContent = `Upload terakhir: ${lastStockUploadDate.toLocaleString('id-ID')}`;
     }
     requestWakeLock();
-    document.getElementById('mainInput').focus();
+    if (currentRole === 'admin') document.getElementById('mainInput').focus();
     
     // Initialize favicon
     if(typeof updateFavicon === 'function') updateFavicon(false);
@@ -128,15 +131,21 @@ window.onload = async () => {
     const multipleScanIcon = document.getElementById('multipleScanIcon');
     const multiScanPanel = document.getElementById('multiScanPanel');
     const isMultipleScan = simpanMode === 'multiple';
+    const hasPendingMultiScan = Array.isArray(multiScanBuffer) && multiScanBuffer.length > 0;
     if (chkMultipleScan) chkMultipleScan.checked = isMultipleScan;
     if (multipleScanIcon) {
         multipleScanIcon.style.background = isMultipleScan ? 'var(--active-color)' : 'white';
         multipleScanIcon.style.borderColor = isMultipleScan ? 'var(--active-color)' : '#cbd5e1';
         multipleScanIcon.style.color = isMultipleScan ? 'white' : 'var(--secondary)';
         multipleScanIcon.title = isMultipleScan ? 'Mode: MULTI-SCAN' : 'Mode: SINGLE Scan';
+        multipleScanIcon.setAttribute('aria-pressed', String(isMultipleScan));
     }
-    if (multiScanPanel) multiScanPanel.style.display = isMultipleScan ? 'block' : 'none';
-    if (isMultipleScan && typeof renderMultiScanList === 'function') renderMultiScanList();
+    if (multiScanPanel) multiScanPanel.style.display = isMultipleScan || hasPendingMultiScan ? 'block' : 'none';
+    const multiScanInstruction = multiScanPanel && multiScanPanel.querySelector('.multi-scan-instruction');
+    if (multiScanInstruction && !isMultipleScan) {
+        multiScanInstruction.textContent = 'Buffer dipertahankan; aktifkan Multi-Scan untuk melanjutkan.';
+    }
+    if ((isMultipleScan || hasPendingMultiScan) && typeof renderMultiScanList === 'function') renderMultiScanList();
     
     // Check for updates after 3 seconds
     setTimeout(checkForUpdates, 3000);

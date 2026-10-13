@@ -3,7 +3,7 @@
              * Tujuan: Menyediakan sistem visual responsif untuk workflow WMS.
              * Caller: index.html dan seluruh komponen UI berbasis class.
              * Dependensi: Variabel tema, Font Awesome, dan CSS layout native.
-             * Main Functions: Layout, compact lists/buffer, bottom navigation, scan-result highlights, and opname controls.
+             * Main Functions: Layout, role gate, SIMPAN mode controls, compact lists/buffer, bottom navigation, and opname controls.
              * Side Effects: Mengubah tampilan dan spacing tanpa mengubah state aplikasi.
              */
             :root {
@@ -36,6 +36,60 @@
             --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
             --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.12), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
             }
+            .role-gate {
+                position: fixed;
+                inset: 0;
+                z-index: 5000;
+                align-items: center;
+                justify-content: center;
+                padding: 18px;
+                background: rgba(15, 23, 42, 0.88);
+            }
+            .role-gate-card {
+                width: min(420px, 100%);
+                box-sizing: border-box;
+            }
+            .role-gate-card h2 { margin-top: 0; }
+            .role-gate-card .btn { width: 100%; margin-top: 10px; }
+            .role-gate-card label { display: block; margin: 12px 0 6px; }
+            .role-gate-card input {
+                width: 100%;
+                box-sizing: border-box;
+                padding: 10px;
+                border: 1px solid var(--border);
+                border-radius: 6px;
+                font-size: 1rem;
+            }
+            #adminLoginError { min-height: 1.4em; margin-top: 8px; color: var(--danger); }
+            .simpan-mode-controls {
+                display: none;
+                gap: 10px;
+                padding: 10px 12px;
+            }
+            body.role-admin.simpan-tab-active #simpanModeControls { display: flex; }
+            .simpan-mode-controls button {
+                display: flex;
+                flex: 1;
+                min-height: 44px;
+                align-items: center;
+                justify-content: center;
+                gap: 8px;
+                border: 1px solid #cbd5e1;
+                border-radius: 8px;
+                background: white;
+                color: var(--secondary);
+                font-weight: 700;
+                cursor: pointer;
+            }
+            .simpan-mode-controls button[aria-pressed="true"] {
+                border-color: var(--active-color);
+                background: var(--active-color);
+                color: white;
+            }
+            body.role-user .scanner-bar,
+            body.role-user [data-admin-only] { display: none !important; }
+            body.role-user .data-tools,
+            body.role-user #globalFilters { display: none !important; }
             body.dark-mode {
             --bg: #0f172a;
             --bg-secondary: #1e293b;

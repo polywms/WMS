@@ -2,7 +2,7 @@
     Tujuan: Entry point UI untuk workflow WMS Magelang.
     Caller: Browser/PWA shell; event handlers diteruskan ke main.js dan core.js.
     Dependensi: css/style.css, Font Awesome, dan modul JavaScript di js/.
-    Main Functions: Menyediakan header versi aplikasi, navigasi, scanner, konfirmasi over-scan, buffer OPNAME ringkas, kontrol import/export, dan sinkronisasi manual.
+    Main Functions: Menyediakan role gate Admin/User, navigasi, Cari dengan scanner kamera, kontrol SIMPAN, konfirmasi over-scan, impor/ekspor Admin, dan sinkronisasi manual.
     Side Effects: Mengubah DOM, memicu scan, penyimpanan lokal, dan sinkronisasi cloud melalui handler.
 -->
 <!-- WMS Magelang - Entry point UI -->
@@ -22,14 +22,31 @@
         <link rel="stylesheet" href="css/style.css">
     </head>
     <body>
-        
+        <div id="roleGate" class="overlay role-gate" role="dialog" aria-modal="true" aria-labelledby="roleGateTitle" style="display:flex;">
+            <div class="modal role-gate-card">
+                <h2 id="roleGateTitle">Pilih Mode WMS</h2>
+                <div id="roleChoices">
+                    <p>Pilih akses untuk sesi ini.</p>
+                    <button type="button" class="btn btn-primary" onclick="openAdminLogin()">Admin</button>
+                    <button type="button" class="btn btn-outline" onclick="chooseUserRole()">User — Cari lokasi</button>
+                </div>
+                <form id="adminLoginForm" style="display:none;" onsubmit="event.preventDefault(); authenticateAdmin();">
+                    <label for="adminPassword">Password Admin</label>
+                    <input id="adminPassword" type="password" autocomplete="current-password" required>
+                    <div id="adminLoginError" role="alert"></div>
+                    <button id="adminLoginButton" type="submit" class="btn btn-primary">Masuk Admin</button>
+                    <button type="button" class="btn btn-outline" onclick="showRoleGate()">Kembali</button>
+                </form>
+            </div>
+        </div>
         <header>
             <div class="app-title-group">
                 <h1>𝄃𝄃𝄂𝄂 WMS Magelang</h1>
                 <span id="appVersion" class="app-version" aria-label="Versi aplikasi" hidden></span>
             </div>
             <div style="display:flex; align-items:center; gap:10px;">
-                <button type="button" class="icon-only" onclick="manualSync()" title="Pilihan sinkronisasi" aria-label="Pilihan sinkronisasi" style="width:30px; height:30px; display:grid; place-items:center; border:0; border-radius:50%; background:rgba(0,0,0,0.2); color:white; cursor:pointer;">
+                <button type="button" id="roleSessionButton" onclick="endRoleSession()" title="Keluar dari sesi Admin" aria-label="Keluar dari sesi Admin" style="border:1px solid rgba(255,255,255,.6); border-radius:6px; padding:5px 8px; background:transparent; color:white; cursor:pointer; white-space:nowrap;">Keluar Admin</button>
+                <button type="button" class="icon-only" data-admin-only onclick="manualSync()" title="Pilihan sinkronisasi" aria-label="Pilihan sinkronisasi" style="width:30px; height:30px; display:grid; place-items:center; border:0; border-radius:50%; background:rgba(0,0,0,0.2); color:white; cursor:pointer;">
                     <i class="fas fa-cloud" aria-hidden="true"></i>
                 </button>
                 <span id="syncStatus" style="font-size:0.75rem; background:rgba(0,0,0,0.2); padding:3px 8px; border-radius:10px; display: flex; align-items: center; gap: 4px;"><i class="fas fa-circle" style="color: #22c55e; font-size: 0.6rem;"></i><span style="font-size:0.7rem;">Online</span></span>
@@ -71,7 +88,7 @@
         </nav>
         
         <div class="main-content-wrapper">
-            <div style="display:flex; gap:12px; align-items:center; background:var(--bg); border-bottom:2px solid var(--primary); padding:12px 16px; z-index:90;">
+            <div data-admin-only style="display:flex; gap:12px; align-items:center; background:var(--bg); border-bottom:2px solid var(--primary); padding:12px 16px; z-index:90;">
                 <div class="active-tab-title" id="activeTabTitle" style="border:none; padding:0; margin:0; flex:0 0 auto;">
                     <i class="fas fa-dolly" id="activeTabIcon"></i>
                     <span id="activeTabName">Penyimpanan</span>
@@ -82,7 +99,7 @@
                 </div>
             </div>
             
-            <div class="scanner-bar" style="display: block;">
+            <div class="scanner-bar" data-admin-only style="display: block;">
                 <div class="input-wrapper" style="position: relative;">
                     <input type="text" id="mainInput" class="main-input" placeholder="Scan Part / Box..." inputmode="none" autocomplete="off" onkeydown="handleInputKeyDown(event)" style="padding-right: 80px; width: 100%; box-sizing: border-box;">
                     
@@ -104,34 +121,23 @@
                             ">
                             <div id="kbdIcon" style="width:40px; height:40px; background:white; color:var(--secondary); border:1px solid #cbd5e1; border-radius:8px; display:flex; justify-content:center; align-items:center; transition:0.2s; font-size:1.1rem; cursor:pointer;"><i class="fas fa-keyboard"></i></div>
                         </label>
-                        <!-- SINGLE / MULTIPLE Scan Mode Toggle -->
-                        <label style="cursor: pointer; margin: 0;" title="Toggle: Single Scan / Multi-Scan">
-                            <input type="checkbox" id="chkMultipleScan" style="display:none;" onchange="
-                            toggleMultipleScanMode(); 
-                            const iconMS = document.getElementById('multipleScanIcon');
-                            if(this.checked) { 
-                                iconMS.style.background = 'var(--active-color)'; 
-                                iconMS.style.borderColor = 'var(--active-color)'; 
-                                iconMS.style.color = 'white';
-                                iconMS.title = 'Mode: MULTI-SCAN';
-                            } else { 
-                                iconMS.style.background = 'white'; 
-                                iconMS.style.borderColor = '#cbd5e1'; 
-                                iconMS.style.color = 'var(--secondary)';
-                                iconMS.title = 'Mode: SINGLE Scan'; 
-                            }
-                            ">
-                            <div id="multipleScanIcon" style="width:40px; height:40px; background:white; color:var(--secondary); border:1px solid #cbd5e1; border-radius:8px; display:flex; justify-content:center; align-items:center; transition:0.2s; font-size:1.1rem; cursor:pointer;" title="Mode: SINGLE Scan"><i class="fas fa-boxes-stacked"></i></div>
-                        </label>
+                        <input type="checkbox" id="chkMultipleScan" style="display:none;">
                         <!-- Multi-Scan Toggle Hidden (Auto-Buffer Default) -->
                         <label style="cursor: pointer; margin: 0; display:none;">
                             <input type="checkbox" id="chkMultiScan" style="display:none;" onchange="toggleMultiMode()">
                             <div id="multiIcon" style="width:40px; height:40px; background:white; color:var(--secondary); border:1px solid #cbd5e1; border-radius:8px; display:flex; justify-content:center; align-items:center; transition:0.2s; font-size:1.1rem; cursor:pointer;"><i class="fas fa-layer-group"></i></div>
                         </label>
-                        <button id="boxToBoxBtn" class="icon-only" onclick="toggleBoxToBoxMode()" style="width:40px; height:40px; background:white; color:var(--secondary); border:1px solid #cbd5e1; border-radius:8px; display:flex; justify-content:center; align-items:center; cursor:pointer; padding:0; transition:0.2s; font-size:1.1rem;" title="Box to Box"><i class="fas fa-exchange-alt"></i></button>
                         <button id="historyToggleBtn" class="icon-only" onclick="toggleHistoryAccordion()" style="width:40px; height:40px; background:white; color:var(--secondary); border:1px solid #cbd5e1; border-radius:8px; display:flex; justify-content:center; align-items:center; cursor:pointer; padding:0; transition:0.2s; font-size:1.1rem;" title="Riwayat Scan"><i class="fas fa-history"></i></button>
                     </div>
                 </div>
+                    <div id="simpanModeControls" class="simpan-mode-controls" data-admin-only>
+                        <button id="multipleScanIcon" type="button" onclick="toggleMultipleScanMode()" aria-pressed="false">
+                            <i class="fas fa-boxes-stacked" aria-hidden="true"></i><span>Multi-Scan</span>
+                        </button>
+                        <button id="boxToBoxBtn" type="button" onclick="toggleBoxToBoxMode()" aria-pressed="false">
+                            <i class="fas fa-exchange-alt" aria-hidden="true"></i><span>Box ke Box</span>
+                        </button>
+                    </div>
                 
                 <!-- History Accordion -->
                 <div id="historyAccordion" class="history-accordion" style="display:none;">
@@ -199,7 +205,7 @@
                         <button class="btn-sm btn-danger" onclick="clearMultiScan()">Clear</button>
                     </div>
                     <div id="multiTagsContainer" style="max-height:200px; overflow-y:auto; padding-bottom:5px; display:flex; flex-direction:column; gap:6px;"></div>
-                    <div style="margin-top:10px; font-size:0.9rem; font-weight:bold; color:var(--purple); animation: pulse 2s infinite; text-align:center;"><i class="fas fa-arrow-right"></i> SCAN BOX TUJUAN UNTUK KONFIRMASI PINDAH</div>
+                    <div class="multi-scan-instruction" style="margin-top:10px; font-size:0.9rem; font-weight:bold; color:var(--purple); animation: pulse 2s infinite; text-align:center;"><i class="fas fa-arrow-right"></i> SCAN BOX TUJUAN UNTUK KONFIRMASI PINDAH</div>
                 </div>
                 <!-- Smart Suggestion Panel -->
                 <div id="smartSuggestionPanel" style="display:none; background:#fffbeb; padding:8px 12px; margin:8px 16px 0; border-radius:6px; border:1px solid #fcd34d;">
@@ -320,9 +326,9 @@
                         <input type="text" id="cariInput" placeholder="Scan Part / Ketik Nama / Area..." onkeyup="renderDataList(true)" style="width:100%; padding:10px 40px 10px 10px; border:1px solid var(--border); border-radius:6px; box-sizing:border-box;">
                         <button class="icon-only" onclick="document.getElementById('cariInput').value=''; renderDataList(true);" style="position:absolute; right:8px; top:50%; transform:translateY(-50%); background:none; border:none; color:var(--secondary); cursor:pointer;"><i class="fas fa-times-circle"></i></button>
                     </div>
-                    <button class="icon-only" onclick="openCameraScanner()" style="width:40px; height:40px; background:var(--active-color); color:white; border:none; border-radius:6px; display:flex; justify-content:center; align-items:center; cursor:pointer; padding:0;" title="Scan QR Kamera"><i class="fas fa-camera"></i></button>
+                    <button id="dataCameraButton" class="icon-only" onclick="openCameraScanner()" style="width:40px; height:40px; background:var(--active-color); color:white; border:none; border-radius:6px; display:flex; justify-content:center; align-items:center; cursor:pointer; padding:0;" title="Scan QR Kamera"><i class="fas fa-camera"></i></button>
                 </div>
-                <details class="data-tools">
+                <details class="data-tools" data-admin-only>
                     <summary class="data-tools-heading">
                         <strong><i class="fas fa-toolbox"></i> Alat Data</strong>
                         <span>Filter part baru, unduh Excel, atau cek label</span>
@@ -493,26 +499,6 @@
         
         <button id="scrollTopBtn" class="scroll-btn icon-only" onclick="scrollToTop()"><i class="fas fa-arrow-up"></i></button>
         
-        <div class="overlay" id="opnameConfirmModal">
-            <div class="modal">
-                <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); padding-bottom:10px; margin-bottom:15px;">
-                    <h3 style="margin:0;" id="opnameModalTitle">Konfirmasi</h3>
-                    <button class="icon-only" onclick="closeOpnameConfirmModal()" style="border:none; background:none; font-size:1.5rem; color:var(--secondary); cursor:pointer;"><i class="fas fa-times"></i></button>
-                </div>
-                <p style="text-align:center; color:var(--secondary); margin-top:0;" id="opnameModalDesc"></p>
-                <div style="background:#fefce8; border:1px solid #fef08a; padding:10px; border-radius:6px; margin-bottom:15px; text-align:center;">
-                    Part ini belum ada di Box <b id="opnameTargetBox" style="font-size:1.2rem; color:#ca8a04; display:block;"></b>
-                </div>
-                <div id="btnGroupConflict" style="display:none; display:flex; flex-direction:column; gap:10px;">
-                    <button class="btn btn-warning" style="margin:0;" onclick="executeOpnameAction('move')"><i class="fas fa-exchange-alt"></i> PINDAH (Hapus lokasi lama)</button>
-                    <button class="btn btn-success" style="margin:0;" onclick="executeOpnameAction('add')"><i class="fas fa-columns"></i> SPLIT (Tambah stok ke sini)</button>
-                </div>
-                <div id="btnGroupNew" style="display:none;">
-                    <button class="btn btn-success" onclick="executeOpnameAction('add')"><i class="fas fa-plus-circle"></i> TAMBAHKAN KE BOX INI</button>
-                </div>
-            </div>
-        </div>
-
         <div class="overlay" id="opnameOverScanModal" role="dialog" aria-modal="true" aria-labelledby="opnameOverScanTitle" style="display:none;">
             <div class="modal">
                 <div style="display:flex; align-items:center; gap:10px; color:var(--danger);">
@@ -671,6 +657,7 @@
         <script src="https://unpkg.com/html5-qrcode"></script>
         
         <script src="js/config.js"></script>
+        <script src="js/auth.js"></script>
         <script src="js/utils.js"></script>
         <script src="js/database.js"></script>
         <script src="js/excel.js"></script>

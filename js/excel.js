@@ -2,11 +2,15 @@
  * Tujuan: Import, export, backup, dan restore data WMS melalui file Excel/JSON.
  * Caller: Tombol data/settings di index.html.
  * Dependensi: SheetJS, database.js (IndexedDB/sync), dan UI utilities.
- * Main Functions: handleImport() consolidates stock imports and validates cloud responses, exportData(), backupJson(), restoreJson(), import harga.
+ * Main Functions: handleImport() refreshes stock qty without replacing saved locations and reconciles server IDs; exportData(), backupJson(), restoreJson(), import harga.
  * Side Effects: Membaca file, menulis IndexedDB/cloud dan waktu upload ke localStorage, mengunduh file, dan reload aplikasi.
  */
 
 function handleImport(input) {
+    if (!requireAdminAccess('mengimpor data stock')) {
+        input.value = '';
+        return;
+    }
     const f = input.files[0]; 
     if(!f) return;
     showLoading('<i class="fas fa-download"></i> Import Stock', `Membaca file: ${f.name}`);
@@ -20,15 +24,10 @@ function handleImport(input) {
         const txRead = db.transaction('items', 'readonly');
         const oldItems = await new Promise(resolve => { txRead.objectStore('items').getAll().onsuccess = ev => resolve(ev.target.result || []); });
         
-        const locationPool = {}; const idMap = {}; const opnameCountMap = {};
+        const oldItemsByKey = new Map();
         oldItems.forEach(item => {
-            const pNo = item.partNo.trim().toUpperCase();
-            if (Object.keys(item.locations).length > 0) { if (!locationPool[pNo]) locationPool[pNo] = {}; Object.assign(locationPool[pNo], item.locations); }
-            const locTypeKey = (item.locType || '').trim().toUpperCase();
-            const techNameKey = locTypeKey === 'SPAREPART BAIK' ? '' : (item.techName || '').trim().toUpperCase();
-            const itemKey = `${pNo}_${locTypeKey}_${techNameKey}`;
-            idMap[itemKey] = item.id;
-            if (item.opnameCounts) opnameCountMap[itemKey] = item.opnameCounts;
+            const key = getWmsItemIdentityKey(item);
+            if (!oldItemsByKey.has(key)) oldItemsByKey.set(key, item);
         });
         
         const consolidatedExcel = {}; let fgSkippedCount = 0;
@@ -38,47 +37,60 @@ function handleImport(input) {
             const locType = (row['Tipe Lokasi']||'UMUM').trim();
             if (locType.toUpperCase().startsWith('FG')) { fgSkippedCount++; return; } // Filter FG
 
-            const techName = (row['Nama']||'').trim(); const qty = parseInt(row['Available QTY']||0) || 0;
-            const locTypeKey = locType.trim().toUpperCase();
-            const techNameKey = locTypeKey === 'SPAREPART BAIK' ? '' : techName.toUpperCase();
-            const compositeKey = `${pNo}_${locTypeKey}_${techNameKey}`;
+            const techName = String(row['Nama']||'').trim(); const qty = parseInt(row['Available QTY']||0) || 0;
+            const compositeKey = getWmsItemIdentityKey({ partNo: pNo, locType, techName });
             
             if (consolidatedExcel[compositeKey]) { consolidatedExcel[compositeKey].sysQty += qty; } 
-            else { consolidatedExcel[compositeKey] = { locType: locType, techName: techName, partNo: rawPartNo, desc: row['Deskripsi Part']||'', sysQty: qty, raw: row, basePartNo: pNo, compositeKey: compositeKey }; }
+            else { consolidatedExcel[compositeKey] = { locType: locType, techName: techName, partNo: rawPartNo, desc: row['Deskripsi Part']||'', sysQty: qty, raw: row, compositeKey: compositeKey }; }
         });
         
-        for (const pNo in locationPool) {
-            const hasNonTeknisi = Object.values(consolidatedExcel).some(d => d.basePartNo === pNo && !d.locType.toUpperCase().includes('TEKNISI'));
-            if (!hasNonTeknisi && Object.keys(locationPool[pNo]).length > 0) {
-                const dummyKey = `${pNo}_SPAREPART BAIK_`;
-                consolidatedExcel[dummyKey] = { locType: 'SPAREPART BAIK', techName: '', partNo: pNo, desc: 'PART MIGRASI (CEK EXCEL)', sysQty: 0, raw: {}, basePartNo: pNo, compositeKey: dummyKey };
+        const tx = db.transaction('items', 'readwrite');
+        const st = tx.objectStore('items');
+        const importedKeys = new Set(Object.keys(consolidatedExcel));
+        const bulkDataToUpload = [];
+        let newPartCount = 0;
+        let newIdCounter = 0;
+
+        Object.entries(consolidatedExcel).forEach(([key, data]) => {
+            const existingItem = oldItemsByKey.get(key);
+            let item;
+            if (existingItem) {
+                item = { ...existingItem, sysQty: data.sysQty, updated_at: Date.now() };
+            } else {
+                item = {
+                    id: Date.now() + newIdCounter++,
+                    locType: data.locType,
+                    techName: data.techName,
+                    partNo: data.partNo,
+                    desc: data.desc,
+                    sysQty: data.sysQty,
+                    updated_at: Date.now(),
+                    locations: {},
+                    opnameCounts: {},
+                    raw: data.raw,
+                    lastOpnameDate: ''
+                };
+                newPartCount++;
             }
-        }
-        
-        const excelPartSet = new Set(Object.values(consolidatedExcel).map(d => d.basePartNo));
-        const localPartsOnly = oldItems.filter(item => !excelPartSet.has(item.partNo.trim().toUpperCase()));
-        
-        const tx = db.transaction('items', 'readwrite'); const st = tx.objectStore('items'); st.clear(); 
-        let newIdCounter = 0; let bulkDataToUpload = []; 
-        
-        for (const key in consolidatedExcel) {
-            const data = consolidatedExcel[key]; const isTeknisi = data.locType.toUpperCase().includes('TEKNISI'); let finalLocs = {};
-            if (!isTeknisi && locationPool[data.basePartNo]) { finalLocs = { ...locationPool[data.basePartNo] }; delete locationPool[data.basePartNo]; }
-            const newItem = { id: idMap[data.compositeKey] || (Date.now() + newIdCounter), locType: data.locType, techName: data.techName, partNo: data.partNo, desc: data.desc, sysQty: data.sysQty, locations: finalLocs, opnameCounts: opnameCountMap[data.compositeKey] || {}, raw: data.raw, lastOpnameDate: '' };
-            st.add(newItem); bulkDataToUpload.push(newItem); newIdCounter++;
-        }
-        
-        let rescuedCount = 0;
-        localPartsOnly.forEach(item => {
-            if (item.locType && item.locType.toUpperCase().includes('TEKNISI')) { item.locations = {}; }
-            st.add(item); bulkDataToUpload.push(item); rescuedCount++;
+            st.put(item);
+            bulkDataToUpload.push(item);
         });
+
+        const rescuedCount = oldItems.filter(item => !importedKeys.has(getWmsItemIdentityKey(item))).length;
         
         tx.oncomplete = async () => {
+            try {
+                updatePendingStockQuantities(bulkDataToUpload);
+            } catch (queueError) {
+                await loadDataFromLocal();
+                hideLoading();
+                alert(`Import lokal selesai, tetapi antrean upload gagal diperbarui: ${queueError instanceof Error ? queueError.message : String(queueError)}. Jangan upload antrean lama; ulangi import sebelum sinkronisasi.`);
+                return;
+            }
             showLoading('<i class="fas fa-download"></i> Import Stock', 'Mengirim ke cloud...');
             updateSyncUI('<i class="fas fa-paper-plane"></i> Mengirim ke Cloud (Mohon Tunggu)...');
             try {
-                const response = await fetch(API_URL, { method: "POST", redirect: "follow", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ action: "bulk_import", data: bulkDataToUpload, logs: [{ partNo: "SEMUA", action: "IMPORT EXCEL", detail: `Import ${bulkDataToUpload.length} Baris Data` }] }) });
+                const response = await postWmsAction({ action: "bulk_import", data: bulkDataToUpload, logs: [{ partNo: "SEMUA", action: "IMPORT EXCEL", detail: `Import ${bulkDataToUpload.length} Baris Data` }] });
                 const responseText = await response.text();
                 let result;
                 try {
@@ -94,9 +106,27 @@ function handleImport(input) {
                 if (!response.ok || result.status !== "success") {
                     throw new Error(result.message || `Server tidak mengonfirmasi upload (HTTP ${response.status}).`);
                 }
+                if (bulkDataToUpload.length > 0
+                    && (!Array.isArray(result.idMappings)
+                        || result.idMappings.length !== bulkDataToUpload.length
+                        || result.idMappings.some(mapping => !mapping
+                            || mapping.clientId === undefined
+                            || mapping.id === undefined
+                            || mapping.key === undefined))) {
+                    throw new Error('Server belum mengirim pemetaan ID lengkap. Deploy code.gs terbaru sebelum melanjutkan sinkronisasi.');
+                }
+                if (Array.isArray(result.idMappings) && result.idMappings.length > 0) {
+                    try {
+                        await reconcileStockImportIds(result.idMappings);
+                    } catch (reconcileError) {
+                        hideLoading();
+                        alert(`Import Cloud berhasil, tetapi sinkronisasi ID lokal gagal: ${reconcileError instanceof Error ? reconcileError.message : String(reconcileError)}. Jangan jalankan sinkronisasi antrean sebelum masalah ini diperiksa.`);
+                        return;
+                    }
+                }
                 localStorage.setItem('lastStockUploadAt', new Date().toISOString());
                 hideLoading();
-                alert(`IMPORT & SYNC SELESAI!\nDATA BERHASIL MASUK GOOGLE SHEETS.\n${rescuedCount} Part Temuan dipertahankan.\n${fgSkippedCount} Baris 'FG' dibuang.`);
+                alert(`IMPORT & SYNC SELESAI!\nDATA BERHASIL MASUK GOOGLE SHEETS.\n${newPartCount} part baru ditambahkan.\n${rescuedCount} part lokal yang tidak ada di Excel dipertahankan.\n${fgSkippedCount} Baris 'FG' dibuang.`);
             } catch (err) { hideLoading(); alert(`Import Lokal Selesai, tapi upload ke Cloud gagal: ${err instanceof Error ? err.message : String(err)}`); }
             location.reload(); 
         };
@@ -104,7 +134,68 @@ function handleImport(input) {
     r.readAsArrayBuffer(f);
 }
 
+function updatePendingStockQuantities(importedItems) {
+    const importedByKey = new Map(importedItems.map(item => [getWmsItemIdentityKey(item), item]));
+    const updatedQueue = syncQueue.map(queuedItem => {
+        const importedItem = importedByKey.get(getWmsItemIdentityKey(queuedItem));
+        return importedItem
+            ? { ...queuedItem, sysQty: importedItem.sysQty, updated_at: importedItem.updated_at }
+            : queuedItem;
+    });
+    localStorage.setItem('wms_syncQueue', JSON.stringify(updatedQueue));
+    syncQueue = updatedQueue;
+}
+
+async function reconcileStockImportIds(idMappings) {
+    const byClientId = new Map(idMappings.map(mapping => [String(mapping.clientId), mapping]));
+    const records = await new Promise((resolve, reject) => {
+        const request = db.transaction('items', 'readonly').objectStore('items').getAll();
+        request.onsuccess = () => resolve(request.result || []);
+        request.onerror = () => reject(request.error || new Error('Gagal membaca data lokal untuk rekonsiliasi ID.'));
+    });
+    const changed = [];
+    const finalIds = new Set();
+    records.forEach(item => {
+        const mapping = byClientId.get(String(item.id));
+        const nextItem = mapping && mapping.key === getWmsItemIdentityKey(item)
+            ? { ...item, id: mapping.id }
+            : item;
+        const finalId = String(nextItem.id);
+        if (finalIds.has(finalId)) {
+            throw new Error(`ID lokal ${finalId} bertabrakan setelah pemetaan server.`);
+        }
+        finalIds.add(finalId);
+        if (nextItem.id !== item.id) changed.push({ oldId: item.id, item: nextItem });
+    });
+    if (changed.length === 0) return;
+
+    await new Promise((resolve, reject) => {
+        let tx;
+        try {
+            tx = db.transaction('items', 'readwrite');
+            const store = tx.objectStore('items');
+            changed.forEach(entry => store.delete(entry.oldId));
+            changed.forEach(entry => store.put(entry.item));
+        } catch (error) {
+            reject(error);
+            return;
+        }
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error || new Error('Gagal menyimpan pemetaan ID server.'));
+        tx.onabort = () => reject(tx.error || new Error('Rekonsiliasi ID lokal dibatalkan.'));
+    });
+
+    syncQueue = syncQueue.map(queuedItem => {
+        const mapping = byClientId.get(String(queuedItem.id));
+        if (!mapping || mapping.key !== getWmsItemIdentityKey(queuedItem)) return queuedItem;
+        const currentItem = records.find(item => getWmsItemIdentityKey(item) === mapping.key);
+        return currentItem ? { ...currentItem, id: mapping.id } : { ...queuedItem, id: mapping.id };
+    });
+    localStorage.setItem('wms_syncQueue', JSON.stringify(syncQueue));
+}
+
 function exportData() {
+    if (!requireAdminAccess('mengekspor data')) return;
     showLoading("<i class='fas fa-arrow-up'></i> Export Data", "Mempersiapkan file...");
     
     // ===== FLATTENED FORMAT: Satu baris per lokasi =====
@@ -254,12 +345,14 @@ window.exportPackingData = function() {
 }
 
 function downloadNewParts() {
+    if (!requireAdminAccess('mengunduh daftar part baru')) return;
     const newParts = localItems.filter(i => i.desc === 'PART BARU'); if(newParts.length === 0) { alert('Tidak ada.'); return; }
     const ws = XLSX.utils.json_to_sheet(newParts.map(i => ({ 'Part Number': i.partNo, 'Lokasi': Object.keys(i.locations).join(', '), 'Status': 'Perlu Update Nama' })));
     const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Part Baru"); XLSX.writeFile(wb, "Daftar_Part_Baru.xlsx");
 }
 
 function exportLabelReport() {
+    if (!requireAdminAccess('mengekspor laporan label')) return;
     const data = [];
     localItems.forEach(i => { if (i.labelIssues && (i.labelIssues.DAMAGED > 0 || i.labelIssues.NO_LABEL > 0)) data.push({ 'Part Number': i.partNo, 'Deskripsi Part': i.desc, 'Qty Tanpa Label': i.labelIssues.NO_LABEL || 0, 'Qty Label Rusak': i.labelIssues.DAMAGED || 0, 'Terdeteksi di Box': Object.keys(i.locations).join(', ') || 'Belum masuk Box' }); });
     if(data.length === 0) { alert('Tidak ada data!'); return; }
@@ -267,6 +360,7 @@ function exportLabelReport() {
 }
 
 function backupJson() {
+    if (!requireAdminAccess('membuat backup lokasi')) return;
     showLoading("<i class='fas fa-save'></i> Backup JSON", "Mempersiapkan file...");
     const b = new Blob([JSON.stringify(localItems.map(i => ({ partNo: i.partNo, locations: i.locations, harga: i.harga || 0 })))], {type:'application/json'});
     const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = `Mapping_Lokasi_${new Date().toISOString().slice(0,10)}.json`; a.click();
@@ -274,8 +368,12 @@ function backupJson() {
 }
 
 function restoreJson(input) {
+    if (!requireAdminAccess('memulihkan backup')) {
+        input.value = '';
+        return;
+    }
     const f = input.files[0]; if(!f) return;
-    if(!confirm("Restore JSON akan menimpa LOKASI FISIK part.\nLanjutkan?")) { input.value = ''; return; }
+    if(!confirm("Restore JSON hanya memperbarui harga. Lokasi fisik tidak dipulihkan dan hanya dapat dipindahkan melalui scan SIMPAN.\nLanjutkan?")) { input.value = ''; return; }
     showLoading("<i class='fas fa-folder-open'></i> Restore JSON", `Membaca file: ${f.name}`);
     const r = new FileReader(); 
     r.onload = e => {
@@ -286,13 +384,12 @@ function restoreJson(input) {
             backupData.forEach(backupItem => {
                 const existingItem = currentItems.find(i => i.partNo === backupItem.partNo);
                 if (existingItem) { 
-                    existingItem.locations = backupItem.locations || {};
-                    if (backupItem.harga !== undefined) { existingItem.harga = backupItem.harga; }
+                    if (backupItem.harga !== undefined) existingItem.harga = backupItem.harga;
                     st.put(existingItem); 
                     updateCount++; 
                 }
             });
-            tx.oncomplete = () => { hideLoading(); alert(`RESTORE SELESAI!\n${updateCount} part di-update (termasuk harga).`); location.reload(); };
+            tx.oncomplete = () => { hideLoading(); alert(`RESTORE SELESAI!\n${updateCount} part diperbarui. Lokasi fisik dipertahankan; pemindahan hanya melalui scan SIMPAN.`); location.reload(); };
         };
     }; r.readAsText(f);
 }
@@ -303,6 +400,10 @@ function restoreJson(input) {
 // Cari part di localItems, update properti harga, simpan ke IndexedDB & kirim ke cloud
 // Side Effect: Modifikasi item.harga, saveDB(), POST ke API_URL dengan action "import_harga"
 function handleImportHarga(input) {
+    if (!requireAdminAccess('mengimpor harga')) {
+        input.value = '';
+        return;
+    }
     const f = input.files[0];
     if (!f) return;
     
@@ -364,15 +465,10 @@ function handleImportHarga(input) {
                 
                 try {
                     // Kirim ke Google Apps Script
-                    const response = await fetch(API_URL, {
-                        method: "POST",
-                        redirect: "follow",
-                        headers: { "Content-Type": "text/plain;charset=utf-8" },
-                        body: JSON.stringify({
-                            action: "import_harga",
-                            data: updatedParts,
-                            timestamp: Date.now()
-                        })
+                    const response = await postWmsAction({
+                        action: "import_harga",
+                        data: updatedParts,
+                        timestamp: Date.now()
                     });
                     
                     const result = await response.json();
@@ -410,6 +506,10 @@ function handleImportHarga(input) {
 
 // ===== IMPORT OFF BS FILE =====
 function handleImportOffBS(input) {
+    if (!requireAdminAccess('mengimpor data OFF BS')) {
+        input.value = '';
+        return;
+    }
     const f = input.files[0]; 
     if(!f) return;
     
@@ -477,15 +577,10 @@ function handleImportOffBS(input) {
             showLoading('<i class="fas fa-download"></i> Import OFF BS', `Mengirim ${offBsData.length} baris ke cloud...`);
             updateSyncUI(`<i class="fas fa-paper-plane"></i> Mengirim ${offBsData.length} Data OFF BS ke Cloud...`);
             
-            const response = await fetch(API_URL, {
-                method: "POST",
-                redirect: "follow",
-                headers: { "Content-Type": "text/plain;charset=utf-8" },
-                body: JSON.stringify({ 
-                    action: "import_off_bs", 
-                    data: offBsData,
-                    timestamp: Date.now()
-                })
+            const response = await postWmsAction({
+                action: "import_off_bs",
+                data: offBsData,
+                timestamp: Date.now()
             });
             
             const result = await response.json();

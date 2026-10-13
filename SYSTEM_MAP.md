@@ -27,6 +27,14 @@ Sistem Manajemen Gudang berbasis web untuk pencatatan stok real-time, inventory 
 **Pola Arsitektur**  
 Arsitektur layering sederhana: View (HTML/Tab) → Controller (core.js processScan) → Service (CRUD functions) → Repository (saveDB/loadDataFromLocal) → Storage (IndexedDB + localStorage) → Cloud (Google Sheets via API).
 
+**Role & Lokasi Fisik**
+- Startup meminta pilihan Admin (password diverifikasi server) atau User (langsung ke Cari).
+- User hanya dapat mencari data lokal dengan mengetik atau scan kamera; navigasi dan handler membatasi tab serta aksi tulis.
+- Sesi Admin berlaku 8 jam; semua POST tulis diverifikasi token di `code.gs`. Guard UI tidak menggantikan validasi server.
+- Import stock mencocokkan identitas part, memperbarui hanya qty dan timestamp sinkronisasi server untuk record lama, menambah record baru tanpa lokasi, dan merekonsiliasi ID server.
+- Kolom G `DB_MASTER` diproteksi dari editor spreadsheet. Import tidak menulis ulang kolom G record lama; part baru diinisialisasi dengan lokasi kosong. Lokasi hanya berubah lewat alur scan SIMPAN.
+- Kode lokasi legacy dapat menjadi sumber pemindahan keluar, tetapi tidak dapat menjadi tujuan baru.
+
 ---
 
 ## Core Logic Flow (Function-Level Flowchart)
@@ -208,7 +216,24 @@ Aggregate every upload/download result; any partial failure reports "Sync gagal 
 updateSyncUI("🟢 Tersimpan")
 ```
 
-### Flow 8: Version Check & Auto-Update (Background)
+### Flow 8: Role & Stock Import
+```
+Pilih Admin/User saat startup
+  ↓
+Admin → admin_login → hash+salt diverifikasi dari WMS_USER_ROLE → token sesi 8 jam
+User → tab Cari saja → ketik cariInput atau scan kamera → render data lokal read-only
+  ↓
+Admin import stock → Excel dikelompokkan dengan identitas part/type/teknisi
+  ↓
+IndexedDB: record lama mempertahankan lokasi dan metadata, hanya sysQty berubah; record baru tanpa lokasi
+  ↓
+POST bulk_import dengan token → Apps Script lock → record lama update kolom qty dan timestamp sinkronisasi server,
+record baru append dengan locations={} → respons pemetaan ID canonical
+  ↓
+Lokal merekonsiliasi ID dan antrean pending; upload gagal tidak menghapus data/antrean lokal
+```
+
+### Flow 9: Version Check & Auto-Update (Background)
 ```
 [On page load] checkForUpdates()
   ↓
@@ -269,21 +294,33 @@ WMS/
 **Fungsi Publik**: Definisi konstanta & inisialisasi global state  
 **Peran**: Repository dari semua variable global yang digunakan lintas file (localItems, syncQueue, filteredItems, currentTab, dll)  
 **Caller**: Semua modul lain membaca/menulis variable di sini  
-**Side Effects**: Indirect (semua perubahan state via saveDB atau UI event)
+**Side Effects**: State setup dari localStorage; buffer Multi-Scan disimpan persisten oleh core.js.
+
+---
+
+### [auth.js](js/auth.js)
+**Fungsi Publik Utama**:
+- `initializeRoleSession()` — Pulihkan sesi Admin atau tampilkan role gate
+- `authenticateAdmin()` / `chooseUserRole()` / `endRoleSession()` — Autentikasi Admin, mulai User, atau cabut sesi
+- `requireAdminAccess()` / `postWmsAction()` — Guard aksi lokal dan POST terotorisasi
+
+**Peran**: Role state, pembatasan UI, dan helper request ber-token  
+**Caller**: `main.js`, `core.js`, `database.js`, `excel.js`, serta handler role di `index.html`  
+**Side Effects**: Membaca/menulis localStorage dan request HTTP login/tulis terotorisasi.
 
 ---
 
 ### [main.js](js/main.js)
 **Fungsi Publik**:
-- `window.onload()` — Inisialisasi DB, register SW, request wake lock, dan tampilkan waktu upload DATA STOCK terakhir
+- `window.onload()` — Inisialisasi DB, pulihkan sesi role, register SW, request wake lock, dan tampilkan waktu upload DATA STOCK terakhir
 - `checkForUpdates()` — Muat versi dari `version.json`, tampilkan di bawah judul header, dan cek pembaruan cache
 - `document.addEventListener('click')` — Auto-focus scanner input
 
 **Peran**: Entry point aplikasi; setup lifecycle  
 **Caller**: Browser load event  
-**Dependensi**: database.js (initDB), core.js (renderLimit handler, SIMPAN mode state)
+**Dependensi**: auth.js (role session), database.js (initDB), core.js (renderLimit handler, SIMPAN mode state)
 **Side Effects**: IndexedDB open, baca waktu upload DATA STOCK dari localStorage, SW register, Screen wake lock acquire
-**Multi-Scan**: Memulihkan checkbox, ikon, dan panel sesuai `simpanMode` tersimpan.
+**Multi-Scan**: Memulihkan mode, ikon, dan buffer persisten; buffer tetap terlihat walau mode dimatikan.
 
 ---
 
@@ -300,7 +337,7 @@ WMS/
 
 **Peran**: Semua operasi data persistence dan cloud sync; jantung database layer  
 **Caller**: main.js (initDB), core.js (saveDB), UI handlers  
-**Dependensi**: config.js (localItems, syncQueue), API_URL (Google Sheets)  
+**Dependensi**: auth.js (Admin-authorized writes), config.js (localItems, syncQueue), API_URL (Google Sheets)  
 **Side Effects**: IndexedDB read/write, user-triggered POST/GET HTTP requests, localStorage setItem
 **Sync Status**: No startup fetch, timer, or online-event retry; cloud operations run only from explicit dialog actions.
 
@@ -309,7 +346,8 @@ WMS/
 ### [core.js](js/core.js)
 **Fungsi Publik Utama**:
 - `processScan(code)` — Parse scan result, route ke tab handler (SIMPAN/OPNAME/OFF BS/PACKING)
-- `selectPartSimpan(item)` — Set active part, render suggestion panel
+- `selectPartSimpan(item)` — Set active part, render suggestion panel; qty 0 tidak dirender di SIMPAN/OPNAME
+- `switchTab(id)` — Enforce User-only Cari and stop SIMPAN modes safely while preserving confirmed buffer
 - `toggleBoxToBoxMode()` — Toggle manual mode relokasi box dan reset persetujuan sesi
 - `confirmBoxToBoxYesToAll()` — Gabungkan semua part saat ini dan aktifkan auto-approval sampai mode dimatikan
 - `updateBoxToBoxIndicator()` — Render box sumber/tujuan dengan status validasi tujuan
@@ -325,6 +363,7 @@ WMS/
 - `addToMultiScan(item)` — Add part with source-location snapshot and selection state
 - `processMultiScan(box)` — Confirm and move selected parts as a batch
 - `renderMultiScanList()/removeFromMultiScan()` — Render and manage buffered parts
+- Legacy location codes remain valid as move sources but are rejected as destinations in SIMPAN/client and server validation
 
 **Peran**: Logika business utama; orchestrator antara UI dan DB  
 **Caller**: event handlers (onclick, onkeydown), scanner.js (onScanSuccess)  
@@ -339,7 +378,7 @@ WMS/
 - `onScanSuccess(decodedText, decodedResult)` — Handle QR success, call processScan()
 - `closeCameraScanner()` — Stop scanner, clear modal
 
-**Peran**: Wrapper untuk camera-based QR scanning  
+**Peran**: Wrapper untuk camera-based QR scanning; checks User Cari/Admin session before camera access  
 **Caller**: HTML button onclick (Camera button), core.js indirect  
 **Dependensi**: core.js (processScan), Html5QrcodeScanner library (external)  
 **Side Effects**: DOM (camera modal), camera hardware access
@@ -348,17 +387,17 @@ WMS/
 
 ### [excel.js](js/excel.js)
 **Fungsi Publik Utama**:
-- `handleImport(input)` — Read Excel, consolidate data (SPAREPART BAIK satu record per part number), save to IndexedDB + bulk cloud POST; bulk import memperbarui deskripsi/qty dan membersihkan duplikat SPAREPART BAIK berdasarkan identitas part/type tanpa mengubah lokasi fisik DB_MASTER; simpan waktu upload setelah cloud mengonfirmasi sukses
-- `exportData()` — Export localItems ke XLSX file
+- `handleImport(input)` — Read Excel dan consolidate per identitas; record lama hanya memperbarui qty dan mempertahankan lokasi, record baru tanpa lokasi; setelah upload bulk terotorisasi, rekonsiliasi ID lokal dengan server
+- `exportData()` — Admin-only export localItems ke XLSX file
 - `exportOffBsData()` — Export offBsSession ke XLSX
 - `downloadNewParts()` — Download "PART BARU" list
 - `backupJson()` — Backup localItems + offBsSession ke JSON file
-- `restoreJson(input)` — Restore dari JSON file
+- `restoreJson(input)` — Restore harga saja; lokasi dari JSON diabaikan
 
 **Peran**: Data import/export; backup/restore utility  
 **Caller**: HTML menu buttons (Import/Export)  
 **Dependensi**: config.js (localItems), database.js (saveDB, db transaction), XLSX library (external)  
-**Side Effects**: IndexedDB clear/write, localStorage write untuk waktu upload DATA STOCK, file download, location.reload()
+**Side Effects**: IndexedDB write, localStorage update untuk antrean/waktu upload DATA STOCK, file download, location.reload()
 
 ---
 
@@ -386,11 +425,13 @@ WMS/
 
 ### [code.gs](code.gs) — Google Apps Script Macro
 **Fungsi Publik**:
-- `doGet(e)` — GET endpoint; kunci kolom lokasi fisik DB_MASTER dan return all items dari DB_MASTER sheet as JSON
-- `doPost(e)` — POST endpoint; handle sync actions (sync, sync_off_bs, bulk_import, delete_off_bs)
+- `doGet(e)` — Read-only GET endpoint untuk DB_MASTER/META; returns items as JSON
+- `doPost(e)` — POST endpoint; verifikasi token Admin untuk semua aksi tulis, lalu handle sync/import
+- `setupAdminPassword()` — Hash+salt password and initialize DB_MASTER location protection
+- `handleAdminLogin()` / `validateAdminSession()` / `revokeAdminSession()` — Kelola token sesi Admin
 - `ensureDbMasterLocationProtection(sheet)` — Protect kolom G (lokasi fisik) dari edit langsung editor spreadsheet; akun eksekusi Apps Script dapat menulis lewat aplikasi (pemilik spreadsheet tetap mengikuti hak istimewa Google)
-- `mergeDataFast(sheet, incomingItems)` — Merge logic untuk avoid duplicates
-- `reconcileBulkImportRows(sheet, incomingItems)` — Refresh description/qty by imported part/type and retain one imported `SPAREPART BAIK` row per part number
+- `mergeDataFast(sheet, incomingItems)` — Apply queued Admin scans and validate location destinations
+- `mergeStockQuantities(sheet, incomingItems)` — Lock update; write qty plus server-owned sync timestamp for existing records, append new records with empty locations, and return canonical ID mappings
 
 **Peran**: Backend server logic; data persist ke Google Sheets; deduplication  
 **Caller**: database.js (manual `downloadFromServer()` and `processSyncQueue()`)
@@ -398,6 +439,7 @@ WMS/
 - `DB_MASTER` — Master item data (id, partNo, desc, locType, techName, sysQty, locations JSON, labelIssues JSON, opnameCounts JSON in column J)
 - `LOG_SCAN` — Audit log (partNo, action, detail, timestamp)
 - `TEMP_OFF_BS` — Off-balance-sheet staging (time, box, partNo, qty, docNo, qr, updated_at timestamp)
+- `WMS_USER_ROLE` — Protected, hidden Admin password hash + salt (never plaintext)
 
 **Actions Supported**:
 - `sync` — Merge regular item updates
@@ -507,7 +549,7 @@ config.js (Global State)
 **config.js** (hard-coded):
 ```javascript
 const DB_NAME = 'WMS_Stock_v10';
-const API_URL = "https://script.google.com/macros/s/AKfycbxDQBLQEyIaNwQsA2Ubs4KDhFI5v7aNs4pfrs_e8MDmVGwj1zuwHWoCMiGuB27flOsS/exec";
+const API_URL = "(lihat js/config.js; URL deployment tidak diduplikasi di dokumentasi)";
 ```
 
 **manifest.json**: PWA config (name, icons, theme)
@@ -565,11 +607,12 @@ Not found — Pure client-side app; no server-side artifacts.
 ## External Integrations
 
 ### Google Sheets API (code.gs Macro)
-**Service**: `https://script.google.com/macros/s/AKfycbxDQBLQEyIaNwQsA2Ubs4KDhFI5v7aNs4pfrs_e8MDmVGwj1zuwHWoCMiGuB27flOsS/exec`  
+**Service**: `API_URL` from `js/config.js` (deployment endpoint; not duplicated in docs)  
 **Caller Modules**: database.js:
 - `downloadFromServer()` — GET data only after explicit user action; merges without clearing local-only records or pending queue
 - `processSyncQueue()` — POST items & logs untuk sync (doPost:action=sync)
 - `handleImport()` in excel.js — POST bulk import (doPost:action=bulk_import)
+- `auth.js` — POST admin_login and attach Admin token to all write actions
 
 **HTTP Methods**:
 - `GET /exec` → Fetch all items dari DB_MASTER sheet
@@ -784,7 +827,17 @@ XLSX.writeFile(wb, "filename.xlsx");
 
 ## Risks / Blind Spots (Continuously Updated)
 
-**Latest Improvements** (2026-05-23 - CURRENT SESSION v2):
+**Latest Improvements** (CURRENT SESSION):
+
+**LOCATION & ROLE SAFEGUARDS**
+- ✅ Startup Admin/User gate; User navigates only to read-only Cari and searches by text or camera QR.
+- ✅ Admin password stored as salted hash; an 8-hour server session token is required for every write POST.
+- ✅ Stock Excel import preserves locations/master metadata for existing parts; it updates qty plus server-owned sync timestamp, appends new parts without locations, and reconciles canonical server IDs locally.
+- ✅ Spreadsheet column G is protected; legacy box codes remain valid move sources but are rejected as destinations.
+- ✅ Removed unused OPNAME location move/split actions and made JSON restore ignore locations.
+- ✅ SIMPAN mode controls sit outside options accordion; modes are exclusive and pending multi-scan buffer is confirmed/preserved on exit.
+- ✅ OPNAME/SIMPAN hide zero-qty items; download conflicts use canonicalized locations and only ask when local data is not newer.
+- ⚠️ Deployment required: run `setupAdminPassword()` in Apps Script, deploy updated `code.gs`, and verify protection under the deployment execution account.
 
 **SMART CONFLICT DETECTION: SPLIT/MOVE Modal (2026-05-23 v2)**
 - ✅ **Removed workflowMode toggle**: Deleted workflowMode variable and toggle UI

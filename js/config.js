@@ -8,12 +8,13 @@
  * 
  * Global State Variables (persisted ke localStorage):
  * - simpanMode: 'single' | 'multiple' — Toggle SINGLE vs MULTIPLE scan mode di SIMPAN tab
- * - multiScanBuffer: Array<{item, scannedTime}> — Parts yang akan discan bersama-sama
+ * - multiScanBuffer: Array<{item, scannedTime}> — Buffer SIMPAN dipersist ke localStorage agar tidak hilang saat reload
  * - opnameBuffer/opnameBufferBox/opnameBufferCommitted — Hitungan fisik per box dan status simpan sesi
  * - currentTab: String — Active tab ID (simpan, opname, data, off-bs, packing)
  * - filteredItems: Array<Item> — Filtered items list untuk render
  * - boxToBoxYesToAll: Boolean — Persetujuan otomatis box-to-box hingga mode dimatikan
  * - Sync: batch and queue limits for explicit manual uploads; no automatic retry timer
+ * - Item identity and legacy-box classification shared by import, scan, and sync paths
  * 
  * QR Parser Config:
  * - QR_PARSERS: Object dengan pattern & extract function per format
@@ -34,6 +35,29 @@ const API_URL = "https://script.google.com/macros/s/AKfycbxdGnnZunAV5rr_2FN3nQ4k
 const MAX_SYNC_BATCH = 100;      // Max items per sync POST
 const MAX_QUEUE_SIZE = 500;      // Prevent queue overflow
 const BOX_CODE_PATTERN = /^(?:[A-Z][0-9]{0,2}-[0-9]{2,3}|[A-Z]-[A-Z][0-9]-[0-9]{2})$/;
+const LEGACY_BOX_CODE_PATTERN = /^[A-Z][0-9]{0,2}-[0-9]{2,3}$/;
+const NEW_BOX_CODE_PATTERN = /^[A-Z]-[A-Z][0-9]-[0-9]{2}$/;
+
+function getWmsItemIdentityKey(item) {
+    const partNo = String(item.partNo || '').trim().toUpperCase();
+    const locType = String(item.locType || '').trim().toUpperCase();
+    const techName = locType === 'SPAREPART BAIK'
+        ? ''
+        : String(item.techName || '').trim().toUpperCase();
+    return `${partNo}|${locType}|${techName}`;
+}
+
+function isLegacyBoxCode(boxCode) {
+    const normalized = String(boxCode || '').trim().toUpperCase();
+    return LEGACY_BOX_CODE_PATTERN.test(normalized) && !NEW_BOX_CODE_PATTERN.test(normalized);
+}
+
+function areWmsLocationsEqual(left, right) {
+    const normalize = locations => Object.entries(locations || {})
+        .sort(([leftBox], [rightBox]) => leftBox.localeCompare(rightBox))
+        .map(([box, qty]) => [box, Number(qty)]);
+    return JSON.stringify(normalize(left)) === JSON.stringify(normalize(right));
+}
 
 // ===== QR PARSER CONFIG =====
 const QR_PARSERS = {
@@ -97,7 +121,6 @@ let opnameFilter = 'all';
 let activeBoxFilter = null;
 let renderLimit = 50;
 let tempPart = null; 
-let opnameConflictData = null; 
 let simpanConflictData = null;
 let targetBufferBox = null;  // Temporary target box for conflict detection (replaces isMultiScan)
 let multiBuffer = []; 
@@ -118,7 +141,19 @@ let boxToBoxYesToAll = false;
 
 // ===== SIMPAN SINGLE vs MULTIPLE MODE (NEW) =====
 let simpanMode = localStorage.getItem('wms_simpanMode') || 'single'; // 'single' atau 'multiple'
-let multiScanBuffer = []; // Array untuk multiple mode: [{item, scannedTime}, ...]
+const MULTI_SCAN_BUFFER_KEY = 'wms_multi_scan_buffer';
+let multiScanBufferLoadError = null;
+let multiScanBuffer = [];
+try {
+    const savedMultiScanBuffer = JSON.parse(localStorage.getItem(MULTI_SCAN_BUFFER_KEY) || '[]');
+    if (!Array.isArray(savedMultiScanBuffer)
+        || savedMultiScanBuffer.some(entry => !entry || !entry.item || entry.item.id === undefined)) {
+        throw new Error('Format buffer Multi-Scan tidak valid.');
+    }
+    multiScanBuffer = savedMultiScanBuffer;
+} catch (error) {
+    multiScanBufferLoadError = error;
+}
 
 // ===== OPNAME BUFFER (Cashier Mode) =====
 let opnameBuffer = []; // Array of {item, qty} untuk hitungan fisik per sesi

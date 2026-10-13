@@ -1,14 +1,17 @@
 /*
- * Tujuan: Endpoint Google Apps Script untuk sinkronisasi data WMS dan sesi terkait.
+ * Tujuan: Endpoint Google Apps Script untuk otorisasi sesi Admin, sinkronisasi WMS, dan import qty-only.
  * Caller: js/database.js melalui Google Sheets API.
  * Dependensi: SpreadsheetApp, ContentService, sheet DB_MASTER/LOG_SCAN.
- * Main Functions: doGet(), doPost(), ensureDbMasterLocationProtection(), mergeDataFast(), reconcileBulkImportRows().
+ * Main Functions: doGet(), doPost(), setupAdminPassword(), handleAdminLogin(), validateAdminSession(), revokeAdminSession(), ensureDbMasterLocationProtection(), mergeDataFast(), mergeStockQuantities().
  * Side Effects: Membaca/menulis Google Sheets dan mengirim respons HTTP.
  */
 
 // Konfigurasi Nama Sheet
 const SHEET_DB = "DB_MASTER";
 const SHEET_LOG = "LOG_SCAN";
+const SHEET_ROLE = "WMS_USER_ROLE";
+const ADMIN_SESSION_TTL_MS = 8 * 60 * 60 * 1000;
+const PASSWORD_HASH_ITERATIONS = 12000;
 
 function doGet(e) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -34,7 +37,6 @@ function doGet(e) {
 
   const sheet = ss.getSheetByName(SHEET_DB);
   if (!sheet) throw new Error("Sheet DB_MASTER tidak ditemukan!");
-  ensureDbMasterLocationProtection(sheet);
   const data = sheet.getDataRange().getValues();
   const items = [];
 
@@ -60,11 +62,130 @@ function doGet(e) {
       sysQty: Number(row[5]) || 0,
       locations: locations,
       labelIssues: labelIssues,
-      opnameCounts: opnameCounts
+      opnameCounts: opnameCounts,
+      updated_at: row[8] instanceof Date ? row[8].getTime() : (Number(row[8]) || Date.parse(row[8]) || 0)
     });
   }
 
   return ContentService.createTextOutput(JSON.stringify({ status: "success", data: items })).setMimeType(ContentService.MimeType.JSON);
+}
+
+function setupAdminPassword() {
+  const ui = SpreadsheetApp.getUi();
+  const first = ui.prompt("WMS Admin", "Buat password Admin (minimal 12 karakter). Password tidak disimpan sebagai teks.", ui.ButtonSet.OK_CANCEL);
+  if (first.getSelectedButton() !== ui.Button.OK) return;
+  const password = first.getResponseText();
+  if (password.length < 12) {
+    ui.alert("Password harus memiliki minimal 12 karakter.");
+    return;
+  }
+  const second = ui.prompt("Konfirmasi Password Admin", "Masukkan kembali password Admin.", ui.ButtonSet.OK_CANCEL);
+  if (second.getSelectedButton() !== ui.Button.OK) return;
+  if (password !== second.getResponseText()) {
+    ui.alert("Konfirmasi password tidak cocok. Password belum diubah.");
+    return;
+  }
+
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = spreadsheet.getSheetByName(SHEET_ROLE);
+  if (!sheet) sheet = spreadsheet.insertSheet(SHEET_ROLE);
+  const salt = Utilities.getUuid() + Utilities.getUuid();
+  const hash = hashAdminPassword(password, salt);
+  sheet.clearContents();
+  sheet.getRange(1, 1, 2, 4).setValues([
+    ["role", "salt", "password_hash", "iterations"],
+    ["ADMIN", salt, hash, PASSWORD_HASH_ITERATIONS]
+  ]);
+  sheet.hideSheet();
+
+  const description = "WMS: protect Admin role credential";
+  const protections = sheet.getProtections(SpreadsheetApp.ProtectionType.SHEET);
+  let protection = protections.find(item => item.getDescription() === description);
+  if (!protection) protection = sheet.protect();
+  protection.setDescription(description);
+  protection.setWarningOnly(false);
+  if (protection.canDomainEdit()) protection.setDomainEdit(false);
+  const effectiveUser = Session.getEffectiveUser();
+  const email = effectiveUser.getEmail();
+  if (!email) throw new Error("Tidak dapat mengunci sheet role: email akun eksekusi tidak tersedia.");
+  const otherEditors = protection.getEditors().filter(editor => editor.getEmail() !== email);
+  if (otherEditors.length > 0) protection.removeEditors(otherEditors);
+  protection.addEditor(effectiveUser);
+  const masterSheet = spreadsheet.getSheetByName(SHEET_DB);
+  if (!masterSheet) throw new Error("Sheet DB_MASTER tidak ditemukan; password tersimpan, tetapi proteksi lokasi belum dipasang.");
+  ensureDbMasterLocationProtection(masterSheet);
+  ui.alert("Password Admin tersimpan sebagai hash + salt pada sheet terlindungi.");
+}
+
+function hashAdminPassword(password, salt, iterations = PASSWORD_HASH_ITERATIONS) {
+  let digest = `${salt}:${password}`;
+  for (let i = 0; i < iterations; i++) {
+    const bytes = Utilities.computeDigest(
+      Utilities.DigestAlgorithm.SHA_256,
+      digest,
+      Utilities.Charset.UTF_8
+    );
+    digest = bytes.map(byte => (byte + 256).toString(16).slice(-2)).join("");
+  }
+  return digest;
+}
+
+function constantTimeEquals(left, right) {
+  if (typeof left !== "string" || typeof right !== "string" || left.length !== right.length) return false;
+  let difference = 0;
+  for (let i = 0; i < left.length; i++) difference |= left.charCodeAt(i) ^ right.charCodeAt(i);
+  return difference === 0;
+}
+
+function handleAdminLogin(password) {
+  const cache = CacheService.getScriptCache();
+  const attempts = Number(cache.get("WMS_ADMIN_LOGIN_FAILURES") || 0);
+  if (attempts >= 5) throw new Error("Terlalu banyak percobaan login. Coba lagi setelah 15 menit.");
+  if (typeof password !== "string" || !password) throw new Error("Password Admin wajib diisi.");
+
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_ROLE);
+  if (!sheet) throw new Error("Password Admin belum disiapkan. Jalankan setupAdminPassword() dari editor Apps Script.");
+  const [header, record] = sheet.getRange(1, 1, 2, 4).getValues();
+  if (header[0] !== "role" || record[0] !== "ADMIN" || !record[1] || !record[2]) {
+    throw new Error("Konfigurasi role Admin tidak valid. Jalankan ulang setupAdminPassword().");
+  }
+  const iterations = Number(record[3]) || PASSWORD_HASH_ITERATIONS;
+  const expected = String(record[2]);
+  const actual = hashAdminPassword(password, String(record[1]), iterations);
+  if (!constantTimeEquals(actual, expected)) {
+    cache.put("WMS_ADMIN_LOGIN_FAILURES", String(attempts + 1), 900);
+    throw new Error("Password Admin salah.");
+  }
+
+  cache.remove("WMS_ADMIN_LOGIN_FAILURES");
+  const token = Utilities.getUuid() + Utilities.getUuid();
+  const expiresAt = Date.now() + ADMIN_SESSION_TTL_MS;
+  const properties = PropertiesService.getScriptProperties();
+  const tokenKey = `WMS_ADMIN_SESSION_${Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, token))}`;
+  properties.setProperty(tokenKey, String(expiresAt));
+  return ContentService.createTextOutput(JSON.stringify({
+    status: "success",
+    sessionToken: token,
+    expiresAt: expiresAt
+  })).setMimeType(ContentService.MimeType.JSON);
+}
+
+function validateAdminSession(token) {
+  if (typeof token !== "string" || !token) return false;
+  const tokenKey = `WMS_ADMIN_SESSION_${Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, token))}`;
+  const properties = PropertiesService.getScriptProperties();
+  const expiresAt = Number(properties.getProperty(tokenKey) || 0);
+  if (expiresAt <= Date.now()) {
+    if (expiresAt) properties.deleteProperty(tokenKey);
+    return false;
+  }
+  return true;
+}
+
+function revokeAdminSession(token) {
+  if (!validateAdminSession(token)) throw new Error("Sesi Admin tidak valid atau sudah kedaluwarsa.");
+  const tokenKey = `WMS_ADMIN_SESSION_${Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, token))}`;
+  PropertiesService.getScriptProperties().deleteProperty(tokenKey);
 }
 
 function ensureDbMasterLocationProtection(sheet) {
@@ -100,7 +221,17 @@ function doPost(e) {
     const items = payload.data || [];
     const logs = payload.logs || [];
 
+    if (action === "admin_login") return handleAdminLogin(payload.password);
+    const readOnlyActions = ["get_cloud_off_bs", "get_cloud_packing"];
+    if (!readOnlyActions.includes(action) && !validateAdminSession(payload.authToken)) {
+      throw new Error("Aksi ditolak: sesi Admin tidak valid atau sudah kedaluwarsa.");
+    }
+
     const ss = SpreadsheetApp.getActiveSpreadsheet();
+    if (action === "admin_logout") {
+      revokeAdminSession(payload.authToken);
+      return ContentService.createTextOutput(JSON.stringify({ status: "success" })).setMimeType(ContentService.MimeType.JSON);
+    }
 
     // =====================================
     // 1. SYNC OFF BS
@@ -397,51 +528,64 @@ function doPost(e) {
       const dbSheet = ss.getSheetByName(SHEET_DB); 
       const logSheet = ss.getSheetByName(SHEET_LOG); 
       if (!dbSheet) throw new Error("Sheet DB_MASTER tidak ditemukan!");
-      ensureDbMasterLocationProtection(dbSheet);
-      if (logs.length > 0) {
-        const logData = logs.map(l => [new Date(), l.partNo, l.action, l.detail]);
-        logSheet.getRange(logSheet.getLastRow() + 1, 1, logData.length, 4).setValues(logData);
-      }
-      if (items.length > 0) {
-        mergeDataFast(dbSheet, items, action === "bulk_import");
-        if (action === "bulk_import") reconcileBulkImportRows(dbSheet, items);
-      }
-
-      // Update META sheet with lastStockUploadAt so clients can read shared timestamp
-      if (action === "bulk_import") {
-        try {
-        let metaSheet = ss.getSheetByName('META');
-        if (!metaSheet) metaSheet = ss.insertSheet('META');
-        // Ensure header
-        const header = metaSheet.getRange(1,1,1,2).getValues()[0];
-        if (header[0] !== 'key' || header[1] !== 'value') {
-          metaSheet.clearContents();
-          metaSheet.getRange(1,1,1,2).setValues([['key','value']]);
+      const writeLock = LockService.getScriptLock();
+      if (!writeLock.tryLock(30000)) throw new Error("Data sedang diperbarui. Coba lagi sebentar.");
+      try {
+        ensureDbMasterLocationProtection(dbSheet);
+        if (logs.length > 0) {
+          const logData = logs.map(l => [new Date(), l.partNo, l.action, l.detail]);
+          logSheet.getRange(logSheet.getLastRow() + 1, 1, logData.length, 4).setValues(logData);
         }
-        const key = 'lastStockUploadAt';
-        const value = new Date().toISOString();
-        const data = metaSheet.getDataRange().getValues();
-        let foundRow = -1;
-        for (let i = 1; i < data.length; i++) {
-          if (String(data[i][0]) === key) { foundRow = i + 1; break; }
-        }
-        if (foundRow !== -1) {
-          metaSheet.getRange(foundRow, 2).setValue(value);
-        } else {
-          metaSheet.getRange(metaSheet.getLastRow() + 1, 1, 1, 2).setValues([[key, value]]);
-        }
-        } catch (metaErr) {
-          // Metadata failure is logged, but stock data import itself remains successful.
-          try {
-            logSheet.getRange(logSheet.getLastRow() + 1, 1, 1, 4)
-              .setValues([[new Date(), 'META', 'WRITE_ERROR', String(metaErr)]]);
-          } catch (logError) {
-            console.error('Failed to log META write error:', logError);
+        let idMappings = [];
+        if (items.length > 0) {
+          if (action === "bulk_import") {
+            idMappings = mergeStockQuantities(dbSheet, items);
+          } else {
+            validateLocationDestinations(dbSheet, items);
+            mergeDataFast(dbSheet, items);
           }
         }
+
+        // Update META sheet with lastStockUploadAt so clients can read shared timestamp.
+        if (action === "bulk_import") {
+          try {
+            let metaSheet = ss.getSheetByName('META');
+            if (!metaSheet) metaSheet = ss.insertSheet('META');
+            const header = metaSheet.getRange(1, 1, 1, 2).getValues()[0];
+            if (header[0] !== 'key' || header[1] !== 'value') {
+              metaSheet.clearContents();
+              metaSheet.getRange(1, 1, 1, 2).setValues([['key', 'value']]);
+            }
+            const key = 'lastStockUploadAt';
+            const value = new Date().toISOString();
+            const metaData = metaSheet.getDataRange().getValues();
+            let foundRow = -1;
+            for (let i = 1; i < metaData.length; i++) {
+              if (String(metaData[i][0]) === key) { foundRow = i + 1; break; }
+            }
+            if (foundRow !== -1) {
+              metaSheet.getRange(foundRow, 2).setValue(value);
+            } else {
+              metaSheet.getRange(metaSheet.getLastRow() + 1, 1, 1, 2).setValues([[key, value]]);
+            }
+          } catch (metaErr) {
+            try {
+              logSheet.getRange(logSheet.getLastRow() + 1, 1, 1, 4)
+                .setValues([[new Date(), 'META', 'WRITE_ERROR', String(metaErr)]]);
+            } catch (logError) {
+              console.error('Failed to log META write error:', logError);
+            }
+          }
+        }
+      } finally {
+        writeLock.releaseLock();
       }
 
-      return ContentService.createTextOutput(JSON.stringify({ status: "success", message: "Data berhasil disinkronisasi" })).setMimeType(ContentService.MimeType.JSON);
+      return ContentService.createTextOutput(JSON.stringify({
+        status: "success",
+        message: "Data berhasil disinkronisasi",
+        idMappings: action === "bulk_import" ? idMappings : undefined
+      })).setMimeType(ContentService.MimeType.JSON);
     }
 
     else { throw new Error("Aksi tidak valid: " + action); }
@@ -451,85 +595,128 @@ function doPost(e) {
   }
 }
 
-function reconcileBulkImportRows(sheet, incomingItems) {
-  const incomingByKey = new Map();
-  const keyFor = (partNo, locType, techName) => {
-    const normalizedType = String(locType || '').trim().toUpperCase();
-    const normalizedTech = normalizedType === 'SPAREPART BAIK'
-      ? ''
-      : String(techName || '').trim().toUpperCase();
-    return `${String(partNo || '').trim().toUpperCase()}|${normalizedType}|${normalizedTech}`;
-  };
-
-  incomingItems.forEach(item => {
-    const key = keyFor(item.partNo, item.locType, item.techName);
-    if (key.startsWith('|')) return;
-    incomingByKey.set(key, item);
-  });
-
-  if (incomingByKey.size === 0) return;
-
-  const data = sheet.getDataRange().getValues();
-  const incomingRowIndexes = new Map();
-  const existingRowsByKey = new Map();
-
-  for (let i = 1; i < data.length; i++) {
-    const row = data[i];
-    const key = keyFor(row[1], row[3], row[4]);
-    if (!incomingByKey.has(key)) continue;
-
-    if (!existingRowsByKey.has(key)) existingRowsByKey.set(key, []);
-    existingRowsByKey.get(key).push(i);
-  }
-
-  incomingByKey.forEach((item, key) => {
-    const rows = existingRowsByKey.get(key) || [];
-    const matchingIdIndex = rows.find(index =>
-      String(data[index][0]) === String(item.id)
-    );
-    if (matchingIdIndex !== undefined) incomingRowIndexes.set(key, matchingIdIndex);
-    else if (rows.length > 0) incomingRowIndexes.set(key, rows[0]);
-  });
-
-  const reconciled = [data[0]];
-  const retainedSparepartKeys = new Set();
-
-  for (let i = 1; i < data.length; i++) {
-    const row = data[i];
-    const key = keyFor(row[1], row[3], row[4]);
-    const importedItem = incomingByKey.get(key);
-
-    if (!importedItem) {
-      reconciled.push(row);
-      continue;
-    }
-
-    const isSparepartBaik =
-      String(row[3] || '').trim().toUpperCase() === 'SPAREPART BAIK';
-    if (isSparepartBaik) {
-      if (retainedSparepartKeys.has(key)) continue;
-      retainedSparepartKeys.add(key);
-      const selectedIndex = incomingRowIndexes.get(key);
-      const canonicalRow = selectedIndex === undefined ? row : data[selectedIndex].slice();
-      canonicalRow[2] = importedItem.desc || '';
-      canonicalRow[5] = Number(importedItem.sysQty) || 0;
-      reconciled.push(canonicalRow);
-      continue;
-    }
-
-    row[2] = importedItem.desc || '';
-    row[5] = Number(importedItem.sysQty) || 0;
-    reconciled.push(row);
-  }
-
-  const columnCount = Math.max(data[0].length, ...reconciled.map(row => row.length));
-  reconciled.forEach(row => {
-    while (row.length < columnCount) row.push('');
-  });
-  sheet.getRange(1, 1, reconciled.length, columnCount).setValues(reconciled);
+function getMasterItemKey(partNo, locType, techName) {
+  const normalizedType = String(locType || "").trim().toUpperCase();
+  const normalizedTech = normalizedType === "SPAREPART BAIK"
+    ? ""
+    : String(techName || "").trim().toUpperCase();
+  return `${String(partNo || "").trim().toUpperCase()}|${normalizedType}|${normalizedTech}`;
 }
 
-function mergeDataFast(sheet, incomingItems, preserveExistingLocations = false) {
+function validateLocationDestinations(sheet, incomingItems) {
+  if (!Array.isArray(incomingItems)) throw new Error("Data sinkronisasi harus berupa array.");
+  const rows = sheet.getDataRange().getValues();
+  const byId = new Map();
+  const byKey = new Map();
+  for (let i = 1; i < rows.length; i++) {
+    if (rows[i][0] !== "" && rows[i][0] !== null) byId.set(String(rows[i][0]), rows[i]);
+    byKey.set(getMasterItemKey(rows[i][1], rows[i][3], rows[i][4]), rows[i]);
+  }
+  incomingItems.forEach(item => {
+    const key = getMasterItemKey(item.partNo, item.locType, item.techName);
+    const idRow = byId.get(String(item.id));
+    const existing = idRow && getMasterItemKey(idRow[1], idRow[3], idRow[4]) === key
+      ? idRow
+      : byKey.get(key);
+    const existingLocations = existing ? (JSON.parse(existing[6] || "{}")) : {};
+    const existingKeys = new Set(Object.keys(existingLocations).map(box => String(box).trim().toUpperCase()));
+    const invalidDestination = Object.keys(item.locations || {}).find(box => {
+      const normalized = String(box).trim().toUpperCase();
+      return !existingKeys.has(normalized) && !/^[A-Z]-[A-Z][0-9]-[0-9]{2}$/.test(normalized);
+    });
+    if (invalidDestination) {
+      throw new Error(`Lokasi tujuan ${invalidDestination} tidak valid atau merupakan format legacy.`);
+    }
+  });
+}
+
+function mergeStockQuantities(sheet, incomingItems) {
+  if (!Array.isArray(incomingItems)) throw new Error("Data import stock harus berupa array.");
+  incomingItems.forEach(item => {
+    if (!item || typeof item !== "object" || !String(item.partNo || "").trim()) {
+      throw new Error("Setiap baris import wajib memiliki Part Number.");
+    }
+    const quantity = Number(item.sysQty);
+    if (!Number.isFinite(quantity) || !Number.isInteger(quantity) || quantity < 0) {
+      throw new Error(`Qty import tidak valid untuk part ${item.partNo}.`);
+    }
+  });
+  const data = sheet.getDataRange().getValues();
+  if (data.length === 0) throw new Error("DB_MASTER belum memiliki header.");
+  if (!data[0][9]) sheet.getRange(1, 10).setValue("OPNAME_COUNTS");
+
+  const rowIndexesByKey = new Map();
+  const idMap = new Map();
+  let nextId = 0;
+  for (let i = 1; i < data.length; i++) {
+    const key = getMasterItemKey(data[i][1], data[i][3], data[i][4]);
+    if (!rowIndexesByKey.has(key)) rowIndexesByKey.set(key, []);
+    rowIndexesByKey.get(key).push(i);
+    if (data[i][0] !== "" && data[i][0] !== null) idMap.set(String(data[i][0]), i);
+    nextId = Math.max(nextId, Number(data[i][0]) || 0);
+  }
+
+  const now = new Date();
+  const quantityUpdates = new Map();
+  const newRows = [];
+  const idMappings = [];
+  incomingItems.forEach(item => {
+    const key = getMasterItemKey(item.partNo, item.locType, item.techName);
+    if (!key.startsWith("|")) {
+      const candidates = rowIndexesByKey.get(key) || [];
+      const matchingId = candidates.find(index => String(
+        index < data.length ? data[index][0] : newRows[index - data.length][0]
+      ) === String(item.id));
+      const existingIndex = matchingId === undefined ? candidates[0] : matchingId;
+      if (existingIndex !== undefined) {
+        if (existingIndex < data.length) {
+          quantityUpdates.set(existingIndex + 1, Number(item.sysQty) || 0);
+          idMappings.push({ clientId: item.id, id: data[existingIndex][0], key });
+        } else {
+          const newRow = newRows[existingIndex - data.length];
+          newRow[5] = Number(item.sysQty) || 0;
+          idMappings.push({ clientId: item.id, id: newRow[0], key });
+        }
+        return;
+      }
+    }
+
+    let id = item.id;
+    if (idMap.has(String(id))) {
+      nextId += 1;
+      id = nextId;
+    }
+    const row = [
+      id, item.partNo, item.desc || "", item.locType || "", item.techName || "",
+      Number(item.sysQty) || 0, "{}", "{}", now, "{}"
+    ];
+    newRows.push(row);
+    idMappings.push({ clientId: item.id, id, key });
+    idMap.set(String(id), data.length + newRows.length - 1);
+    if (!rowIndexesByKey.has(key)) rowIndexesByKey.set(key, []);
+    rowIndexesByKey.get(key).push(data.length + newRows.length - 1);
+  });
+
+  const sortedUpdates = Array.from(quantityUpdates.entries()).sort((a, b) => a[0] - b[0]);
+  for (let index = 0; index < sortedUpdates.length;) {
+    const startRow = sortedUpdates[index][0];
+    const values = [[sortedUpdates[index][1]]];
+    index++;
+    while (index < sortedUpdates.length && sortedUpdates[index][0] === startRow + values.length) {
+      values.push([sortedUpdates[index][1]]);
+      index++;
+    }
+    sheet.getRange(startRow, 6, values.length, 1).setValues(values);
+    sheet.getRange(startRow, 9, values.length, 1).setValues(values.map(() => [now]));
+  }
+
+  if (newRows.length > 0) {
+    sheet.getRange(sheet.getLastRow() + 1, 1, newRows.length, 10).setValues(newRows);
+  }
+  return idMappings;
+}
+
+function mergeDataFast(sheet, incomingItems) {
   const data = sheet.getDataRange().getValues();
   if (data.length === 0) data.push([]);
   const columnCount = Math.max(data[0].length, 10);
@@ -539,26 +726,36 @@ function mergeDataFast(sheet, incomingItems, preserveExistingLocations = false) 
     while (data[i].length < columnCount) data[i].push("");
   }
   const idMap = {};
+  const keyMap = {};
   for (let i = 1; i < data.length; i++) { if (data[i][0]) idMap[data[i][0]] = i; }
+  for (let i = 1; i < data.length; i++) {
+    keyMap[getMasterItemKey(data[i][1], data[i][3], data[i][4])] = i;
+  }
   const now = new Date();
   incomingItems.forEach(item => {
-    const existingRow = idMap[item.id] ? data[idMap[item.id]] : null;
-    const locations = preserveExistingLocations
-      ? (existingRow ? existingRow[6] : {})
-      : (item.locations || {});
-    const locString = typeof locations === "string"
-      ? locations
-      : JSON.stringify(locations);
+    const key = getMasterItemKey(item.partNo, item.locType, item.techName);
+    const rowIndex = idMap[item.id] !== undefined
+      ? idMap[item.id]
+      : keyMap[key];
+    const existingRow = rowIndex !== undefined ? data[rowIndex] : null;
+    if (existingRow && getMasterItemKey(existingRow[1], existingRow[3], existingRow[4]) !== key) {
+      throw new Error(`ID ${item.id} sudah dipakai part lain; sinkronisasi dibatalkan untuk mencegah data tertukar.`);
+    }
+    const locString = JSON.stringify(item.locations || {});
     const labelString = JSON.stringify(item.labelIssues || {});
     const opnameCounts = item.opnameCounts === undefined && existingRow
       ? existingRow[9]
       : JSON.stringify(item.opnameCounts || {});
-    const rowData = [ item.id, item.partNo, item.desc, item.locType || '', item.techName || '', item.sysQty || 0, locString, labelString, now, opnameCounts ];
+    const rowData = [ existingRow ? existingRow[0] : item.id, item.partNo, item.desc, item.locType || '', item.techName || '', item.sysQty || 0, locString, labelString, now, opnameCounts ];
     if (columnCount > 10) {
       rowData.push(...(existingRow ? existingRow.slice(10, columnCount) : Array(columnCount - 10).fill("")));
     }
-    if (idMap[item.id]) { data[idMap[item.id]] = rowData; } 
-    else { data.push(rowData); idMap[item.id] = data.length - 1; }
+    if (rowIndex !== undefined) { data[rowIndex] = rowData; }
+    else {
+      data.push(rowData);
+      idMap[item.id] = data.length - 1;
+      keyMap[key] = data.length - 1;
+    }
   });
   sheet.getRange(1, 1, data.length, columnCount).setValues(data);
 }

@@ -1,9 +1,9 @@
 /*
  * Tujuan: Persistensi IndexedDB dan sinkronisasi manual dengan Google Sheets.
  * Caller: main.js, core.js, dan handler kontrol sinkronisasi di index.html.
- * Dependensi: config.js (db, antrean, sesi), IndexedDB, API_URL.
+ * Dependensi: auth.js (Admin-authorized writes), config.js (db, antrean, sesi), IndexedDB, API_URL.
  * Main Functions: initDB(), loadDataFromLocal(), saveDB(), saveDBBatch(), uploadToServer(), downloadFromServer().
- * Side Effects: Membaca/menulis IndexedDB dan localStorage, mengirim HTTP request.
+ * Side Effects: Membaca/menulis IndexedDB dan localStorage, mengirim HTTP request; protects pending/newer local state on download.
  */
 // js/database.js
 
@@ -55,6 +55,7 @@ function loadDataFromLocal() {
 }
 
 async function downloadFromServer() {
+    if (!requireAdminAccess('mengunduh data cloud')) return false;
     if (!navigator.onLine) {
         updateSyncUI('<i class="fas fa-circle" style="color: #ef4444; font-size: 0.6rem; margin-right: 4px;"></i> Offline; data lokal aman');
         showToast('Tidak ada koneksi. Data lokal tetap tersimpan.');
@@ -84,22 +85,44 @@ async function downloadFromServer() {
             request.onerror = () => reject(request.error || new Error('Gagal membaca data lokal.'));
         });
         const localById = new Map(localRecords.map(item => [item.id, item]));
+        const localByKey = new Map(localRecords.map(item => [getWmsItemIdentityKey(item), item]));
         const pendingIds = new Set(syncQueue.map(item => item.id));
-        const mergedItems = result.data
-            .filter(item => item && item.id !== undefined && item.id !== null && !pendingIds.has(item.id))
+        const pendingKeys = new Set(syncQueue.map(getWmsItemIdentityKey));
+        const mergeCandidates = result.data
+            .filter(item => item && item.id !== undefined && item.id !== null)
             .map(cloudItem => {
-                const localItem = localById.get(cloudItem.id) || {};
+                const localItem = localById.get(cloudItem.id)
+                    || localByKey.get(getWmsItemIdentityKey(cloudItem));
+                if (pendingIds.has(cloudItem.id) || pendingKeys.has(getWmsItemIdentityKey(cloudItem))) {
+                    return null;
+                }
+                if (!localItem) return { cloudItem, merged: { ...cloudItem }, locationConflict: false };
                 const localUpdatedAt = Number(localItem.updated_at) || Date.parse(localItem.updated_at) || 0;
                 const cloudUpdatedAt = Number(cloudItem.updated_at) || Date.parse(cloudItem.updated_at) || 0;
-                if (localUpdatedAt > cloudUpdatedAt) return localItem;
-                const merged = { ...localItem, ...cloudItem };
+                const localLocations = localItem.locations || {};
+                const cloudLocations = cloudItem.locations || {};
+                const locationConflict = !areWmsLocationsEqual(localLocations, cloudLocations);
+                if (localUpdatedAt > cloudUpdatedAt) {
+                    return { cloudItem, merged: localItem, locationConflict: false };
+                }
+                const merged = { ...localItem, ...cloudItem, id: localItem.id };
                 if ((!cloudItem.opnameCounts || Object.keys(cloudItem.opnameCounts).length === 0)
                     && localItem.opnameCounts
                     && Object.keys(localItem.opnameCounts).length > 0) {
                     merged.opnameCounts = localItem.opnameCounts;
                 }
-                return merged;
+                return { cloudItem, localItem, merged, locationConflict };
             });
+        const candidates = mergeCandidates.filter(Boolean);
+        const conflictCandidates = candidates.filter(candidate => candidate.locationConflict);
+        const useCloudLocations = conflictCandidates.length > 0
+            && confirm(`Cloud dan lokal memiliki lokasi berbeda pada ${conflictCandidates.length} part. Gunakan lokasi dari Cloud untuk part tersebut? Pilih Batal untuk mempertahankan lokasi lokal yang konflik.`);
+        const mergedItems = candidates.map(candidate => {
+            if (candidate.locationConflict && !useCloudLocations) {
+                candidate.merged.locations = candidate.localItem.locations || {};
+            }
+            return candidate.merged;
+        });
 
         if (mergedItems.length > 0) {
             await new Promise((resolve, reject) => {
@@ -118,8 +141,8 @@ async function downloadFromServer() {
             });
             await loadDataFromLocal();
         }
-        updateSyncUI(`<i class="fas fa-check-circle"></i> Download selesai; ${mergedItems.length} data digabung, data lokal dipertahankan`);
-        showToast(`Download selesai: ${mergedItems.length} data digabung. Data lokal dan antrean pending tidak dihapus.`);
+        updateSyncUI(`<i class="fas fa-check-circle"></i> Download selesai; ${mergedItems.length} data digabung, konflik lokasi: ${conflictCandidates.length}`);
+        showToast(`Download selesai: ${mergedItems.length} data digabung. ${conflictCandidates.length} konflik lokasi ${useCloudLocations ? 'diambil dari Cloud' : 'dipertahankan lokal'}. Antrean pending tidak dihapus.`);
         return true;
     } catch (error) {
         if (timeoutId) clearTimeout(timeoutId);
@@ -135,6 +158,7 @@ async function downloadFromServer() {
 }
 
 function saveDB(item, actionName = "UPDATE", actionDetail = "") {
+    if (!requireAdminAccess('menyimpan perubahan lokal')) return false;
     // Add timestamp for two-way sync
     item.updated_at = item.updated_at || Date.now();
     
@@ -153,6 +177,9 @@ function saveDB(item, actionName = "UPDATE", actionDetail = "") {
 }
 
 function saveDBBatch(items, actionName = "UPDATE", actionDetail = "") {
+    if (!requireAdminAccess('menyimpan perubahan lokal')) {
+        return Promise.reject(new Error('Sesi Admin tidak aktif atau telah kedaluwarsa.'));
+    }
     if (!Array.isArray(items) || items.length === 0) return Promise.resolve([]);
 
     const timestamp = Date.now();
@@ -199,6 +226,7 @@ function saveDBBatch(items, actionName = "UPDATE", actionDetail = "") {
 }
 
 async function processSyncQueue() {
+    if (!requireAdminAccess('mengunggah antrean perubahan')) return false;
     if (isSyncing || syncQueue.length === 0 || !navigator.onLine) return false;
     isSyncing = true; 
     updateSyncUI('<i class="fas fa-sync"></i> Syncing...');
@@ -218,12 +246,7 @@ async function processSyncQueue() {
             const payload = { action: "sync", data: Object.values(uniqueItemsMap), logs: syncLogs, batch: batchNum };
 updateSyncUI(`<i class="fas fa-sync"></i> Syncing (Batch ${batchNum})...`);
             
-            const response = await fetch(API_URL, { 
-                method: "POST", 
-                redirect: "follow", 
-                headers: { "Content-Type": "text/plain;charset=utf-8" }, 
-                body: JSON.stringify(payload) 
-            });
+            const response = await postWmsAction(payload);
             
             if (!response.ok) throw new Error(`Cloud returned ${response.status}`);
             const result = await response.json();
@@ -260,7 +283,7 @@ async function fetchCloudOffBs() {
     modal.style.display = 'flex';
     content.innerHTML = `<div style="text-align:center; padding:40px; color:#64748b;"><i class="fas fa-sync fa-spin fa-2x" style="color:var(--offbs); margin-bottom:15px;"></i><div>Sedang memuat data dari Google Sheets...</div></div>`;
     try {
-        const response = await fetch(API_URL, { method: "POST", redirect: "follow", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ action: "get_cloud_off_bs" }) });
+        const response = await postWmsAction({ action: "get_cloud_off_bs" }, false);
         const result = await response.json();
         if (result.status === "success" && Array.isArray(result.data)) {
             lastFetchedCloudOffBs = result.data; renderCloudAccordion(result.data);
@@ -422,11 +445,7 @@ window.deleteOffBsItem = async function(id) {
 
     if (item && item.synced) {
         try {
-            await fetch(API_URL, {
-                method: "POST", redirect: "follow",
-                headers: { "Content-Type": "text/plain;charset=utf-8" },
-                body: JSON.stringify({ action: "delete_off_bs", data: [item] })
-            });
+            await postWmsAction({ action: "delete_off_bs", data: [item] });
         } catch(e) { console.error("Gagal hapus di cloud", e); }
     }
 };
@@ -712,6 +731,7 @@ function updateFavicon(syncing) {
 
 // Two-way sync: fetch cloud data and merge with local
 async function uploadToServer() {
+    if (!requireAdminAccess('mengunggah data')) return false;
     if (!navigator.onLine) {
         updateSyncUI('<i class="fas fa-circle" style="color: #ef4444; font-size: 0.6rem; margin-right: 4px;"></i> Offline; data lokal aman');
         showToast('Tidak ada koneksi. Data lokal tetap tersimpan dan antrean upload menunggu.');
@@ -751,6 +771,7 @@ async function uploadToServer() {
 }
 
 window.manualSync = function() {
+    if (!requireAdminAccess('membuka sinkronisasi')) return;
     document.getElementById('syncModal').style.display = 'flex';
 };
 window.closeSyncModal = function() {
