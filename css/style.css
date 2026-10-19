@@ -3,7 +3,7 @@
              * Tujuan: Menyediakan sistem visual responsif untuk workflow WMS.
              * Caller: index.html dan seluruh komponen UI berbasis class.
              * Dependensi: Variabel tema, Font Awesome, dan CSS layout native.
-             * Main Functions: Layout, role gate, SIMPAN mode controls, compact lists/buffer, bottom navigation, and opname controls.
+             * Main Functions: Layout, role gate, sync activity feedback, SIMPAN controls, compact lists/buffer, and opname controls.
              * Side Effects: Mengubah tampilan dan spacing tanpa mengubah state aplikasi.
              */
             :root {
@@ -85,6 +85,25 @@
                 border-color: var(--active-color);
                 background: var(--active-color);
                 color: white;
+            }
+            #syncCloudButton.sync-busy i {
+                animation: sync-cloud-bounce 0.65s ease-in-out infinite alternate;
+            }
+            .sync-conflict-modal { width: min(760px, 100%); box-sizing: border-box; }
+            .sync-conflict-modal .sync-modal-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+            .sync-conflict-modal h3 { margin: 0; }
+            .sync-conflict-list { display: grid; gap: 10px; max-height: 60vh; overflow: auto; }
+            .sync-conflict-item { padding: 12px; border: 1px solid var(--border); border-left: 4px solid var(--warning); border-radius: 6px; background: var(--card); }
+            .sync-conflict-item h4 { margin: 0 0 8px; overflow-wrap: anywhere; }
+            .sync-conflict-item p { margin: 4px 0; color: var(--text-secondary); font-size: 0.82rem; overflow-wrap: anywhere; }
+            .sync-conflict-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+            .sync-conflict-actions .btn { width: auto; margin: 0; }
+            @keyframes sync-cloud-bounce {
+                from { transform: translateY(0); }
+                to { transform: translateY(-4px); }
+            }
+            @media (prefers-reduced-motion: reduce) {
+                #syncCloudButton.sync-busy i { animation: none; }
             }
             body.role-user .scanner-bar,
             body.role-user [data-admin-only] { display: none !important; }

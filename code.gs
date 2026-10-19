@@ -2,7 +2,7 @@
  * Tujuan: Endpoint Google Apps Script untuk otorisasi sesi Admin (password minimal 4 karakter), sinkronisasi WMS, dan import qty-only.
  * Caller: js/database.js melalui Google Sheets API.
  * Dependensi: SpreadsheetApp, ContentService, sheet DB_MASTER/LOG_SCAN.
- * Main Functions: doGet(), doPost(), setupAdminPassword(), handleAdminLogin(), validateAdminSession(), revokeAdminSession(), ensureDbMasterLocationProtection(), mergeDataFast(), mergeStockQuantities().
+ * Main Functions: doGet()/doPost() expose server revisions, bulk import mappings, Admin session validation, and optimistic concurrency control.
  * Side Effects: Membaca/menulis Google Sheets dan mengirim respons HTTP.
  */
 
@@ -39,6 +39,7 @@ function doGet(e) {
   const sheet = ss.getSheetByName(SHEET_DB);
   if (!sheet) throw new Error("Sheet DB_MASTER tidak ditemukan!");
   const data = sheet.getDataRange().getValues();
+  const revisionColumnIndex = data.length > 0 ? data[0].indexOf("REVISION") : -1;
   const items = [];
 
   for (let i = 1; i < data.length; i++) {
@@ -64,6 +65,7 @@ function doGet(e) {
       locations: locations,
       labelIssues: labelIssues,
       opnameCounts: opnameCounts,
+      revision: revisionColumnIndex >= 0 ? (Number(row[revisionColumnIndex]) || 0) : 0,
       updated_at: row[8] instanceof Date ? row[8].getTime() : (Number(row[8]) || Date.parse(row[8]) || 0)
     });
   }
@@ -547,19 +549,31 @@ function doPost(e) {
       if (!dbSheet) throw new Error("Sheet DB_MASTER tidak ditemukan!");
       const writeLock = LockService.getScriptLock();
       if (!writeLock.tryLock(30000)) throw new Error("Data sedang diperbarui. Coba lagi sebentar.");
+      let idMappings = [];
+      let revisionMappings = [];
       try {
         ensureDbMasterLocationProtection(dbSheet);
+        const revisionColumnIndex = ensureMasterRevisionColumn(dbSheet);
+        if (action === "sync" && items.length > 0) {
+          const conflicts = getMasterRevisionConflicts(dbSheet, items, revisionColumnIndex);
+          if (conflicts.length > 0) {
+            return ContentService.createTextOutput(JSON.stringify({
+              status: "conflict",
+              message: "Data cloud berubah sejak salinan lokal dibuat.",
+              conflicts: conflicts
+            })).setMimeType(ContentService.MimeType.JSON);
+          }
+        }
         if (logs.length > 0) {
           const logData = logs.map(l => [new Date(), l.partNo, l.action, l.detail]);
           logSheet.getRange(logSheet.getLastRow() + 1, 1, logData.length, 4).setValues(logData);
         }
-        let idMappings = [];
         if (items.length > 0) {
           if (action === "bulk_import") {
-            idMappings = mergeStockQuantities(dbSheet, items);
+            idMappings = mergeStockQuantities(dbSheet, items, revisionColumnIndex);
           } else {
             validateLocationDestinations(dbSheet, items);
-            mergeDataFast(dbSheet, items);
+            revisionMappings = mergeDataFast(dbSheet, items, revisionColumnIndex);
           }
         }
 
@@ -601,7 +615,8 @@ function doPost(e) {
       return ContentService.createTextOutput(JSON.stringify({
         status: "success",
         message: "Data berhasil disinkronisasi",
-        idMappings: action === "bulk_import" ? idMappings : undefined
+        idMappings: action === "bulk_import" ? idMappings : undefined,
+        revisions: action === "sync" ? revisionMappings : undefined
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
@@ -610,6 +625,70 @@ function doPost(e) {
   } catch (error) {
     return ContentService.createTextOutput(JSON.stringify({ status: "error", message: error.toString() })).setMimeType(ContentService.MimeType.JSON);
   }
+}
+
+function ensureMasterRevisionColumn(sheet) {
+  const data = sheet.getDataRange().getValues();
+  if (data.length === 0) throw new Error("DB_MASTER belum memiliki header.");
+  let index = data[0].indexOf("REVISION");
+  if (index < 0) {
+    index = data[0].length;
+    sheet.getRange(1, index + 1).setValue("REVISION");
+  }
+  return index;
+}
+
+function masterRowToItem(row, revisionColumnIndex) {
+  let locations = {};
+  let labelIssues = {};
+  let opnameCounts = {};
+  try { locations = JSON.parse(row[6]) || {}; } catch (error) {}
+  try { labelIssues = JSON.parse(row[7]) || {}; } catch (error) {}
+  try { opnameCounts = JSON.parse(row[9]) || {}; } catch (error) {}
+  return {
+    id: Number(row[0]),
+    partNo: row[1],
+    desc: row[2],
+    locType: row[3],
+    techName: row[4],
+    sysQty: Number(row[5]) || 0,
+    locations: locations,
+    labelIssues: labelIssues,
+    opnameCounts: opnameCounts,
+    revision: Number(row[revisionColumnIndex]) || 0,
+    updated_at: row[8] instanceof Date ? row[8].getTime() : (Number(row[8]) || Date.parse(row[8]) || 0)
+  };
+}
+
+function getMasterRevisionConflicts(sheet, incomingItems, revisionColumnIndex) {
+  const data = sheet.getDataRange().getValues();
+  const byId = new Map();
+  const byKey = new Map();
+  for (let index = 1; index < data.length; index++) {
+    const row = data[index];
+    byId.set(String(row[0]), row);
+    byKey.set(getMasterItemKey(row[1], row[3], row[4]), row);
+  }
+  const conflicts = [];
+  incomingItems.forEach(item => {
+    const key = getMasterItemKey(item.partNo, item.locType, item.techName);
+    const idRow = byId.get(String(item.id));
+    const row = idRow && getMasterItemKey(idRow[1], idRow[3], idRow[4]) === key
+      ? idRow
+      : byKey.get(key);
+    if (!row) return;
+    const revision = Number(row[revisionColumnIndex]) || 0;
+    if (Number(item.revision) !== revision) {
+      conflicts.push({
+        clientId: item.id,
+        id: Number(row[0]),
+        expectedRevision: Number(item.revision),
+        revision: revision,
+        cloudItem: masterRowToItem(row, revisionColumnIndex)
+      });
+    }
+  });
+  return conflicts;
 }
 
 function getMasterItemKey(partNo, locType, techName) {
@@ -647,7 +726,7 @@ function validateLocationDestinations(sheet, incomingItems) {
   });
 }
 
-function mergeStockQuantities(sheet, incomingItems) {
+function mergeStockQuantities(sheet, incomingItems, revisionColumnIndex) {
   if (!Array.isArray(incomingItems)) throw new Error("Data import stock harus berupa array.");
   incomingItems.forEach(item => {
     if (!item || typeof item !== "object" || !String(item.partNo || "").trim()) {
@@ -675,6 +754,7 @@ function mergeStockQuantities(sheet, incomingItems) {
 
   const now = new Date();
   const quantityUpdates = new Map();
+  const revisionUpdates = new Map();
   const newRows = [];
   const idMappings = [];
   incomingItems.forEach(item => {
@@ -688,11 +768,14 @@ function mergeStockQuantities(sheet, incomingItems) {
       if (existingIndex !== undefined) {
         if (existingIndex < data.length) {
           quantityUpdates.set(existingIndex + 1, Number(item.sysQty) || 0);
-          idMappings.push({ clientId: item.id, id: data[existingIndex][0], key });
+          const revision = (Number(data[existingIndex][revisionColumnIndex]) || 0) + 1;
+          revisionUpdates.set(existingIndex + 1, revision);
+          idMappings.push({ clientId: item.id, id: data[existingIndex][0], key, revision, updated_at: now.getTime() });
         } else {
           const newRow = newRows[existingIndex - data.length];
           newRow[5] = Number(item.sysQty) || 0;
-          idMappings.push({ clientId: item.id, id: newRow[0], key });
+          newRow[revisionColumnIndex] = (Number(newRow[revisionColumnIndex]) || 0) + 1;
+          idMappings.push({ clientId: item.id, id: newRow[0], key, revision: newRow[revisionColumnIndex], updated_at: now.getTime() });
         }
         return;
       }
@@ -707,8 +790,10 @@ function mergeStockQuantities(sheet, incomingItems) {
       id, item.partNo, item.desc || "", item.locType || "", item.techName || "",
       Number(item.sysQty) || 0, "{}", "{}", now, "{}"
     ];
+    while (row.length <= revisionColumnIndex) row.push("");
+    row[revisionColumnIndex] = 1;
     newRows.push(row);
-    idMappings.push({ clientId: item.id, id, key });
+    idMappings.push({ clientId: item.id, id, key, revision: 1, updated_at: now.getTime() });
     idMap.set(String(id), data.length + newRows.length - 1);
     if (!rowIndexesByKey.has(key)) rowIndexesByKey.set(key, []);
     rowIndexesByKey.get(key).push(data.length + newRows.length - 1);
@@ -727,18 +812,33 @@ function mergeStockQuantities(sheet, incomingItems) {
     sheet.getRange(startRow, 9, values.length, 1).setValues(values.map(() => [now]));
   }
 
+  const sortedRevisionUpdates = Array.from(revisionUpdates.entries()).sort((a, b) => a[0] - b[0]);
+  for (let index = 0; index < sortedRevisionUpdates.length;) {
+    const startRow = sortedRevisionUpdates[index][0];
+    const values = [[sortedRevisionUpdates[index][1]]];
+    index++;
+    while (index < sortedRevisionUpdates.length && sortedRevisionUpdates[index][0] === startRow + values.length) {
+      values.push([sortedRevisionUpdates[index][1]]);
+      index++;
+    }
+    sheet.getRange(startRow, revisionColumnIndex + 1, values.length, 1).setValues(values);
+  }
+
   if (newRows.length > 0) {
-    sheet.getRange(sheet.getLastRow() + 1, 1, newRows.length, 10).setValues(newRows);
+    const columnCount = Math.max(data[0].length, revisionColumnIndex + 1);
+    newRows.forEach(row => { while (row.length < columnCount) row.push(""); });
+    sheet.getRange(sheet.getLastRow() + 1, 1, newRows.length, columnCount).setValues(newRows);
   }
   return idMappings;
 }
 
-function mergeDataFast(sheet, incomingItems) {
+function mergeDataFast(sheet, incomingItems, revisionColumnIndex) {
   const data = sheet.getDataRange().getValues();
   if (data.length === 0) data.push([]);
-  const columnCount = Math.max(data[0].length, 10);
+  const columnCount = Math.max(data[0].length, 10, revisionColumnIndex + 1);
   while (data[0].length < columnCount) data[0].push("");
   if (!data[0][9]) data[0][9] = "OPNAME_COUNTS";
+  data[0][revisionColumnIndex] = "REVISION";
   for (let i = 1; i < data.length; i++) {
     while (data[i].length < columnCount) data[i].push("");
   }
@@ -749,6 +849,7 @@ function mergeDataFast(sheet, incomingItems) {
     keyMap[getMasterItemKey(data[i][1], data[i][3], data[i][4])] = i;
   }
   const now = new Date();
+  const revisionMappings = [];
   incomingItems.forEach(item => {
     const key = getMasterItemKey(item.partNo, item.locType, item.techName);
     const rowIndex = idMap[item.id] !== undefined
@@ -767,6 +868,9 @@ function mergeDataFast(sheet, incomingItems) {
     if (columnCount > 10) {
       rowData.push(...(existingRow ? existingRow.slice(10, columnCount) : Array(columnCount - 10).fill("")));
     }
+    const revision = (existingRow ? Number(existingRow[revisionColumnIndex]) || 0 : 0) + 1;
+    rowData[revisionColumnIndex] = revision;
+    revisionMappings.push({ clientId: item.id, id: rowData[0], revision, updated_at: now.getTime() });
     if (rowIndex !== undefined) { data[rowIndex] = rowData; }
     else {
       data.push(rowData);
@@ -775,4 +879,5 @@ function mergeDataFast(sheet, incomingItems) {
     }
   });
   sheet.getRange(1, 1, data.length, columnCount).setValues(data);
+  return revisionMappings;
 }

@@ -74,7 +74,7 @@ User opens sync dialog → Upload to server [database.js] — POST queued record
 ```
 Scan box → handleOpnameScan() → setOpnameBoxFilter()
   ↓
-handleOpnameRender() — Show all parts registered in active box with X/Y (counted / sysQty), independent of SIMPAN filters
+handleOpnameRender() — Show parts registered in active box with X/Y (counted / that box's location qty), independent of SIMPAN filters
   ↓
 Scan part QR → handleOpnameScan() — Reject parts not registered in the active box
   ↓
@@ -85,7 +85,7 @@ Each scan reads saved X, adds 1, and persists immediately; scanning never resets
   ↓
 The browser serializes scan writes; a failed write leaves the old X unchanged and reports an error
   ↓
-addToOpnameBuffer() — Imported stock `sysQty` is Y; if next X > Y, ask for confirmation
+addToOpnameBuffer() — Active box location quantity is Y; if next X > Y, ask for confirmation
   ↓
 Confirmed scan beyond Y also persists X+1 immediately
   ↓
@@ -93,7 +93,7 @@ Buffer controls decrement X by one or reset that part to 0; each correction pers
   ↓
 Persist recent scan list in localStorage; IndexedDB `opnameCounts` is authoritative; filters compare X with Y
   ↓
-SELESAI → mark the box workflow finished; all count writes already exist in IndexedDB and sync queue
+Tutup Box → mark the box workflow finished; count writes are local and remain pending until manual upload
   ↓
 Changing boxes clears only the recent-scan display; every box's saved counts remain unchanged
   ↓
@@ -179,43 +179,44 @@ Scan Part 1, 2, 3...
   ↓
 addToOpnameBuffer(item) → session count +1; every scan persists the session in localStorage
   ↓
-SELESAI → atomic save all counted and unscanned box members
+Tutup Box → mark the box workflow finished; individual scans are already committed locally
   ↓
-saveDBBatch(items) → IndexedDB transaction, then sync queue
+Each saveDBBatch() writes item + outbox entry in one IndexedDB transaction
   ↓
 Keep the committed count in `item.opnameCounts[box]`; never alter location membership during counting
 ```
 
 ### Flow 7: Data Sync (Background / Batch Processed)
 ```
-[Every scan → saveDB()]
+[Every scan → saveDB()/saveDBBatch()]
   ↓
-Write IndexedDB immediately; persist item-by-id syncQueue and syncLogs locally
+One IndexedDB transaction writes item + item-keyed outbox; startup migrates legacy localStorage queue
   ↓
 [On startup] Load IndexedDB only; no cloud fetch occurs
   ↓
 [On explicit Upload action] processSyncQueue()
   ↓
-Upload master queue in batches; retain local data and pending queue if request fails
+Upload master queue in batches without removing entries before server acknowledgment
   ↓
 BATCH LOOP: slice syncQueue into 100-item chunks
   ↓
 FOR EACH BATCH:
-  POST JSON { action: "sync", data: [100 items], logs: [...] }
+  POST JSON { action: "sync", data: [{ item fields, revision }], logs: [...] }
   ↓
   to: https://script.google.com/macros/.../exec (Google Sheets)
   ↓
-  Response: { status, duplicates, duplicateParts }
+  Under ScriptLock, validate all expected revisions before writes
+  Response: { status: "success", revisions } or { status: "conflict", conflicts }
   ↓
-IF error/offline: Restore batch to local queue; keep local operations available
+IF error/offline/conflict: Keep outbox unchanged; conflicts show local/cloud snapshots and per-item choices
   ↓
-IF success: Persist remaining queue and continue next batch
+IF success: Acknowledge revisions and remove only unchanged submitted snapshots; continue next batch
   ↓
-Clear syncQueue & syncLogs after ALL batches succeed
+Keep the bounded local sync log after outbox acknowledgment
   ↓
 Aggregate every upload/download result; any partial failure reports "Sync gagal sebagian" instead of "Tersinkron"
   ↓
-updateSyncUI("🟢 Tersimpan")
+updateSyncUI("Upload berhasil; cloud mengonfirmasi revision")
 ```
 
 ### Flow 8: Role & Stock Import
@@ -331,10 +332,11 @@ WMS/
 ### [database.js](js/database.js)
 **Fungsi Publik Utama**:
 - `initDB()` — Buka IndexedDB dan tampilkan data lokal tanpa request cloud
+- IndexedDB v2 stores `items`, `outbox`, and a one-time migration marker; legacy `wms_syncQueue` is imported before cleanup
 - `loadDataFromLocal()` — Read all items dari IndexedDB → localItems
-- `saveDB(item, actionName, actionDetail)` — Write item ke IndexedDB + persistent manual-upload queue
-- `saveDBBatch(items, actionName, actionDetail)` — Atomically write related items and then update the upload queue
-- `processSyncQueue()` — POST queued items only when `uploadToServer()` is explicitly requested
+- `saveDB()` / `saveDBBatch()` — Atomically write item and outbox entry
+- `processSyncQueue()` — Upload outbox snapshots, accept revision acknowledgments, retain failures/conflicts
+- `resolveSyncConflict()` — Per-record use-cloud or requeue-reviewed-local decision
 - `uploadToServer()` — Upload pending master records from the sync dialog
 - `downloadFromServer()` — GET and merge cloud records without deleting local-only or pending data
 - `refreshUserDataInBackground()` — User-only read refresh; keeps cached data visible and reloads only after changed cloud data is committed locally
@@ -343,7 +345,7 @@ WMS/
 **Peran**: Semua operasi data persistence dan cloud sync; jantung database layer  
 **Caller**: main.js (initDB), core.js (saveDB), UI handlers  
 **Dependensi**: auth.js (Admin-authorized writes), config.js (localItems, syncQueue), API_URL (Google Sheets)  
-**Side Effects**: IndexedDB read/write, background User GET and user-triggered Admin POST/GET requests, localStorage setItem
+**Side Effects**: IndexedDB item/outbox read/write, sync-log localStorage, background User GET and user-triggered Admin POST/GET requests
 **Sync Status**: User GET refresh runs on role selection and User startup; Admin cloud operations remain explicit through the sync dialog. No periodic or online-event retry.
 
 ---
@@ -357,11 +359,11 @@ WMS/
 - `confirmBoxToBoxYesToAll()` — Gabungkan semua part saat ini dan aktifkan auto-approval sampai mode dimatikan
 - `updateBoxToBoxIndicator()` — Render box sumber/tujuan dengan status validasi tujuan
 - `checkSimpanConflict(item, newBox)` — Prompt move/split decision
-- `handleOpnameRender()` — Filter & render opname list per box using latest saved counts, independent of SIMPAN filters
+- `handleOpnameRender()` — Filter & render opname list per box using latest saved counts against that box's location quantity
 - `getOpnameBufferQty(itemId, item)` — Read latest saved cumulative count for the active box
 - `saveManualEdit()` / `syncOpnameCountFromLocation()` — Edit qty/counts only for existing locations; adding/removing location codes is reserved for the scanned SIMPAN flow
 - `resetCurrentBoxOpname()` — Set saved X to zero without changing box membership
-- `confirmOpnameOverScan()` — Confirm an opname scan that exceeds imported `sysQty`
+- `confirmOpnameOverScan()` — Confirm an opname scan that exceeds the active box's location quantity
 - `decrementOpnameBuffer()` / `removeFromOpnameBuffer()` — Reduce one or all counted units for a part
 - `renderDataList(reset)` — Display all items dengan search/filter
 - `switchTab(id)` — Change active tab & re-render
@@ -432,24 +434,25 @@ WMS/
 **Fungsi Publik**:
 - `doGet(e)` — Read-only GET endpoint untuk DB_MASTER/META; returns items as JSON
 - `doPost(e)` — POST endpoint; verifikasi token Admin untuk semua aksi tulis, lalu handle sync/import
-- `setupAdminPassword()` — Run from the bound Apps Script editor; creates hash+salt credentials, protects role/location sheets, and reports the failing setup stage in execution details
+- `setupAdminPassword()` — Run from the bound Apps Script editor; requires the project manifest's `userinfo.email`, spreadsheet, container UI, and script storage OAuth scopes; creates hash+salt credentials, protects role/location sheets, and reports the failing setup stage in execution details
 - `handleAdminLogin()` / `validateAdminSession()` / `revokeAdminSession()` — Kelola token sesi Admin
 - `ensureDbMasterLocationProtection(sheet)` — Protect kolom G (lokasi fisik) dari edit langsung editor spreadsheet; akun eksekusi Apps Script dapat menulis lewat aplikasi (pemilik spreadsheet tetap mengikuti hak istimewa Google)
-- `mergeDataFast(sheet, incomingItems)` — Apply queued Admin scans and validate location destinations
-- `mergeStockQuantities(sheet, incomingItems)` — Lock update; write qty plus server-owned sync timestamp for existing records, append new records with empty locations, and return canonical ID mappings
+- `ensureMasterRevisionColumn()` / `getMasterRevisionConflicts()` — Maintain per-row revisions and reject stale snapshots before writes
+- `mergeDataFast(sheet, incomingItems, revisionColumnIndex)` — Apply queued Admin scans and return acknowledged revisions
+- `mergeStockQuantities(sheet, incomingItems, revisionColumnIndex)` — Lock update; increment revisions and return canonical ID/revision mappings
 
 **Peran**: Backend server logic; data persist ke Google Sheets; deduplication  
 **Caller**: database.js (manual `downloadFromServer()` and `processSyncQueue()`)
 **Sheets Used**:
-- `DB_MASTER` — Master item data (id, partNo, desc, locType, techName, sysQty, locations JSON, labelIssues JSON, opnameCounts JSON in column J)
+- `DB_MASTER` — Master item data (id, partNo, desc, locType, techName, sysQty, locations JSON, labelIssues JSON, opnameCounts JSON in column J, `REVISION` column appended to existing headers)
 - `LOG_SCAN` — Audit log (partNo, action, detail, timestamp)
 - `TEMP_OFF_BS` — Off-balance-sheet staging (time, box, partNo, qty, docNo, qr, updated_at timestamp)
 - `WMS_USER_ROLE` — Protected, hidden Admin password hash + salt (never plaintext)
 
 **Actions Supported**:
-- `sync` — Merge regular item updates
+- `sync` — Validate expected revisions under ScriptLock; return conflicts without writes when stale, otherwise merge and return new revisions
 - `sync_off_bs` — Append off BS items, detect duplicates via (partNo_docNo)
-- `bulk_import` — Merge hasil Excel ke DB_MASTER, refresh deskripsi/qty, deduplicate imported `SPAREPART BAIK`, pertahankan lokasi fisik yang sudah tersimpan (baris baru dimulai tanpa lokasi), dan simpan timestamp impor ke META
+- `bulk_import` — Merge hasil Excel ke DB_MASTER, increment revisions, preserve existing locations, and return canonical IDs/revisions
 - `sync` — Terima lokasi dari alur scan/pindah aplikasi; tidak digunakan untuk impor Excel
 - `DB_MASTER` column G — Protected from direct edits by spreadsheet editors; code locations are changed through scanned app workflows (spreadsheet owners retain Google owner privileges)
 - `delete_off_bs` — Remove items from TEMP_OFF_BS by QR
@@ -583,6 +586,7 @@ Item {
     NO_LABEL: number
   },
   raw: object                  // Original Excel row
+  revision: number             // Server-owned optimistic concurrency version
 }
 ```
 
@@ -593,9 +597,10 @@ Item {
 - `wms_off_bs`: Off BS session (JSON array)
 - `darkMode`: Dark mode toggle (boolean string)
 
-**Sync Queue (Memory + localStorage)**:
+**Sync Queue (IndexedDB outbox + memory mirror)**:
 ```javascript
-syncQueue: Item[]              // Items pending manual upload; survives refresh
+syncQueue: Item[]              // Mirror of outbox entries; item-keyed and survives refresh
+outbox: Item[]                 // IndexedDB object store written atomically with items
 syncLogs: Log[] = [
   { partNo, action: "UPDATE"|"CREATE", detail, timestamp }
 ]

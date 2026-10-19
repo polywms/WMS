@@ -2,7 +2,7 @@
  * Tujuan: Import, export, backup, dan restore data WMS melalui file Excel/JSON.
  * Caller: Tombol data/settings di index.html.
  * Dependensi: SheetJS, database.js (IndexedDB/sync), dan UI utilities.
- * Main Functions: handleImport() refreshes stock qty without replacing saved locations and reconciles server IDs; exportData(), backupJson(), restoreJson(), import harga.
+ * Main Functions: handleImport() refreshes stock qty, preserves pending edits/revisions, and reconciles server IDs; exportData(), backupJson(), restoreJson(), import harga.
  * Side Effects: Membaca file, menulis IndexedDB/cloud dan waktu upload ke localStorage, mengunduh file, dan reload aplikasi.
  */
 
@@ -80,7 +80,7 @@ function handleImport(input) {
         
         tx.oncomplete = async () => {
             try {
-                updatePendingStockQuantities(bulkDataToUpload);
+                await updatePendingStockQuantities(bulkDataToUpload);
             } catch (queueError) {
                 await loadDataFromLocal();
                 hideLoading();
@@ -112,8 +112,9 @@ function handleImport(input) {
                         || result.idMappings.some(mapping => !mapping
                             || mapping.clientId === undefined
                             || mapping.id === undefined
-                            || mapping.key === undefined))) {
-                    throw new Error('Server belum mengirim pemetaan ID lengkap. Deploy code.gs terbaru sebelum melanjutkan sinkronisasi.');
+                            || mapping.key === undefined
+                            || !Number.isFinite(Number(mapping.revision))))) {
+                    throw new Error('Server belum mengirim pemetaan ID dan revision lengkap. Deploy code.gs terbaru sebelum melanjutkan sinkronisasi.');
                 }
                 if (Array.isArray(result.idMappings) && result.idMappings.length > 0) {
                     try {
@@ -136,14 +137,40 @@ function handleImport(input) {
 
 function updatePendingStockQuantities(importedItems) {
     const importedByKey = new Map(importedItems.map(item => [getWmsItemIdentityKey(item), item]));
-    const updatedQueue = syncQueue.map(queuedItem => {
-        const importedItem = importedByKey.get(getWmsItemIdentityKey(queuedItem));
-        return importedItem
-            ? { ...queuedItem, sysQty: importedItem.sysQty, updated_at: importedItem.updated_at }
-            : queuedItem;
+    return new Promise((resolve, reject) => {
+        let tx;
+        try {
+            tx = db.transaction('outbox', 'readwrite');
+            const store = tx.objectStore('outbox');
+            const request = store.getAll();
+            request.onsuccess = () => {
+                request.result.forEach(queuedItem => {
+                    const importedItem = importedByKey.get(getWmsItemIdentityKey(queuedItem));
+                    if (!importedItem) return;
+                    store.put({
+                        ...queuedItem,
+                        sysQty: importedItem.sysQty,
+                        updated_at: importedItem.updated_at,
+                        localVersion: `${Date.now()}-${Math.random()}`
+                    });
+                });
+            };
+            request.onerror = () => tx.abort();
+        } catch (error) {
+            reject(error);
+            return;
+        }
+        tx.oncomplete = async () => {
+            try {
+                await loadSyncQueueFromOutbox();
+                resolve();
+            } catch (error) {
+                reject(error);
+            }
+        };
+        tx.onerror = () => reject(tx.error || new Error('Gagal memperbarui outbox import.'));
+        tx.onabort = () => reject(tx.error || new Error('Pembaruan outbox import dibatalkan.'));
     });
-    localStorage.setItem('wms_syncQueue', JSON.stringify(updatedQueue));
-    syncQueue = updatedQueue;
 }
 
 async function reconcileStockImportIds(idMappings) {
@@ -157,25 +184,43 @@ async function reconcileStockImportIds(idMappings) {
     const finalIds = new Set();
     records.forEach(item => {
         const mapping = byClientId.get(String(item.id));
+        const pendingItem = syncQueue.find(queuedItem => String(queuedItem.id) === String(item.id));
         const nextItem = mapping && mapping.key === getWmsItemIdentityKey(item)
-            ? { ...item, id: mapping.id }
+            ? {
+                ...item,
+                id: mapping.id,
+                revision: pendingItem ? Number(pendingItem.revision) || 0 : Number(mapping.revision) || 0,
+                updated_at: pendingItem ? item.updated_at : mapping.updated_at
+            }
             : item;
         const finalId = String(nextItem.id);
         if (finalIds.has(finalId)) {
             throw new Error(`ID lokal ${finalId} bertabrakan setelah pemetaan server.`);
         }
         finalIds.add(finalId);
-        if (nextItem.id !== item.id) changed.push({ oldId: item.id, item: nextItem });
+        if (nextItem.id !== item.id
+            || nextItem.revision !== item.revision
+            || nextItem.updated_at !== item.updated_at) changed.push({ oldId: item.id, item: nextItem });
     });
     if (changed.length === 0) return;
 
     await new Promise((resolve, reject) => {
         let tx;
         try {
-            tx = db.transaction('items', 'readwrite');
+            tx = db.transaction(['items', 'outbox'], 'readwrite');
             const store = tx.objectStore('items');
-            changed.forEach(entry => store.delete(entry.oldId));
-            changed.forEach(entry => store.put(entry.item));
+            const outbox = tx.objectStore('outbox');
+            changed.forEach(entry => {
+                if (entry.item.id !== entry.oldId) store.delete(entry.oldId);
+                store.put(entry.item);
+            });
+            syncQueue.forEach(queuedItem => {
+                const mapping = byClientId.get(String(queuedItem.id));
+                if (!mapping || mapping.key !== getWmsItemIdentityKey(queuedItem)) return;
+                const nextQueued = { ...queuedItem, id: mapping.id };
+                if (String(nextQueued.id) !== String(queuedItem.id)) outbox.delete(queuedItem.id);
+                outbox.put(nextQueued);
+            });
         } catch (error) {
             reject(error);
             return;
@@ -185,13 +230,7 @@ async function reconcileStockImportIds(idMappings) {
         tx.onabort = () => reject(tx.error || new Error('Rekonsiliasi ID lokal dibatalkan.'));
     });
 
-    syncQueue = syncQueue.map(queuedItem => {
-        const mapping = byClientId.get(String(queuedItem.id));
-        if (!mapping || mapping.key !== getWmsItemIdentityKey(queuedItem)) return queuedItem;
-        const currentItem = records.find(item => getWmsItemIdentityKey(item) === mapping.key);
-        return currentItem ? { ...currentItem, id: mapping.id } : { ...queuedItem, id: mapping.id };
-    });
-    localStorage.setItem('wms_syncQueue', JSON.stringify(syncQueue));
+    await loadSyncQueueFromOutbox();
 }
 
 function exportData() {

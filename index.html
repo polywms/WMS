@@ -2,7 +2,7 @@
     Tujuan: Entry point UI untuk workflow WMS Magelang.
     Caller: Browser/PWA shell; event handlers diteruskan ke main.js dan core.js.
     Dependensi: css/style.css, Font Awesome, dan modul JavaScript di js/.
-    Main Functions: Menyediakan role gate Admin/User dengan password minimal 4 karakter, navigasi, Cari dengan scanner kamera, kontrol SIMPAN, konfirmasi over-scan, impor/ekspor Admin, dan sinkronisasi manual.
+    Main Functions: Menyediakan role gate Admin/User, navigasi, Cari, SIMPAN/OPNAME, impor/ekspor, sinkronisasi, dan resolusi konflik data.
     Side Effects: Mengubah DOM, memicu scan, penyimpanan lokal, dan sinkronisasi cloud melalui handler.
 -->
 <!-- WMS Magelang - Entry point UI -->
@@ -46,10 +46,10 @@
             </div>
             <div style="display:flex; align-items:center; gap:10px;">
                 <button type="button" id="roleSessionButton" onclick="endRoleSession()" title="Keluar dari sesi Admin" aria-label="Keluar dari sesi Admin" style="border:1px solid rgba(255,255,255,.6); border-radius:6px; padding:5px 8px; background:transparent; color:white; cursor:pointer; white-space:nowrap;">Keluar Admin</button>
-                <button type="button" class="icon-only" data-admin-only onclick="manualSync()" title="Pilihan sinkronisasi" aria-label="Pilihan sinkronisasi" style="width:30px; height:30px; display:grid; place-items:center; border:0; border-radius:50%; background:rgba(0,0,0,0.2); color:white; cursor:pointer;">
+                <button type="button" id="syncCloudButton" class="icon-only" data-admin-only onclick="manualSync()" title="Pilihan sinkronisasi" aria-label="Pilihan sinkronisasi" aria-busy="false" style="width:30px; height:30px; display:grid; place-items:center; border:0; border-radius:50%; background:rgba(0,0,0,0.2); color:white; cursor:pointer;">
                     <i class="fas fa-cloud" aria-hidden="true"></i>
                 </button>
-                <span id="syncStatus" style="font-size:0.75rem; background:rgba(0,0,0,0.2); padding:3px 8px; border-radius:10px; display: flex; align-items: center; gap: 4px;"><i class="fas fa-circle" style="color: #22c55e; font-size: 0.6rem;"></i><span style="font-size:0.7rem;">Online</span></span>
+                <span id="syncStatus" role="status" aria-live="polite" style="font-size:0.75rem; background:rgba(0,0,0,0.2); padding:3px 8px; border-radius:10px; display: flex; align-items: center; gap: 4px;"><i class="fas fa-cloud-check" aria-hidden="true"></i><span style="font-size:0.7rem;">Status antrean...</span></span>
             </div>
         </header>
 
@@ -59,9 +59,21 @@
                     <h3 id="syncModalTitle"><i class="fas fa-cloud"></i> Sinkronisasi Manual</h3>
                     <button type="button" class="icon-only" onclick="closeSyncModal()" aria-label="Tutup pilihan sinkronisasi"><i class="fas fa-times"></i></button>
                 </div>
-                <p class="sync-modal-note" style="line-height:1.5; color:var(--secondary);">Data tetap disimpan di perangkat. Pilih tindakan; download tidak menghapus data lokal atau antrean upload.</p>
+                <p id="syncQueueSummary" class="sync-modal-note" style="line-height:1.5; color:var(--secondary);">Perubahan lokal menunggu upload.</p>
+                <p class="sync-modal-note" style="line-height:1.5; color:var(--secondary);">Download menggabungkan data cloud tanpa menghapus perubahan lokal yang menunggu upload.</p>
                 <button type="button" class="btn btn-primary" onclick="uploadToServer()"><i class="fas fa-cloud-arrow-up"></i> Upload ke server</button>
                 <button type="button" class="btn btn-outline" onclick="downloadFromServer()"><i class="fas fa-cloud-arrow-down"></i> Download dari server</button>
+            </div>
+        </div>
+
+        <div class="overlay" id="syncConflictModal" role="dialog" aria-modal="true" aria-labelledby="syncConflictTitle" style="display:none; z-index:1400;">
+            <div class="modal sync-conflict-modal">
+                <div class="sync-modal-header">
+                    <h3 id="syncConflictTitle"><i class="fas fa-triangle-exclamation" aria-hidden="true"></i> Konflik Versi Data</h3>
+                    <button type="button" class="icon-only" onclick="closeSyncConflictModal()" aria-label="Tutup konflik"><i class="fas fa-times" aria-hidden="true"></i></button>
+                </div>
+                <p class="sync-modal-note">Cloud berubah sejak data lokal dibuat. Tinjau tiap part: memilih Cloud membuang perubahan lokal pada part tersebut; mempertahankan lokal akan mengantrekannya untuk upload ulang.</p>
+                <div id="syncConflictList" class="sync-conflict-list"></div>
             </div>
         </div>
 
@@ -224,7 +236,7 @@
                 <div id="opnameIdleHint" class="info-mode-panel" style="display:block;">
                     <i class="fas fa-box-open" style="font-size:2rem; color:#16a34a; margin-bottom:10px;"></i>
                     <h3 style="margin:0 0 6px 0;">Scan box dulu</h3>
-                    <p style="color:var(--secondary); font-size:0.9rem; margin:0;">Scan box → scan part. Setiap scan langsung tersimpan; pindah box kapan saja.</p>
+                    <p style="color:var(--secondary); font-size:0.9rem; margin:0;">Scan box → scan part. Tiap scan tersimpan di perangkat; upload ke cloud tetap manual.</p>
                 </div>
                 <div id="activeBoxPanel" class="status-panel opname-box-panel" style="display:none;">
                     <div class="opname-box-identity">
@@ -240,7 +252,7 @@
                             <span class="opname-stat" id="opnameStatPcs">0 pcs</span>
                         </div>
                         <div class="opname-box-actions">
-                            <button class="btn-sm btn-success" onclick="commitOpnameBox()" title="Tandai hitung box ini selesai; scan sudah tersimpan otomatis">SELESAI</button>
+                            <button class="btn-sm btn-success" onclick="commitOpnameBox()" title="Tandai sesi box selesai. Scan tersimpan di perangkat; upload tetap manual.">Tutup Box</button>
                             <button class="btn-sm btn-outline" onclick="unlockOpnameBox()" title="Ganti box">Ganti</button>
                             <button class="btn-sm btn-outline icon-only" onclick="resetCurrentBoxOpname()" title="Reset qty box ini" aria-label="Reset qty box ini"><i class="fas fa-undo" aria-hidden="true"></i></button>
                         </div>
@@ -252,7 +264,7 @@
                         <button class="btn-sm btn-outline" onclick="clearOpnameBuffer()" title="Bersihkan daftar scan terbaru, hitungan tetap tersimpan">Bersihkan</button>
                     </div>
                     <div id="opnameBufferTagsContainer" class="opname-buffer-tags"></div>
-                    <div class="opname-buffer-hint"><i class="fas fa-check"></i> Tiap scan langsung tersimpan; X berikutnya melanjutkan jumlah ini</div>
+                    <div class="opname-buffer-hint"><i class="fas fa-check"></i> Tiap scan tersimpan di perangkat; X berikutnya melanjutkan jumlah ini</div>
                 </div>
                 <div id="opnameInfoPanel" class="info-mode-panel">
                     <i class="fas fa-search" style="font-size:2rem; color:#f97316; margin-bottom:10px;"></i>

@@ -22,7 +22,7 @@
  * - updateBoxToBoxIndicator() — Render box asal/tujuan; pertahankan pasangan valid sampai scan box berikutnya
  * - getBoxToBoxItems() — Temukan part sumber berdasarkan kode box yang dinormalisasi
  * - confirmBoxToBoxYesToAll() — Setujui semua part dan lewati konfirmasi hingga mode B2B dimatikan
- * - handleOpnameScan()/handleOpnameRender() — Count per active box and render compact X/Y-filtered rows
+ * - handleOpnameScan()/handleOpnameRender() — Count per active box against that box's location quantity
  * - handleOpnameScan() — Reject part scans that do not belong to the active box
  * - getOpnameBufferQty(itemId, item) — Read the latest saved cumulative count for the active box
  * - resetCurrentBoxOpname() — Reset only the saved count, preserving part-to-box locations
@@ -39,7 +39,7 @@
  * - renderSimpanList/handleOpnameRender/renderDataList — Per-tab UI renders
  * 
  * Other Tabs:
- * - OPNAME: Scan box, hitung satu unit per QR, bandingkan hasil sesi X dengan stok Y; qty 0 hidden
+ * - OPNAME: Scan box, hitung satu unit per QR, bandingkan hasil sesi X dengan qty lokasi box
  * - DATA/CARI: Admin search/edit; User read-only search by typing or QR scan
  * - OFF BS: Off-balance-sheet tracking dengan cloud sync
  * - PACKING: Shipment/colly management
@@ -1295,6 +1295,10 @@ function getOpnameBufferQty(itemId, item = null) {
     return 0;
 }
 
+function getOpnameTargetQty(item, box = activeBoxFilter) {
+    return Number(item?.locations?.[box]) || 0;
+}
+
 function persistOpnameSession() {
     if (!opnameBufferBox) {
         localStorage.removeItem('wms_opname_session');
@@ -1459,7 +1463,8 @@ function getOpnameBoxItems() {
 function filterOpnameDataset(dataset) {
     return dataset.filter(i => {
         const counted = getOpnameBufferQty(i.id, i);
-        if (opnameFilter === 'diff') return counted > 0 && counted !== (Number(i.sysQty) || 0);
+        const target = getOpnameTargetQty(i);
+        if (opnameFilter === 'diff') return counted > 0 && counted !== target;
         if (opnameFilter === 'zero') return counted === 0;
         return true;
     });
@@ -1477,11 +1482,12 @@ function updateOpnameStats() {
         return;
     }
     let match = 0, diff = 0, zero = 0, pcs = 0;
-    getOpnameBoxItems().filter(i => Number(i.sysQty) > 0).forEach(i => {
+    getOpnameBoxItems().forEach(i => {
         const counted = getOpnameBufferQty(i.id, i);
+        const target = getOpnameTargetQty(i);
         pcs += counted;
         if (counted === 0) zero++;
-        else if (counted === (Number(i.sysQty) || 0)) match++;
+        else if (counted === target) match++;
         else diff++;
     });
     matchEl.textContent = `${match} OK`;
@@ -1503,7 +1509,7 @@ function handleOpnameRender(reset = true) {
     }
     if (!filteredItems.length && !localItems.length) return;
 
-    const dataset = filterOpnameDataset(getOpnameBoxItems().filter(item => Number(item.sysQty) > 0));
+    const dataset = filterOpnameDataset(getOpnameBoxItems());
     updateOpnameStats();
 
     if (dataset.length === 0) {
@@ -1513,14 +1519,15 @@ function handleOpnameRender(reset = true) {
     }
 
     const show = dataset.slice(0, renderLimit);
+    const pendingIds = new Set(syncQueue.map(item => String(item.id)));
     let html = '';
     show.forEach(i => {
         const counted = getOpnameBufferQty(i.id, i);
-        const target = Number(i.sysQty) || 0;
+        const target = getOpnameTargetQty(i);
         let badgeClass = 'qty-uncounted';
         const qtyDisplay = `${counted} / ${target}`;
         if (counted > 0) badgeClass = counted === target ? 'qty-match' : 'qty-diff';
-        const pendingBadge = counted > 0 && !opnameBufferCommitted ? `<span class="qty-badge qty-pending opname-pending" title="Hitungan belum disimpan" aria-label="Hitungan belum disimpan"><i class="fas fa-clock"></i></span>` : '';
+        const pendingBadge = pendingIds.has(String(i.id)) ? `<span class="qty-badge qty-pending opname-pending" title="Perubahan lokal menunggu upload ke cloud" aria-label="Perubahan lokal menunggu upload ke cloud"><i class="fas fa-cloud-arrow-up"></i></span>` : '';
         html += `
         <div class="item-card ${(lastOpnameScanId === i.id) ? 'selected' : ''}" id="opname-row-${i.id}">
             <div style="flex:1" onclick="openEditModal(${i.id})">
@@ -1835,7 +1842,22 @@ async function saveManualEdit() {
     renderDataList(false); 
     document.getElementById('mainInput').focus(); 
 }
-function deletePartBaru(id) { if (!requireAdminAccess('menghapus part baru')) return; if(confirm('Hapus Part Baru ini permanen?')) { const tx = db.transaction('items', 'readwrite'); tx.objectStore('items').delete(id); tx.oncomplete = () => { localItems = localItems.filter(i => i.id !== id); filteredItems = filteredItems.filter(i => i.id !== id); document.getElementById('editModal').style.display='none'; renderDataList(true); showToast('Dihapus.'); }; } }
+function deletePartBaru(id) {
+    if (!requireAdminAccess('menghapus part baru')) return;
+    if (!confirm('Hapus Part Baru ini dari perangkat dan antrean upload? Data yang sudah ada di cloud tidak ikut dihapus.')) return;
+    const tx = db.transaction(['items', 'outbox'], 'readwrite');
+    tx.objectStore('items').delete(id);
+    tx.objectStore('outbox').delete(id);
+    tx.oncomplete = () => {
+        localItems = localItems.filter(item => item.id !== id);
+        filteredItems = filteredItems.filter(item => item.id !== id);
+        syncQueue = syncQueue.filter(item => item.id !== id);
+        document.getElementById('editModal').style.display = 'none';
+        renderDataList(true);
+        showToast('Part lokal dan antrean upload dihapus.');
+    };
+    tx.onerror = () => showToast('Penghapusan lokal gagal. Data tetap dipertahankan.');
+}
 function addLabelIssue(type) { if (!requireAdminAccess('memperbarui label part') || !tempPart) return; if (!tempPart.labelIssues) tempPart.labelIssues = { DAMAGED: 0, NO_LABEL: 0 }; let typeName = type === 'DAMAGED' ? 'Rusak' : 'Tanpa Label'; let input = prompt(`Berapa buah part ${tempPart.partNo} yang labelnya ${typeName}? \n(Ketik angka saja)`, "1"); let qty = parseInt(input); if (!isNaN(qty) && qty > 0) { tempPart.labelIssues[type] += qty; saveDB(tempPart); feedback('success'); showToast(`${qty} part ditandai`); selectPartSimpan(tempPart); } }
 function openLabelReport() { if (!requireAdminAccess('melihat laporan label')) return; const container = document.getElementById('labelReportList'); let html = ''; let count = 0; localItems.forEach(i => { if (i.labelIssues && (i.labelIssues.DAMAGED > 0 || i.labelIssues.NO_LABEL > 0)) { count++; html += `<div style="padding:10px; border:1px solid var(--border); border-radius:6px; background:#fef2f2;"><b>${i.partNo}</b> <span style="font-size:0.8rem; color:var(--secondary)">${i.desc}</span><div style="display:flex; gap:15px; margin-top:8px; font-size:0.85rem; font-weight:bold;">${i.labelIssues.NO_LABEL > 0 ? `<span style="color:var(--danger);"><i class="fas fa-tag"></i> Hilang: ${i.labelIssues.NO_LABEL} pcs</span>` : ''}${i.labelIssues.DAMAGED > 0 ? `<span style="color:#d97706;"><i class="fas fa-tags"></i> Rusak: ${i.labelIssues.DAMAGED} pcs</span>` : ''}</div><div style="font-size:0.75rem; color:var(--secondary); margin-top:6px;">Lokasi: ${Object.keys(i.locations).join(', ') || 'Belum Box'}</div></div>`; } }); if (count === 0) html = '<div style="text-align:center; padding:30px; color:var(--opname);"><i class="fas fa-check-circle" style="font-size:2rem; margin-bottom:10px; display:block;"></i>Semua Label Aman!</div>'; container.innerHTML = html; document.getElementById('labelReportModal').style.display = 'flex'; }
 function openRakModal() { if (!requireAdminAccess('membuka laporan rak')) return; const raks = new Set(); localItems.forEach(i => Object.keys(i.locations).forEach(box => raks.add(box.charAt(0).toUpperCase()))); const sel = document.getElementById('rakSelect'); sel.innerHTML = '<option value="">-- Pilih Rak --</option>'; [...raks].sort().forEach(r => sel.innerHTML += `<option value="${r}">Rak ${r}</option>`); document.getElementById('rakSummaryList').innerHTML = '<div style="text-align:center; color:#999; padding:20px;">Pilih rak di atas</div>'; document.getElementById('rakModal').style.display = 'flex'; }
@@ -2033,7 +2055,7 @@ async function addToOpnameBuffer(item, confirmedOverTarget = false) {
         ? Number(item.opnameCounts[box]) || 0
         : 0;
     const nextQty = currentQty + 1;
-    const targetQty = Number(item.sysQty) || 0;
+    const targetQty = getOpnameTargetQty(item, box);
 
     if (nextQty > targetQty && !confirmedOverTarget) {
         pendingOpnameOverScan = item;
@@ -2261,7 +2283,18 @@ function showOpnameBufferPanel() {
     renderOpnameBuffer();
 }
 
-function clearData() { if (!requireAdminAccess('menghapus semua data lokal')) return; if(confirm('Hapus Semua?')) { const tx = db.transaction('items','readwrite'); tx.objectStore('items').clear(); tx.oncomplete = () => location.reload(); } }
+function clearData() {
+    if (!requireAdminAccess('menghapus semua data lokal')) return;
+    if (!confirm('Hapus semua data lokal dan antrean upload? Data cloud tidak ikut dihapus.')) return;
+    const tx = db.transaction(['items', 'outbox'], 'readwrite');
+    tx.objectStore('items').clear();
+    tx.objectStore('outbox').clear();
+    tx.oncomplete = () => {
+        syncQueue = [];
+        location.reload();
+    };
+    tx.onerror = () => showToast('Penghapusan lokal gagal. Data tetap dipertahankan.');
+}
 
 // ============================================
 // SIMPAN BUFFER FUNCTIONS (Cashier Mode)

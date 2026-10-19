@@ -13,7 +13,7 @@
  * - currentTab: String — Active tab ID (simpan, opname, data, off-bs, packing)
  * - filteredItems: Array<Item> — Filtered items list untuk render
  * - boxToBoxYesToAll: Boolean — Persetujuan otomatis box-to-box hingga mode dimatikan
- * - Sync: batch and queue limits for explicit manual uploads; no automatic retry timer
+ * - Sync: IndexedDB outbox and server revisions; manual batch upload, no automatic retry timer
  * - Item identity and legacy-box classification shared by import, scan, and sync paths
  * 
  * QR Parser Config:
@@ -22,7 +22,7 @@
  * - Priority: standard → sclMGL → scl2025 → simple (first match wins)
  * 
  * Side Effects:
- * - localStorage read/write untuk persisten state
+ * - localStorage UI/session/log state; IndexedDB outbox is loaded by database.js
  * - Config accessed globally dari semua js files
  * ========================================
  */
@@ -111,8 +111,15 @@ const QR_PARSERS = {
 
 let db = null;
 let localItems = [];
-// Persist syncQueue & syncLogs to localStorage to survive refresh
-let syncQueue = JSON.parse(localStorage.getItem('wms_syncQueue')) || [];
+// syncQueue is an in-memory mirror of the IndexedDB outbox, loaded by initDB().
+let syncQueue = [];
+let legacySyncQueue = [];
+try {
+    const savedQueue = JSON.parse(localStorage.getItem('wms_syncQueue') || '[]');
+    legacySyncQueue = Array.isArray(savedQueue) ? savedQueue : [];
+} catch (error) {
+    console.error('Antrean sync lama tidak valid:', error);
+}
 let syncLogs = JSON.parse(localStorage.getItem('wms_syncLogs')) || [];
 let isSyncing = false;
 let filteredItems = [];
