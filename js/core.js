@@ -22,7 +22,7 @@
  * - updateBoxToBoxIndicator() — Render box asal/tujuan; pertahankan pasangan valid sampai scan box berikutnya
  * - getBoxToBoxItems() — Temukan part sumber berdasarkan kode box yang dinormalisasi
  * - confirmBoxToBoxYesToAll() — Setujui semua part dan lewati konfirmasi hingga mode B2B dimatikan
- * - handleOpnameScan()/handleOpnameRender() — Count per active box against that box's location quantity
+ * - handleOpnameScan()/handleOpnameRender() — Show counted/SYS_QTY plus per-box local split summary
  * - handleOpnameScan() — Reject part scans that do not belong to the active box
  * - getOpnameBufferQty(itemId, item) — Read the latest saved cumulative count for the active box
  * - resetCurrentBoxOpname() — Reset only the saved count, preserving part-to-box locations
@@ -1296,7 +1296,26 @@ function getOpnameBufferQty(itemId, item = null) {
 }
 
 function getOpnameTargetQty(item, box = activeBoxFilter) {
-    return Number(item?.locations?.[box]) || 0;
+    const totalQty = Number(item?.sysQty) || 0;
+    if (totalQty > 0) return totalQty;
+    if (box) return Number(item?.locations?.[box]) || 0;
+    return 0;
+}
+
+function getLocationSplitSummaryForBox(item, box = activeBoxFilter) {
+    const entries = Object.entries(item?.locations || {})
+        .filter(([location, qty]) => String(location || '').trim() && Number(qty) > 0);
+    if (entries.length === 0) return 'Belum ada split';
+
+    const normalizedBox = String(box || '').trim().toUpperCase();
+    const activeEntry = entries.find(([location]) => String(location).trim().toUpperCase() === normalizedBox);
+    const summary = [`This box${box ? ` ${box}` : ''}: ${Number(activeEntry?.[1]) || 0}`];
+    const otherEntries = entries.filter(([location]) => String(location).trim().toUpperCase() !== normalizedBox);
+    const spareEntries = otherEntries.filter(([location]) => /^SPARE-/i.test(String(location).trim()));
+    const otherMainEntries = otherEntries.filter(([location]) => !/^SPARE-/i.test(String(location).trim()));
+    spareEntries.forEach(([location, qty]) => summary.push(`Spare ${location}: ${Number(qty) || 0}`));
+    otherMainEntries.forEach(([location, qty]) => summary.push(`Other ${location}: ${Number(qty) || 0}`));
+    return summary.join(' | ');
 }
 
 function persistOpnameSession() {
@@ -1524,9 +1543,9 @@ function handleOpnameRender(reset = true) {
     show.forEach(i => {
         const counted = getOpnameBufferQty(i.id, i);
         const target = getOpnameTargetQty(i);
-        const splitText = formatLocationSplitSummary(i.locations);
+        const splitText = getLocationSplitSummaryForBox(i, activeBoxFilter);
         let badgeClass = 'qty-uncounted';
-        const qtyDisplay = `${counted} / ${target}`;
+        const qtyDisplay = `${counted}/${target}`;
         if (counted > 0) badgeClass = counted === target ? 'qty-match' : 'qty-diff';
         const pendingBadge = pendingIds.has(String(i.id)) ? `<span class="qty-badge qty-pending opname-pending" title="Perubahan lokal menunggu upload ke cloud" aria-label="Perubahan lokal menunggu upload ke cloud"><i class="fas fa-cloud-arrow-up"></i></span>` : '';
         html += `
@@ -1534,7 +1553,7 @@ function handleOpnameRender(reset = true) {
             <div style="flex:1" onclick="openEditModal(${i.id})">
                 <span class="part-code" style="font-size:0.95rem; font-weight:bold;">${i.partNo}</span>
                 <span class="part-desc" style="font-size:0.75rem; color:#64748b;">${i.desc || ''}</span>
-                <div style="font-size:0.72rem; color:#334155; margin-top:4px; font-weight:600;">Split: ${splitText}</div>
+                <div style="font-size:0.72rem; color:#334155; margin-top:4px; font-weight:600;">${splitText}</div>
             </div>
             <div style="display:flex; gap:4px; align-items:center; margin-left:6px;">
                 ${pendingBadge}

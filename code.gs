@@ -938,12 +938,21 @@ function mergeDataFast(sheet, incomingItems, revisionColumnIndex) {
     if (existingRow && getMasterItemKey(existingRow[1], existingRow[3], existingRow[4]) !== key) {
       throw new Error(`ID ${item.id} sudah dipakai part lain; sinkronisasi dibatalkan untuk mencegah data tertukar.`);
     }
-    const locString = JSON.stringify(item.locations || {});
-    const labelString = JSON.stringify(item.labelIssues || {});
-    const opnameCounts = item.opnameCounts === undefined && existingRow
-      ? existingRow[9]
-      : JSON.stringify(item.opnameCounts || {});
-    const rowData = [ existingRow ? existingRow[0] : item.id, item.partNo, item.desc, item.locType || '', item.techName || '', item.sysQty || 0, locString, labelString, now, opnameCounts ];
+    const keptLocations = existingRow ? existingRow[6] || '{}' : '{}';
+    const keptLabelIssues = existingRow ? existingRow[7] || '{}' : '{}';
+    const keptOpnameCounts = existingRow ? existingRow[9] || '{}' : '{}';
+    const rowData = [
+      existingRow ? existingRow[0] : item.id,
+      item.partNo,
+      item.desc || (existingRow ? existingRow[2] : ''),
+      item.locType || (existingRow ? existingRow[3] : ''),
+      item.techName || (existingRow ? existingRow[4] : ''),
+      Number(item.sysQty) || 0,
+      keptLocations,
+      keptLabelIssues,
+      now,
+      keptOpnameCounts
+    ];
     if (columnCount > 10) {
       rowData.push(...(existingRow ? existingRow.slice(10, columnCount) : Array(columnCount - 10).fill("")));
     }

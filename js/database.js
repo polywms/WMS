@@ -2,7 +2,7 @@
  * Tujuan: Persistensi IndexedDB, sinkronisasi Admin, dan refresh baca otomatis untuk User.
  * Caller: main.js, core.js, dan handler kontrol sinkronisasi di index.html.
  * Dependensi: auth.js (Admin-authorized writes), config.js (db, antrean, sesi), IndexedDB, API_URL.
- * Main Functions: initDB() migrates the IndexedDB outbox; saveDB()/saveDBBatch() atomically store records and queue; sync handlers acknowledge revisions or resolve conflicts.
+ * Main Functions: initDB() migrates the IndexedDB outbox; saveDB()/saveDBBatch() atomically store records and queue; sync handlers acknowledge revisions or resolve conflicts; cloud merge keeps local split counts and only refreshes part metadata and SYS_QTY.
  * Side Effects: IndexedDB item/outbox read/write, sync-log localStorage, background User GET, and user-triggered Admin POST/GET requests.
  */
 // js/database.js
@@ -293,6 +293,20 @@ function dedupeSyncQueueByIdentity(queue) {
     return Array.from(merged.values());
 }
 
+function toCloudSyncPayload(item) {
+    if (!item || !String(item.partNo || '').trim()) return null;
+    return {
+        id: item.id,
+        partNo: item.partNo,
+        desc: item.desc || '',
+        locType: item.locType || '',
+        techName: item.techName || '',
+        sysQty: Number(item.sysQty) || 0,
+        revision: Number(item.revision) || 0,
+        updated_at: Number(item.updated_at) || Date.now()
+    };
+}
+
 async function validateAndRepairLocalDataIntegrity() {
     const result = dedupeLocalItemsByIdentity(localItems);
     if (!result.changed) return false;
@@ -440,14 +454,30 @@ async function downloadFromServer(options = {}) {
                 const cloudLocations = cloudItem.locations || {};
                 const locationConflict = !areWmsLocationsEqual(localLocations, cloudLocations);
                 if (localUpdatedAt > cloudUpdatedAt) {
-                    return { cloudItem, merged: localItem, locationConflict: false };
+                    const mergedLocal = {
+                        ...localItem,
+                        desc: cloudItem.desc || localItem.desc || '',
+                        locType: cloudItem.locType || localItem.locType || '',
+                        techName: cloudItem.techName || localItem.techName || '',
+                        sysQty: Number(cloudItem.sysQty) || Number(localItem.sysQty) || 0,
+                        locations: localItem.locations || cloudItem.locations || {},
+                        opnameCounts: localItem.opnameCounts || cloudItem.opnameCounts || {},
+                        updated_at: Math.max(localUpdatedAt, cloudUpdatedAt)
+                    };
+                    return { cloudItem, merged: mergedLocal, locationConflict: false };
                 }
-                const merged = { ...localItem, ...cloudItem, id: localItem.id };
-                if ((!cloudItem.opnameCounts || Object.keys(cloudItem.opnameCounts).length === 0)
-                    && localItem.opnameCounts
-                    && Object.keys(localItem.opnameCounts).length > 0) {
-                    merged.opnameCounts = localItem.opnameCounts;
-                }
+                const merged = {
+                    ...localItem,
+                    ...cloudItem,
+                    id: localItem.id,
+                    desc: cloudItem.desc || localItem.desc || '',
+                    locType: cloudItem.locType || localItem.locType || '',
+                    techName: cloudItem.techName || localItem.techName || '',
+                    sysQty: Number(cloudItem.sysQty) || Number(localItem.sysQty) || 0,
+                    locations: localItem.locations || cloudItem.locations || {},
+                    opnameCounts: localItem.opnameCounts || cloudItem.opnameCounts || {},
+                    updated_at: Math.max(localUpdatedAt, cloudUpdatedAt)
+                };
                 return { cloudItem, localItem, merged, locationConflict };
             });
         const candidates = mergeCandidates.filter(Boolean);
@@ -671,7 +701,9 @@ async function processSyncQueue() {
         while (syncQueue.length > 0) {
             batchNum++;
             const batch = syncQueue.slice(0, MAX_SYNC_BATCH);
-            const uploadItems = batch.map(({ localVersion, ...item }) => item);
+            const uploadItems = batch
+                .map(({ localVersion, ...item }) => toCloudSyncPayload(item))
+                .filter(Boolean);
             
             const payload = { action: "sync", data: uploadItems, logs: batchNum === 1 ? syncLogs : [], batch: batchNum };
             updateSyncUI(`<i class="fas fa-sync"></i> Syncing (Batch ${batchNum})...`);

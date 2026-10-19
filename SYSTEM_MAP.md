@@ -74,12 +74,12 @@ User opens sync dialog → Upload to server [database.js] — POST queued record
 ```
 Scan box → handleOpnameScan() → setOpnameBoxFilter()
   ↓
-handleOpnameRender() — Show parts registered in active box with X/Y (counted / that box's location qty), independent of SIMPAN filters
+handleOpnameRender() — Show parts registered in active box with X/Y based on SYS_QTY as the canonical target, while preserving local split-box state (`locations` and `opnameCounts` stay local)
   ↓
 Scan part QR → handleOpnameScan() — Reject parts not registered in the active box
   ↓
 When box is selected, show the latest saved scan count from `item.opnameCounts[box]` as X
-  (a box with no previous count starts at 0; `locations` is membership only)
+  (a box with no previous count starts at 0; `locations` remains split membership, `SYS_QTY` is the target for the badge)
   ↓
 Each scan reads saved X, adds 1, and persists immediately; scanning never resets prior X
   ↓
@@ -105,6 +105,12 @@ Each scan/correction → saveDBBatch() for that part → IndexedDB + persistent 
   ↓
 After switching boxes and selecting a previously saved box, X is restored from its saved opnameCounts value
 ```
+
+### Simplified Sync Rules (current)
+- Upload hanya mengirim metadata part + `SYS_QTY`; `locations` dan `opnameCounts` tidak ditulis ulang dari cloud.
+- Cloud masih bisa memperbarui nama part (`DESC`, `LOC_TYPE`, `TECH_NAME`) agar label lokal selalu sama dengan master.
+- `SYS_QTY` adalah acuan absolut untuk badge OPNAME (`0/4`, `This box : 2 | Spare box code : 2`).
+- Data lokal tetap diprioritaskan untuk hitungan box agar hasil opname tidak tertimpa oleh cloud.
 
 ### Flow 3: Off BS (Off-Balance-Sheet)
 ```
