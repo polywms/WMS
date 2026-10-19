@@ -1524,6 +1524,7 @@ function handleOpnameRender(reset = true) {
     show.forEach(i => {
         const counted = getOpnameBufferQty(i.id, i);
         const target = getOpnameTargetQty(i);
+        const splitText = formatLocationSplitSummary(i.locations);
         let badgeClass = 'qty-uncounted';
         const qtyDisplay = `${counted} / ${target}`;
         if (counted > 0) badgeClass = counted === target ? 'qty-match' : 'qty-diff';
@@ -1533,6 +1534,7 @@ function handleOpnameRender(reset = true) {
             <div style="flex:1" onclick="openEditModal(${i.id})">
                 <span class="part-code" style="font-size:0.95rem; font-weight:bold;">${i.partNo}</span>
                 <span class="part-desc" style="font-size:0.75rem; color:#64748b;">${i.desc || ''}</span>
+                <div style="font-size:0.72rem; color:#334155; margin-top:4px; font-weight:600;">Split: ${splitText}</div>
             </div>
             <div style="display:flex; gap:4px; align-items:center; margin-left:6px;">
                 ${pendingBadge}
@@ -1578,7 +1580,18 @@ function clearOpnameBoxFilter() {
 }
 function setOpnameFilter(type, btn) { opnameFilter = type; document.querySelectorAll('.segment-btn').forEach(b => b.classList.remove('active')); btn.classList.add('active'); handleOpnameRender(true); }
 
-function showOpnameInfo(item) { tempPart = item; document.getElementById('opnameInfoPanel').style.display = 'block'; document.getElementById('infoPartNo').innerText = item.partNo; document.getElementById('infoPartDesc').innerText = item.desc; document.getElementById('infoLocList').innerText = Object.entries(item.locations).map(([k,v])=>`${k} (${v})`).join(', ') || "Belum ada lokasi"; document.getElementById('opnameList').style.display = 'none'; }
+function showOpnameInfo(item) {
+    tempPart = item;
+    document.getElementById('opnameInfoPanel').style.display = 'block';
+    document.getElementById('infoPartNo').innerText = item.partNo;
+    document.getElementById('infoPartDesc').innerText = item.desc;
+    const splitList = Object.entries(item.locations || {})
+        .filter(([box, qty]) => box && Number(qty) > 0)
+        .map(([box, qty]) => `${box}: ${qty}`)
+        .join(', ');
+    document.getElementById('infoLocList').innerText = splitList || "Belum ada lokasi";
+    document.getElementById('opnameList').style.display = 'none';
+}
 
 async function clearOpname() {
     if (confirm("PERINGATAN!\n\nReset SEMUA HASIL OPNAME (Qty jadi 0)?")) {
@@ -1673,6 +1686,13 @@ async function resetCurrentBoxOpname() {
     }
 }
 
+function formatLocationSplitSummary(locations = {}) {
+    const entries = Object.entries(locations || {})
+        .filter(([box, qty]) => box && Number(qty) > 0)
+        .map(([box, qty]) => `${String(box).trim()}:${Number(qty)}`);
+    return entries.length > 0 ? entries.join(', ') : 'Belum ada split';
+}
+
 function renderDataList(reset = false) {
     if(reset) renderLimit = 50; const q = document.getElementById('cariInput').value.toLowerCase(); const container = document.getElementById('dataList');
     if(reset || container.innerHTML === '') container.innerHTML = '';
@@ -1682,9 +1702,9 @@ function renderDataList(reset = false) {
     const show = dataset.slice(0, renderLimit); if(show.length===0) { container.innerHTML='<div style="text-align:center; padding:20px; color:#999">Tidak ditemukan</div>'; return; }
     let html = '';
     show.forEach(i => {
-        const total = Object.values(i.locations).reduce((a,b)=>a+b,0); 
-        // Location Badge 1 baris
-        const locBadges = Object.entries(i.locations).map(([k,v])=>`<span class="loc-badge" style="font-size:0.7rem; padding:2px 6px;">${k}(${v})</span>`).join('');
+        const total = Object.values(i.locations || {}).reduce((a,b)=>a+b,0); 
+        const locBadges = Object.entries(i.locations || {}).map(([k,v])=>`<span class="loc-badge" style="font-size:0.7rem; padding:2px 6px;">${k}(${v})</span>`).join('');
+        const splitSummary = formatLocationSplitSummary(i.locations);
         const opnameDate = i.lastOpnameDate ? new Date(i.lastOpnameDate).toLocaleDateString('id-ID', {year:'numeric', month:'short', day:'numeric'}) : '-';
         let color = total!==i.sysQty ? 'var(--danger)' : (total>0 ? 'var(--opname)' : 'var(--text)');
         let cardStyle = i.desc === 'PART BARU' ? 'border-left: 5px solid #ca8a04; background:#fffbeb;' : '';
@@ -1700,6 +1720,7 @@ function renderDataList(reset = false) {
                     ${locBadges ? `<div style="display:flex; gap:4px; margin-left:auto; flex-wrap:wrap;">${locBadges}</div>` : ''}
                 </div>
                 <div style="font-size:0.8rem; color:var(--secondary); margin-bottom:4px;">${i.desc}</div>
+                <div style="font-size:0.72rem; color:#334155; margin-bottom:5px; font-weight:600;">Split: ${splitSummary}</div>
                 <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
                     <div style="font-size:0.75rem; color:#666;"><i class="fas fa-calendar-alt"></i> Opname: ${opnameDate}</div>
                     <div style="font-size:0.9rem; font-weight:bold; color:#10b981; background:#f0fdf4; padding:4px 8px; border-radius:6px; white-space:nowrap;">${hargaFormatted}</div>

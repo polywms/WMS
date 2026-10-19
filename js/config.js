@@ -34,9 +34,9 @@ const API_URL = "https://script.google.com/macros/s/AKfycbxdGnnZunAV5rr_2FN3nQ4k
 // ===== QUEUE & SYNC CONFIG =====
 const MAX_SYNC_BATCH = 100;      // Max items per sync POST
 const MAX_QUEUE_SIZE = 500;      // Prevent queue overflow
-const BOX_CODE_PATTERN = /^(?:[A-Z][0-9]{0,2}-[0-9]{2,3}|[A-Z]-[A-Z][0-9]-[0-9]{2})$/;
+const BOX_CODE_PATTERN = /^(?:[A-Z][0-9]{0,2}-[0-9]{2,3}|[A-Z]-[A-Z][0-9]-[0-9]{2}|SPARE-[A-Z][0-9]-[0-9]{2})$/;
 const LEGACY_BOX_CODE_PATTERN = /^[A-Z][0-9]{0,2}-[0-9]{2,3}$/;
-const NEW_BOX_CODE_PATTERN = /^[A-Z]-[A-Z][0-9]-[0-9]{2}$/;
+const NEW_BOX_CODE_PATTERN = /^(?:[A-Z]-[A-Z][0-9]-[0-9]{2}|SPARE-[A-Z][0-9]-[0-9]{2})$/;
 
 function getWmsItemIdentityKey(item) {
     const partNo = String(item.partNo || '').trim().toUpperCase();

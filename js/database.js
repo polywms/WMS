@@ -195,6 +195,142 @@ function loadSyncQueueFromOutbox() {
     });
 }
 
+function normalizeWmsLocationMap(locations) {
+    const normalized = {};
+    Object.entries(locations || {}).forEach(([box, qty]) => {
+        const cleanBox = String(box || '').trim();
+        const numericQty = Number(qty) || 0;
+        if (!cleanBox || numericQty <= 0) return;
+        normalized[cleanBox] = (Number(normalized[cleanBox]) || 0) + numericQty;
+    });
+    return normalized;
+}
+
+function mergeWmsLocationMaps(...maps) {
+    const merged = {};
+    maps.filter(Boolean).forEach(source => {
+        Object.entries(source || {}).forEach(([box, qty]) => {
+            const cleanBox = String(box || '').trim();
+            const numericQty = Number(qty) || 0;
+            if (!cleanBox || numericQty <= 0) return;
+            merged[cleanBox] = (Number(merged[cleanBox]) || 0) + numericQty;
+        });
+    });
+    return Object.fromEntries(Object.entries(merged).filter(([, qty]) => Number(qty) > 0));
+}
+
+function dedupeLocalItemsByIdentity(items) {
+    const merged = new Map();
+    const rows = Array.isArray(items) ? items : [];
+    rows.forEach(item => {
+        if (!item || !String(item.partNo || '').trim()) return;
+        const key = getWmsItemIdentityKey(item);
+        const existing = merged.get(key);
+
+        if (!existing) {
+            merged.set(key, {
+                ...item,
+                locations: normalizeWmsLocationMap(item.locations),
+                opnameCounts: normalizeWmsLocationMap(item.opnameCounts)
+            });
+            return;
+        }
+
+        const candidate = {
+            ...existing,
+            ...item,
+            id: existing.id || item.id,
+            partNo: existing.partNo || item.partNo,
+            desc: existing.desc || item.desc,
+            locType: existing.locType || item.locType,
+            techName: existing.techName || item.techName,
+            locations: mergeWmsLocationMaps(existing.locations || {}, item.locations || {}),
+            opnameCounts: mergeWmsLocationMaps(existing.opnameCounts || {}, item.opnameCounts || {}),
+            updated_at: Math.max(Number(existing.updated_at) || 0, Number(item.updated_at) || 0),
+            revision: Math.max(Number(existing.revision) || 0, Number(item.revision) || 0)
+        };
+
+        if (!candidate.lastOpnameDate && item.lastOpnameDate) candidate.lastOpnameDate = item.lastOpnameDate;
+        if (!candidate.harga && item.harga) candidate.harga = item.harga;
+        if ((Number(candidate.sysQty) || 0) <= 0 && (Number(item.sysQty) || 0) > 0) candidate.sysQty = Number(item.sysQty) || 0;
+
+        merged.set(key, candidate);
+    });
+
+    const deduped = Array.from(merged.values()).sort((a, b) => String(a.partNo).localeCompare(String(b.partNo)));
+    const signature = rows.map(item => `${getWmsItemIdentityKey(item)}|${String(item.id)}`).sort().join('|');
+    const dedupedSignature = deduped.map(item => `${getWmsItemIdentityKey(item)}|${String(item.id)}`).sort().join('|');
+
+    return {
+        items: deduped,
+        changed: signature !== dedupedSignature
+    };
+}
+
+function dedupeSyncQueueByIdentity(queue) {
+    const merged = new Map();
+    const rows = Array.isArray(queue) ? queue : [];
+    rows.forEach(item => {
+        if (!item || !String(item.partNo || '').trim()) return;
+        const key = getWmsItemIdentityKey(item);
+        const existing = merged.get(key);
+        if (!existing) {
+            merged.set(key, { ...item, locations: normalizeWmsLocationMap(item.locations), opnameCounts: normalizeWmsLocationMap(item.opnameCounts) });
+            return;
+        }
+
+        const candidate = {
+            ...existing,
+            ...item,
+            id: existing.id || item.id,
+            updated_at: Math.max(Number(existing.updated_at) || 0, Number(item.updated_at) || 0),
+            revision: Math.max(Number(existing.revision) || 0, Number(item.revision) || 0),
+            locations: mergeWmsLocationMaps(existing.locations || {}, item.locations || {}),
+            opnameCounts: mergeWmsLocationMaps(existing.opnameCounts || {}, item.opnameCounts || {})
+        };
+        merged.set(key, candidate);
+    });
+    return Array.from(merged.values());
+}
+
+async function validateAndRepairLocalDataIntegrity() {
+    const result = dedupeLocalItemsByIdentity(localItems);
+    if (!result.changed) return false;
+
+    localItems = result.items;
+    syncQueue = dedupeSyncQueueByIdentity(syncQueue);
+
+    const tx = db.transaction(['items', 'outbox'], 'readwrite');
+    const itemsStore = tx.objectStore('items');
+    const outboxStore = tx.objectStore('outbox');
+    const itemIds = new Set(localItems.map(item => String(item.id)));
+    const queueIds = new Set(syncQueue.map(item => String(item.id)));
+
+    const existingItems = await new Promise((resolve, reject) => {
+        const request = itemsStore.getAll();
+        request.onsuccess = () => resolve(request.result || []);
+        request.onerror = () => reject(request.error || new Error('Gagal mengecek duplikasi item lokal.'));
+    });
+    const existingQueue = await new Promise((resolve, reject) => {
+        const request = outboxStore.getAll();
+        request.onsuccess = () => resolve(request.result || []);
+        request.onerror = () => reject(request.error || new Error('Gagal mengecek duplikasi antrean upload.'));
+    });
+
+    existingItems.filter(item => !itemIds.has(String(item.id))).forEach(item => itemsStore.delete(item.id));
+    localItems.forEach(item => itemsStore.put(item));
+    existingQueue.filter(item => !queueIds.has(String(item.id))).forEach(item => outboxStore.delete(item.id));
+    syncQueue.forEach(item => outboxStore.put(item));
+
+    await new Promise((resolve, reject) => {
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error || new Error('Validasi data lokal gagal.'));
+        tx.onabort = () => reject(tx.error || new Error('Validasi data lokal dibatalkan.'));
+    });
+
+    return true;
+}
+
 function initDB() {
     return new Promise((resolve, reject) => {
         const req = indexedDB.open(DB_NAME, 2);
@@ -211,6 +347,13 @@ function initDB() {
                 await migrateLegacySyncQueue();
                 await loadSyncQueueFromOutbox();
                 await loadDataFromLocal();
+                const integrityFixed = await validateAndRepairLocalDataIntegrity();
+                if (integrityFixed) {
+                    if (typeof showToast === 'function') showToast('<i class="fas fa-shield-check"></i> Duplikasi data otomatis dibersihkan.');
+                    if (typeof feedback === 'function') feedback('warning');
+                    if (currentTab === 'data' && typeof renderDataList === 'function') renderDataList(true);
+                    if (currentTab === 'opname' && typeof handleOpnameRender === 'function') handleOpnameRender(true);
+                }
                 updateLocalSyncStatus();
                 resolve();
             } catch (error) {
@@ -514,6 +657,10 @@ function acknowledgeSyncBatch(batch, revisions) {
 
 async function processSyncQueue() {
     if (!requireAdminAccess('mengunggah antrean perubahan')) return false;
+    const integrityFixed = await validateAndRepairLocalDataIntegrity();
+    if (integrityFixed && typeof showToast === 'function') {
+        showToast('<i class="fas fa-shield-check"></i> Antrean lokal dibersihkan sebelum upload.');
+    }
     if (isSyncing || syncQueue.length === 0 || !navigator.onLine) return false;
     isSyncing = true; 
     updateSyncUI('<i class="fas fa-sync"></i> Syncing...');

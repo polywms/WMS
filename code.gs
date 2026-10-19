@@ -17,7 +17,6 @@ const ADMIN_PASSWORD_MIN_LENGTH = 4;
 function doGet(e) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
 
-  // If client requests meta info, return META sheet values
   try {
     if (e && e.parameter && e.parameter.meta === 'true') {
       const metaSheet = ss.getSheetByName('META');
@@ -38,22 +37,30 @@ function doGet(e) {
 
   const sheet = ss.getSheetByName(SHEET_DB);
   if (!sheet) throw new Error("Sheet DB_MASTER tidak ditemukan!");
-  const data = sheet.getDataRange().getValues();
-  const revisionColumnIndex = data.length > 0 ? data[0].indexOf("REVISION") : -1;
-  const items = [];
+  ensureMasterColumnLayout(sheet);
 
+  const data = sheet.getDataRange().getValues();
+  const header = data[0] || [];
+  const items = [];
   for (let i = 1; i < data.length; i++) {
     const row = data[i];
-    if (!row[0]) continue; 
+    if (!row || !row[0]) continue;
+
+    const locationIndex = header.indexOf('LOCATIONS');
+    const labelIndex = header.indexOf('LABEL_ISSUES');
+    const qtyIndex = header.indexOf('SYS_QTY');
+    const updatedIndex = header.indexOf('UPDATED_AT');
+    const opnameIndex = header.indexOf('OPNAME_COUNTS');
+    const revisionIndex = header.indexOf('REVISION');
 
     let locations = {};
-    try { locations = JSON.parse(row[6]) || {}; } catch(err) {}
+    try { locations = JSON.parse(row[locationIndex >= 0 ? locationIndex : 6] || '{}') || {}; } catch (error) {}
 
     let labelIssues = {};
-    try { labelIssues = JSON.parse(row[7]) || {}; } catch(err) {}
+    try { labelIssues = JSON.parse(row[labelIndex >= 0 ? labelIndex : 7] || '{}') || {}; } catch (error) {}
 
     let opnameCounts = {};
-    try { opnameCounts = JSON.parse(row[9]) || {}; } catch(err) {}
+    try { opnameCounts = JSON.parse(row[opnameIndex >= 0 ? opnameIndex : 9] || '{}') || {}; } catch (error) {}
 
     items.push({
       id: Number(row[0]),
@@ -61,12 +68,14 @@ function doGet(e) {
       desc: row[2],
       locType: row[3],
       techName: row[4],
-      sysQty: Number(row[5]) || 0,
+      sysQty: Number(row[qtyIndex >= 0 ? qtyIndex : 5]) || 0,
       locations: locations,
       labelIssues: labelIssues,
       opnameCounts: opnameCounts,
-      revision: revisionColumnIndex >= 0 ? (Number(row[revisionColumnIndex]) || 0) : 0,
-      updated_at: row[8] instanceof Date ? row[8].getTime() : (Number(row[8]) || Date.parse(row[8]) || 0)
+      revision: revisionIndex >= 0 ? (Number(row[revisionIndex]) || 0) : 0,
+      updated_at: row[updatedIndex >= 0 ? updatedIndex : 8] instanceof Date
+        ? row[updatedIndex >= 0 ? updatedIndex : 8].getTime()
+        : (Number(row[updatedIndex >= 0 ? updatedIndex : 8]) || Date.parse(String(row[updatedIndex >= 0 ? updatedIndex : 8] || '')) || 0)
     });
   }
 
@@ -554,6 +563,7 @@ function doPost(e) {
       try {
         ensureDbMasterLocationProtection(dbSheet);
         const revisionColumnIndex = ensureMasterRevisionColumn(dbSheet);
+        clearDuplicateMasterRows(dbSheet, revisionColumnIndex);
         if (action === "sync" && items.length > 0) {
           const conflicts = getMasterRevisionConflicts(dbSheet, items, revisionColumnIndex);
           if (conflicts.length > 0) {
@@ -627,12 +637,39 @@ function doPost(e) {
   }
 }
 
+function ensureMasterColumnLayout(sheet) {
+  const headers = [
+    'ID', 'PART_NO', 'DESC', 'LOC_TYPE', 'TECH_NAME', 'SYS_QTY',
+    'LOCATIONS', 'LABEL_ISSUES', 'UPDATED_AT', 'OPNAME_COUNTS', 'HARGA', 'REVISION'
+  ];
+  const data = sheet.getDataRange().getValues();
+  if (data.length === 0) {
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    return;
+  }
+
+  const existing = data[0] || [];
+  headers.forEach((headerName, index) => {
+    if (existing[index] !== headerName) {
+      if (typeof existing[index] === 'undefined' || existing[index] === '') {
+        sheet.getRange(1, index + 1).setValue(headerName);
+      } else {
+        sheet.getRange(1, index + 1).setValue(headerName);
+      }
+    }
+  });
+
+  return;
+}
+
 function ensureMasterRevisionColumn(sheet) {
   const data = sheet.getDataRange().getValues();
   if (data.length === 0) throw new Error("DB_MASTER belum memiliki header.");
-  let index = data[0].indexOf("REVISION");
+  ensureMasterColumnLayout(sheet);
+  const dataAfterLayout = sheet.getDataRange().getValues();
+  let index = dataAfterLayout[0].indexOf("REVISION");
   if (index < 0) {
-    index = data[0].length;
+    index = dataAfterLayout[0].length;
     sheet.getRange(1, index + 1).setValue("REVISION");
   }
   return index;
@@ -716,14 +753,56 @@ function validateLocationDestinations(sheet, incomingItems) {
       : byKey.get(key);
     const existingLocations = existing ? (JSON.parse(existing[6] || "{}")) : {};
     const existingKeys = new Set(Object.keys(existingLocations).map(box => String(box).trim().toUpperCase()));
+    const validBoxPattern = /^(?:[A-Z]-[A-Z][0-9]-[0-9]{2}|SPARE-[A-Z][0-9]-[0-9]{2})$/;
     const invalidDestination = Object.keys(item.locations || {}).find(box => {
       const normalized = String(box).trim().toUpperCase();
-      return !existingKeys.has(normalized) && !/^[A-Z]-[A-Z][0-9]-[0-9]{2}$/.test(normalized);
+      return !existingKeys.has(normalized) && !validBoxPattern.test(normalized);
     });
     if (invalidDestination) {
       throw new Error(`Lokasi tujuan ${invalidDestination} tidak valid atau merupakan format legacy.`);
     }
   });
+}
+
+function clearDuplicateMasterRows(sheet, revisionColumnIndex) {
+  const rows = sheet.getDataRange().getValues();
+  if (rows.length <= 1) return;
+
+  const header = rows[0];
+  const latestByKey = new Map();
+  const rowCount = rows.length;
+
+  for (let i = 1; i < rowCount; i++) {
+    const row = rows[i];
+    if (!row || row.every(value => value === "" || value === null || value === undefined)) continue;
+    const partNo = String(row[1] || "").trim();
+    if (!partNo) continue;
+    const key = getMasterItemKey(partNo, row[3], row[4]);
+    const rowUpdatedAt = row[8] instanceof Date ? row[8].getTime() : Number(row[8]) || Date.parse(String(row[8] || "")) || 0;
+    const rowRevision = Number(row[revisionColumnIndex]) || 0;
+    const current = latestByKey.get(key);
+    if (!current || rowUpdatedAt > current.updatedAt || (rowUpdatedAt === current.updatedAt && rowRevision > current.revision) || (rowUpdatedAt === current.updatedAt && rowRevision === current.revision && i > current.index)) {
+      latestByKey.set(key, { index: i, updatedAt: rowUpdatedAt, revision: rowRevision, row: row });
+    }
+  }
+
+  const keepIndexes = new Set(Array.from(latestByKey.values()).map(entry => entry.index));
+  const finalRows = [header];
+  for (let i = 1; i < rowCount; i++) {
+    if (keepIndexes.has(i)) finalRows.push(rows[i]);
+  }
+
+  const width = Math.max(...finalRows.map(row => row.length));
+  const normalized = finalRows.map(row => {
+    const copy = [...row];
+    while (copy.length < width) copy.push("");
+    return copy;
+  });
+
+  sheet.clearContents();
+  if (normalized.length > 0) {
+    sheet.getRange(1, 1, normalized.length, width).setValues(normalized);
+  }
 }
 
 function mergeStockQuantities(sheet, incomingItems, revisionColumnIndex) {

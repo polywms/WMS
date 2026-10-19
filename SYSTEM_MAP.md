@@ -192,7 +192,7 @@ Keep the committed count in `item.opnameCounts[box]`; never alter location membe
   ↓
 One IndexedDB transaction writes item + item-keyed outbox; startup migrates legacy localStorage queue
   ↓
-[On startup] Load IndexedDB only; no cloud fetch occurs
+[On startup] Load IndexedDB, validate duplicate identity keys, merge same-part duplicates, and repair queue before any upload
   ↓
 [On explicit Upload action] processSyncQueue()
   ↓
