@@ -2,7 +2,7 @@
  * Tujuan: Persistensi IndexedDB, sinkronisasi Admin, dan refresh baca otomatis untuk User.
  * Caller: main.js, core.js, dan handler kontrol sinkronisasi di index.html.
  * Dependensi: auth.js (Admin-authorized writes), config.js (db, antrean, sesi), IndexedDB, API_URL.
- * Main Functions: initDB() migrates the IndexedDB outbox; saveDB()/saveDBBatch() atomically store records and queue; sync handlers acknowledge revisions or resolve conflicts; cloud merge keeps local split counts and only refreshes part metadata and SYS_QTY.
+ * Main Functions: initDB() migrates the IndexedDB outbox; saveDB()/saveDBBatch() atomically store records and queue; sync handlers acknowledge revisions or resolve conflicts; cloud downloads always refresh SYS_QTY while preserving local counts and pending changes.
  * Side Effects: IndexedDB item/outbox read/write, sync-log localStorage, background User GET, and user-triggered Admin POST/GET requests.
  */
 // js/database.js
@@ -439,13 +439,19 @@ async function downloadFromServer(options = {}) {
         const localByKey = new Map(localRecords.map(item => [getWmsItemIdentityKey(item), item]));
         const pendingIds = new Set(syncQueue.map(item => item.id));
         const pendingKeys = new Set(syncQueue.map(getWmsItemIdentityKey));
+        const getCloudSysQty = (cloudItem, fallbackItem) => {
+            const value = cloudItem?.sysQty;
+            if (value === undefined || value === null || value === '') return Number(fallbackItem?.sysQty) || 0;
+            const quantity = Number(value);
+            return Number.isFinite(quantity) ? quantity : Number(fallbackItem?.sysQty) || 0;
+        };
         const mergeCandidates = result.data
             .filter(item => item && item.id !== undefined && item.id !== null)
             .map(cloudItem => {
                 const localItem = localById.get(cloudItem.id)
                     || localByKey.get(getWmsItemIdentityKey(cloudItem));
                 if (pendingIds.has(cloudItem.id) || pendingKeys.has(getWmsItemIdentityKey(cloudItem))) {
-                    return null;
+                    return { cloudItem, localItem, pending: true };
                 }
                 if (!localItem) return { cloudItem, merged: { ...cloudItem }, locationConflict: false };
                 const localUpdatedAt = Number(localItem.updated_at) || Date.parse(localItem.updated_at) || 0;
@@ -459,7 +465,7 @@ async function downloadFromServer(options = {}) {
                         desc: cloudItem.desc || localItem.desc || '',
                         locType: cloudItem.locType || localItem.locType || '',
                         techName: cloudItem.techName || localItem.techName || '',
-                        sysQty: Number(cloudItem.sysQty) || Number(localItem.sysQty) || 0,
+                        sysQty: getCloudSysQty(cloudItem, localItem),
                         locations: localItem.locations || cloudItem.locations || {},
                         opnameCounts: localItem.opnameCounts || cloudItem.opnameCounts || {},
                         updated_at: Math.max(localUpdatedAt, cloudUpdatedAt)
@@ -473,14 +479,15 @@ async function downloadFromServer(options = {}) {
                     desc: cloudItem.desc || localItem.desc || '',
                     locType: cloudItem.locType || localItem.locType || '',
                     techName: cloudItem.techName || localItem.techName || '',
-                    sysQty: Number(cloudItem.sysQty) || Number(localItem.sysQty) || 0,
+                    sysQty: getCloudSysQty(cloudItem, localItem),
                     locations: localItem.locations || cloudItem.locations || {},
                     opnameCounts: localItem.opnameCounts || cloudItem.opnameCounts || {},
                     updated_at: Math.max(localUpdatedAt, cloudUpdatedAt)
                 };
                 return { cloudItem, localItem, merged, locationConflict };
             });
-        const candidates = mergeCandidates.filter(Boolean);
+        const candidates = mergeCandidates.filter(candidate => candidate && !candidate.pending);
+        const pendingCloudUpdates = mergeCandidates.filter(candidate => candidate?.pending);
         const conflictCandidates = candidates.filter(candidate => candidate.locationConflict);
         const useCloudLocations = !backgroundUserRefresh && conflictCandidates.length > 0
             && confirm(`Cloud dan lokal memiliki lokasi berbeda pada ${conflictCandidates.length} part. Gunakan lokasi dari Cloud untuk part tersebut? Pilih Batal untuk mempertahankan lokasi lokal yang konflik.`);
@@ -497,22 +504,54 @@ async function downloadFromServer(options = {}) {
         });
 
         let appliedDownloadCount = 0;
-        if (changedItems.length > 0) {
+        if (changedItems.length > 0 || pendingCloudUpdates.length > 0) {
             await new Promise((resolve, reject) => {
                 let tx;
                 try {
                     tx = db.transaction(['items', 'outbox'], 'readwrite');
                     const store = tx.objectStore('items');
-                    const outboxRequest = tx.objectStore('outbox').getAll();
-                    outboxRequest.onsuccess = () => {
-                        const pendingIds = new Set(outboxRequest.result.map(item => String(item.id)));
-                        const pendingKeys = new Set(outboxRequest.result.map(getWmsItemIdentityKey));
+                    const outboxStore = tx.objectStore('outbox');
+                    const itemsRequest = store.getAll();
+                    const outboxRequest = outboxStore.getAll();
+                    let currentItems;
+                    let currentOutbox;
+                    const applyUpdates = () => {
+                        if (!currentItems || !currentOutbox) return;
+                        const findByCloudIdentity = (records, cloudItem) => records.find(item => String(item.id) === String(cloudItem.id))
+                            || records.find(item => getWmsItemIdentityKey(item) === getWmsItemIdentityKey(cloudItem));
+                        pendingCloudUpdates.forEach(({ cloudItem }) => {
+                            const localItem = findByCloudIdentity(currentItems, cloudItem);
+                            const queuedItem = findByCloudIdentity(currentOutbox, cloudItem);
+                            if (!localItem && !queuedItem) return;
+                            const cloudQty = getCloudSysQty(cloudItem, localItem || queuedItem);
+                            let itemChanged = false;
+                            if (localItem && Number(localItem.sysQty) !== cloudQty) {
+                                store.put({ ...localItem, sysQty: cloudQty });
+                                itemChanged = true;
+                            }
+                            if (queuedItem && Number(queuedItem.sysQty) !== cloudQty) {
+                                outboxStore.put({ ...queuedItem, sysQty: cloudQty });
+                                itemChanged = true;
+                            }
+                            if (itemChanged) appliedDownloadCount++;
+                        });
+                        const pendingIds = new Set(currentOutbox.map(item => String(item.id)));
+                        const pendingKeys = new Set(currentOutbox.map(getWmsItemIdentityKey));
                         changedItems.forEach(item => {
                             if (pendingIds.has(String(item.id)) || pendingKeys.has(getWmsItemIdentityKey(item))) return;
                             store.put(item);
                             appliedDownloadCount++;
                         });
                     };
+                    itemsRequest.onsuccess = () => {
+                        currentItems = itemsRequest.result || [];
+                        applyUpdates();
+                    };
+                    outboxRequest.onsuccess = () => {
+                        currentOutbox = outboxRequest.result || [];
+                        applyUpdates();
+                    };
+                    itemsRequest.onerror = () => tx.abort();
                     outboxRequest.onerror = () => tx.abort();
                 } catch (error) {
                     reject(error);
@@ -522,6 +561,7 @@ async function downloadFromServer(options = {}) {
                 tx.onerror = () => reject(tx.error || new Error('Gagal menyimpan hasil download.'));
                 tx.onabort = () => reject(tx.error || new Error('Download lokal dibatalkan.'));
             });
+            if (pendingCloudUpdates.length > 0) await loadSyncQueueFromOutbox();
             if (backgroundUserRefresh && options.reloadOnUpdate && appliedDownloadCount > 0) {
                 updateSyncUI(`<i class="fas fa-check-circle"></i> ${appliedDownloadCount} update diterapkan; memuat ulang...`);
                 window.location.reload();
