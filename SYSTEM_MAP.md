@@ -31,7 +31,7 @@ Arsitektur layering sederhana: View (HTML/Tab) → Controller (core.js processSc
 - Startup meminta pilihan Admin (password diverifikasi server) atau User (langsung ke Cari).
 - Password Admin dibuat lewat `setupAdminPassword()` dengan minimum 4 karakter; password yang lebih panjang tetap diterima dan server memvalidasi batas minimum saat setup serta login.
 - User hanya dapat mencari data lokal dengan mengetik atau scan kamera; navigasi dan handler membatasi tab serta aksi tulis. Pilihan User diingat, data lokal tampil segera, lalu GET read-only memeriksa update di latar belakang; bila data baru tersimpan, halaman reload otomatis ke Cari.
-- Refresh User tidak menampilkan kontrol sinkronisasi manual dan tidak menulis ke cloud. Record berantrean atau bertimestamp lokal lebih baru tetap dipertahankan; untuk record lain, snapshot cloud terbaru (termasuk perpindahan lokasi Admin yang sudah tersinkron) diterapkan.
+- Refresh User tidak menampilkan kontrol sinkronisasi manual dan tidak menulis ke cloud. `SYS_QTY` selalu mengikuti cloud, termasuk untuk record berantrean; lokasi dan hitungan opname lokal tetap dipertahankan.
 - Sesi Admin berlaku 8 jam; semua POST tulis diverifikasi token di `code.gs`. Guard UI tidak menggantikan validasi server.
 - Import stock mencocokkan identitas part, memperbarui hanya qty dan timestamp sinkronisasi server untuk record lama, menambah record baru tanpa lokasi, dan merekonsiliasi ID server.
 - Kolom G `DB_MASTER` diproteksi dari editor spreadsheet. Import tidak menulis ulang kolom G record lama; part baru diinisialisasi dengan lokasi kosong. Lokasi hanya berubah lewat alur scan SIMPAN.
@@ -107,10 +107,10 @@ After switching boxes and selecting a previously saved box, X is restored from i
 ```
 
 ### Simplified Sync Rules (current)
-- Upload hanya mengirim metadata part + `SYS_QTY`; `locations` dan `opnameCounts` tidak ditulis ulang dari cloud.
-- Cloud masih bisa memperbarui nama part (`DESC`, `LOC_TYPE`, `TECH_NAME`) agar label lokal selalu sama dengan master.
-- `SYS_QTY` adalah acuan absolut untuk badge OPNAME (`0/4`, `This box : 2 | Spare box code : 2`).
-- Data lokal tetap diprioritaskan untuk hitungan box agar hasil opname tidak tertimpa oleh cloud.
+- Upload perubahan lokal hanya menulis `LOCATIONS` dan `OPNAME_COUNTS`; identity dan revision hanya untuk pencocokan serta konflik.
+- Upload normal tidak menulis `SYS_QTY` atau metadata master. Import stock adalah alur yang mengubah `SYS_QTY` di cloud.
+- Download selalu menerapkan `SYS_QTY` cloud ke lokal, termasuk pada record ber-outbox, dan memperbarui snapshot antrean tanpa mengubah revision.
+- Hitungan OPNAME tetap lokal; `SYS_QTY` adalah target badge OPNAME (`0/4`).
 
 ### Flow 3: Off BS (Off-Balance-Sheet)
 ```
@@ -207,7 +207,7 @@ Upload master queue in batches without removing entries before server acknowledg
 BATCH LOOP: slice syncQueue into 100-item chunks
   ↓
 FOR EACH BATCH:
-  POST JSON { action: "sync", data: [{ item fields, revision }], logs: [...] }
+  POST JSON { action: "sync", data: [{ identity, LOCATIONS, OPNAME_COUNTS, revision }], logs: [...] }
   ↓
   to: https://script.google.com/macros/.../exec (Google Sheets)
   ↓

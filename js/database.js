@@ -2,7 +2,7 @@
  * Tujuan: Persistensi IndexedDB, sinkronisasi Admin, dan refresh baca otomatis untuk User.
  * Caller: main.js, core.js, dan handler kontrol sinkronisasi di index.html.
  * Dependensi: auth.js (Admin-authorized writes), config.js (db, antrean, sesi), IndexedDB, API_URL.
- * Main Functions: initDB() migrates the IndexedDB outbox; saveDB()/saveDBBatch() atomically store records and queue; sync handlers acknowledge revisions or resolve conflicts; cloud downloads always refresh SYS_QTY while preserving local counts and pending changes.
+ * Main Functions: initDB() migrates the IndexedDB outbox; saveDB()/saveDBBatch() atomically store records and queue; sync uploads local locations/opname counts only, while cloud downloads always refresh SYS_QTY.
  * Side Effects: IndexedDB item/outbox read/write, sync-log localStorage, background User GET, and user-triggered Admin POST/GET requests.
  */
 // js/database.js
@@ -298,12 +298,11 @@ function toCloudSyncPayload(item) {
     return {
         id: item.id,
         partNo: item.partNo,
-        desc: item.desc || '',
         locType: item.locType || '',
         techName: item.techName || '',
-        sysQty: Number(item.sysQty) || 0,
+        locations: item.locations || {},
+        opnameCounts: item.opnameCounts || {},
         revision: Number(item.revision) || 0,
-        updated_at: Number(item.updated_at) || Date.now()
     };
 }
 

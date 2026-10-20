@@ -1,8 +1,8 @@
 /*
- * Tujuan: Endpoint Google Apps Script untuk otorisasi sesi Admin (password minimal 4 karakter), sinkronisasi WMS, dan import qty-only.
+ * Tujuan: Endpoint Google Apps Script untuk otorisasi sesi Admin, sinkronisasi lokasi/hitungan opname, dan import SYS_QTY.
  * Caller: js/database.js melalui Google Sheets API.
  * Dependensi: SpreadsheetApp, ContentService, sheet DB_MASTER/LOG_SCAN.
- * Main Functions: doGet()/doPost() expose server revisions, bulk import mappings, Admin session validation, and optimistic concurrency control.
+ * Main Functions: doGet()/doPost() expose cloud-owned SYS_QTY, sync local LOCATIONS/OPNAME_COUNTS, stock import, and revision conflict control.
  * Side Effects: Membaca/menulis Google Sheets dan mengirim respons HTTP.
  */
 
@@ -929,6 +929,11 @@ function mergeDataFast(sheet, incomingItems, revisionColumnIndex) {
   }
   const now = new Date();
   const revisionMappings = [];
+  const locationUpdates = new Map();
+  const opnameUpdates = new Map();
+  const timestampUpdates = new Map();
+  const revisionUpdates = new Map();
+  const newRows = [];
   incomingItems.forEach(item => {
     const key = getMasterItemKey(item.partNo, item.locType, item.techName);
     const rowIndex = idMap[item.id] !== undefined
@@ -938,16 +943,28 @@ function mergeDataFast(sheet, incomingItems, revisionColumnIndex) {
     if (existingRow && getMasterItemKey(existingRow[1], existingRow[3], existingRow[4]) !== key) {
       throw new Error(`ID ${item.id} sudah dipakai part lain; sinkronisasi dibatalkan untuk mencegah data tertukar.`);
     }
-    const keptLocations = existingRow ? existingRow[6] || '{}' : '{}';
+    const hasLocations = Object.prototype.hasOwnProperty.call(item, "locations");
+    const hasOpnameCounts = Object.prototype.hasOwnProperty.call(item, "opnameCounts");
+    if (hasLocations && (!item.locations || typeof item.locations !== "object" || Array.isArray(item.locations))) {
+      throw new Error(`LOCATIONS tidak valid untuk part ${item.partNo}.`);
+    }
+    if (hasOpnameCounts && (!item.opnameCounts || typeof item.opnameCounts !== "object" || Array.isArray(item.opnameCounts))) {
+      throw new Error(`OPNAME_COUNTS tidak valid untuk part ${item.partNo}.`);
+    }
+    const keptLocations = hasLocations
+      ? JSON.stringify(item.locations)
+      : (existingRow ? existingRow[6] || '{}' : '{}');
     const keptLabelIssues = existingRow ? existingRow[7] || '{}' : '{}';
-    const keptOpnameCounts = existingRow ? existingRow[9] || '{}' : '{}';
+    const keptOpnameCounts = hasOpnameCounts
+      ? JSON.stringify(item.opnameCounts)
+      : (existingRow ? existingRow[9] || '{}' : '{}');
     const rowData = [
       existingRow ? existingRow[0] : item.id,
       item.partNo,
-      item.desc || (existingRow ? existingRow[2] : ''),
-      item.locType || (existingRow ? existingRow[3] : ''),
-      item.techName || (existingRow ? existingRow[4] : ''),
-      Number(item.sysQty) || 0,
+      existingRow ? existingRow[2] : '',
+      existingRow ? existingRow[3] : (item.locType || ''),
+      existingRow ? existingRow[4] : (item.techName || ''),
+      existingRow ? (Number(existingRow[5]) || 0) : 0,
       keptLocations,
       keptLabelIssues,
       now,
@@ -958,14 +975,42 @@ function mergeDataFast(sheet, incomingItems, revisionColumnIndex) {
     }
     const revision = (existingRow ? Number(existingRow[revisionColumnIndex]) || 0 : 0) + 1;
     rowData[revisionColumnIndex] = revision;
-    revisionMappings.push({ clientId: item.id, id: rowData[0], revision, updated_at: now.getTime() });
-    if (rowIndex !== undefined) { data[rowIndex] = rowData; }
-    else {
-      data.push(rowData);
-      idMap[item.id] = data.length - 1;
-      keyMap[key] = data.length - 1;
+    if (existingRow) {
+      const sheetRow = rowIndex + 1;
+      locationUpdates.set(sheetRow, keptLocations);
+      opnameUpdates.set(sheetRow, keptOpnameCounts);
+      timestampUpdates.set(sheetRow, now);
+      revisionUpdates.set(sheetRow, revision);
+      revisionMappings.push({ clientId: item.id, id: existingRow[0], revision, updated_at: now.getTime() });
+      return;
     }
+    newRows.push(rowData);
+    const newRowIndex = data.length + newRows.length - 1;
+    idMap[item.id] = newRowIndex;
+    keyMap[key] = newRowIndex;
+    revisionMappings.push({ clientId: item.id, id: rowData[0], revision, updated_at: now.getTime() });
   });
-  sheet.getRange(1, 1, data.length, columnCount).setValues(data);
+
+  const writeColumnUpdates = (columnIndex, updates) => {
+    const entries = Array.from(updates.entries()).sort((a, b) => a[0] - b[0]);
+    for (let index = 0; index < entries.length;) {
+      const startRow = entries[index][0];
+      const values = [[entries[index][1]]];
+      index++;
+      while (index < entries.length && entries[index][0] === startRow + values.length) {
+        values.push([entries[index][1]]);
+        index++;
+      }
+      sheet.getRange(startRow, columnIndex, values.length, 1).setValues(values);
+    }
+  };
+
+  writeColumnUpdates(7, locationUpdates);
+  writeColumnUpdates(10, opnameUpdates);
+  writeColumnUpdates(9, timestampUpdates);
+  writeColumnUpdates(revisionColumnIndex + 1, revisionUpdates);
+  if (newRows.length > 0) {
+    sheet.getRange(sheet.getLastRow() + 1, 1, newRows.length, columnCount).setValues(newRows);
+  }
   return revisionMappings;
 }
