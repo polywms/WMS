@@ -17,6 +17,7 @@ let activeColly = localStorage.getItem('wms_active_colly') || null;
 let isCloudSyncing = false;
 let userRefreshPromise = null;
 let pendingSyncConflicts = [];
+let lastSyncFailure = '';
 
 function updateSyncUI(text) { const el = document.getElementById('syncStatus'); if(el) el.innerHTML = text; }
 
@@ -733,9 +734,8 @@ async function processSyncQueue() {
     if (isSyncing || syncQueue.length === 0 || !navigator.onLine) return false;
     isSyncing = true; 
     updateSyncUI('<i class="fas fa-sync"></i> Syncing...');
+    let batchNum = 0;
     try {
-        let batchNum = 0;
-        
         // Process in batches to prevent OOM crashes
         while (syncQueue.length > 0) {
             batchNum++;
@@ -749,7 +749,10 @@ async function processSyncQueue() {
             
             const response = await postWmsAction(payload);
             
-            if (!response.ok) throw new Error(`Cloud returned ${response.status}`);
+            if (!response.ok) {
+                const responseText = (await response.text()).slice(0, 240);
+                throw new Error(`HTTP ${response.status}${responseText ? `: ${responseText}` : ''}`);
+            }
             const result = await response.json();
             if (result.status === 'conflict') {
                 pendingSyncConflicts = result.conflicts || [];
@@ -773,8 +776,9 @@ async function processSyncQueue() {
         }
         return true;
     } catch (error) {
+        lastSyncFailure = `Batch ${batchNum}: ${error.message || 'Kesalahan tidak diketahui'}`;
         console.error('Upload antrean gagal:', error);
-        updateSyncUI('<i class="fas fa-circle" style="color: #ef4444; font-size: 0.6rem; margin-right: 4px;"></i> Sync gagal; data lokal aman');
+        updateSyncUI(`<i class="fas fa-circle" style="color: #ef4444; font-size: 0.6rem; margin-right: 4px;"></i> Sync gagal pada batch ${batchNum}; data lokal aman`);
         return false;
     } finally { 
         isSyncing = false; 
@@ -1253,6 +1257,7 @@ async function uploadToServer() {
     }
 
     isCloudSyncing = true;
+    lastSyncFailure = '';
     setSyncBusy(true);
     updateFavicon(true);
     updateSyncUI('<i class="fas fa-cloud-arrow-up"></i> Upload ke cloud sedang berjalan...');
@@ -1267,7 +1272,16 @@ async function uploadToServer() {
                 showToast('Upload dihentikan karena revision cloud berubah. Tinjau pilihan pada dialog konflik.');
             } else {
                 updateSyncUI('<i class="fas fa-times-circle"></i> Upload gagal; data lokal aman');
-                showToast('Upload gagal. Data lokal dan antrean tetap tersimpan untuk dicoba lagi.');
+                const escapedFailure = lastSyncFailure.replace(/[&<>"']/g, character => ({
+                    '&': '&amp;',
+                    '<': '&lt;',
+                    '>': '&gt;',
+                    '"': '&quot;',
+                    "'": '&#39;'
+                })[character]);
+                showToast(escapedFailure
+                    ? `Upload gagal: ${escapedFailure}. Data lokal dan antrean tetap tersimpan.`
+                    : 'Upload gagal. Data lokal dan antrean tetap tersimpan untuk dicoba lagi.');
             }
         }
         return success;
