@@ -2,7 +2,7 @@
  * Tujuan: Mengatur sesi Admin/User, tampilan sesuai role, refresh baca User, dan request API terotorisasi.
  * Caller: main.js, core.js, database.js, excel.js, dan event handler role di index.html.
  * Dependensi: config.js (API_URL), Apps Script role endpoint, dan localStorage.
- * Main Functions: authenticateAdmin(), chooseUserRole(), initializeRoleSession(), endRoleSession(), requireAdminAccess(), postWmsAction().
+ * Main Functions: authenticateAdmin(), chooseUserRole(), initializeRoleSession(), applyRoleUi() keeps the session exit icon-only, endRoleSession(), requireAdminAccess(), postWmsAction().
  * Side Effects: Membaca/menulis sesi lokal dan mengirim request autentikasi/API.
  */
 
@@ -88,7 +88,8 @@ function applyRoleUi() {
     const roleButton = document.getElementById('roleSessionButton');
     if (roleButton) {
         roleButton.hidden = !currentRole;
-        roleButton.textContent = isUser ? 'Ganti Mode' : 'Keluar Admin';
+        roleButton.innerHTML = '<i class="fas fa-right-from-bracket" aria-hidden="true"></i>';
+        roleButton.title = isUser ? 'Ganti mode pengguna' : 'Keluar dari sesi Admin';
         roleButton.setAttribute('aria-label', isUser ? 'Ganti mode pengguna' : 'Keluar dari sesi Admin');
     }
 
