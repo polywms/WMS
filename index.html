@@ -2,7 +2,7 @@
     Tujuan: Entry point UI untuk workflow WMS Magelang.
     Caller: Browser/PWA shell; event handlers diteruskan ke main.js dan core.js.
     Dependensi: css/style.css, Font Awesome, dan modul JavaScript di js/.
-    Main Functions: Menyediakan role gate Admin/User, navigasi, Cari, SIMPAN/OPNAME, impor/ekspor, sinkronisasi, dan resolusi konflik data.
+    Main Functions: Menyediakan role gate Admin/User, navigasi, Cari, SIMPAN/OPNAME, status sinkronisasi, impor/ekspor, dan resolusi konflik data.
     Side Effects: Mengubah DOM, memicu scan, penyimpanan lokal, dan sinkronisasi cloud melalui handler.
 -->
 <!-- WMS Magelang - Entry point UI -->
@@ -45,13 +45,17 @@
                 <span id="appVersion" class="app-version" aria-label="Versi aplikasi" hidden></span>
             </div>
             <div style="display:flex; align-items:center; gap:10px;">
-                <button type="button" id="roleSessionButton" onclick="endRoleSession()" title="Keluar dari sesi Admin" aria-label="Keluar dari sesi Admin" style="border:1px solid rgba(255,255,255,.6); border-radius:6px; padding:5px 8px; background:transparent; color:white; cursor:pointer; white-space:nowrap;">Keluar Admin</button>
+                <button type="button" id="roleSessionButton" class="icon-only" onclick="endRoleSession()" title="Keluar dari sesi Admin" aria-label="Keluar dari sesi Admin" style="width:32px; height:32px; display:grid; place-items:center; border:1px solid rgba(255,255,255,.6); border-radius:6px; background:transparent; color:white; cursor:pointer;">
+                    <i class="fas fa-right-from-bracket" aria-hidden="true"></i>
+                </button>
                 <button type="button" id="syncCloudButton" class="icon-only" data-admin-only onclick="manualSync()" title="Pilihan sinkronisasi" aria-label="Pilihan sinkronisasi" aria-busy="false" style="width:30px; height:30px; display:grid; place-items:center; border:0; border-radius:50%; background:rgba(0,0,0,0.2); color:white; cursor:pointer;">
                     <i class="fas fa-cloud" aria-hidden="true"></i>
                 </button>
-                <span id="syncStatus" role="status" aria-live="polite" style="font-size:0.75rem; background:rgba(0,0,0,0.2); padding:3px 8px; border-radius:10px; display: flex; align-items: center; gap: 4px;"><i class="fas fa-cloud-check" aria-hidden="true"></i><span style="font-size:0.7rem;">Status antrean...</span></span>
             </div>
         </header>
+        <div class="sync-status-row">
+            <span id="syncStatus" role="status" aria-live="polite"><i class="fas fa-cloud-check" aria-hidden="true"></i><span>Status antrean...</span></span>
+        </div>
 
         <div class="overlay" id="syncModal" role="dialog" aria-modal="true" aria-labelledby="syncModalTitle" style="display:none; z-index:1300;">
             <div class="modal sync-modal">
