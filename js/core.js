@@ -3,7 +3,7 @@
  * CORE LOGIC - WMS Magelang V6
  * ========================================
  * 
- * Tujuan: Main controller untuk role-aware scan routing, per-tab business rules, dan renders.
+ * Tujuan: Main controller untuk role-aware scan routing, aturan SIMPAN/OPNAME SPAREPART BAIK, dan renders.
  * Caller: main.js (via window.onload), UI events (onclick), keyboard (onkeydown)
  * Dependensi: auth.js (role guards), database.js (saveDB), utils.js (feedback), config.js (QR_PARSERS/box rules)
  * Box codes: legacy codes remain recognizable as sources; only new-format codes are valid destinations.
@@ -16,13 +16,14 @@
  * - NO progress badge (X/Y), NO qty validation, NO accumulation messages
  * 
  * Main Functions:
- * - processScan(code) — Route scan per currentTab
+ * - processScan(code) — Route scan per currentTab dan menolak SIMPAN non-SPAREPART BAIK
+ * - isSparepartBaik(item)/populateFilters() — Terapkan filter awal dan izin lokasi hanya untuk SPAREPART BAIK
  * - switchTab(id) — Enforce User-only Cari and stop SIMPAN modes safely when leaving
  * - toggleMultipleScanMode()/toggleBoxToBoxMode() — Mutually exclusive SIMPAN relocation modes
  * - updateBoxToBoxIndicator() — Render box asal/tujuan; pertahankan pasangan valid sampai scan box berikutnya
  * - getBoxToBoxItems() — Temukan part sumber berdasarkan kode box yang dinormalisasi
  * - confirmBoxToBoxYesToAll() — Setujui semua part dan lewati konfirmasi hingga mode B2B dimatikan
- * - handleOpnameScan()/handleOpnameRender() — Show counted/SYS_QTY plus per-box local split summary
+ * - handleOpnameScan()/handleOpnameRender() — OPNAME SPAREPART BAIK dengan counted/SYS_QTY dan split box lokal
  * - handleOpnameScan() — Reject part scans that do not belong to the active box
  * - getOpnameBufferQty(itemId, item) — Read the latest saved cumulative count for the active box
  * - resetCurrentBoxOpname() — Reset only the saved count, preserving part-to-box locations
@@ -85,16 +86,33 @@ function parseQRCode(rawCode) {
     return null; // No match found
 }
 
+function isSparepartBaik(item) {
+    return String(item?.locType || '').trim().toUpperCase() === 'SPAREPART BAIK';
+}
+
 function populateFilters() {
     const locs = [...new Set(localItems.map(i => i.locType))].filter(Boolean).sort();
     const selLoc = document.getElementById('filterLoc');
+    const currentLoc = selLoc.value;
     selLoc.innerHTML = '<option value="">-- Pilih Lokasi --</option>';
     locs.forEach(l => selLoc.innerHTML += `<option value="${l}">${l}</option>`);
+    const selectedLoc = locs.find(loc => loc.trim().toUpperCase() === String(currentLoc).trim().toUpperCase())
+        || locs.find(loc => loc.trim().toUpperCase() === 'SPAREPART BAIK')
+        || '';
+    selLoc.value = selectedLoc;
     
     const techs = [...new Set(localItems.map(i => i.techName))].filter(Boolean).sort();
     const selTech = document.getElementById('filterTech');
+    const currentTech = selTech.value;
     selTech.innerHTML = '<option value="">-- Teknisi --</option>';
     techs.forEach(t => selTech.innerHTML += `<option value="${t}">${t}</option>`);
+    selTech.value = techs.includes(currentTech) ? currentTech : '';
+    selTech.style.display = selectedLoc.toUpperCase().includes('TEKNISI') ? 'block' : 'none';
+
+    filteredItems = selectedLoc
+        ? localItems.filter(item => item.locType === selectedLoc
+            && (!selectedLoc.toUpperCase().includes('TEKNISI') || !selTech.value || item.techName === selTech.value))
+        : [];
 }
 
 function handleFilterChange() {
@@ -287,7 +305,7 @@ function getBoxToBoxLocationKey(locations, boxCode) {
 
 function getBoxToBoxItems(sourceBox) {
     return localItems.filter(item => {
-        if (!item || !item.locations || Number(item.sysQty) <= 0) return false;
+        if (!isSparepartBaik(item) || !item.locations || Number(item.sysQty) <= 0) return false;
         const locationKey = getBoxToBoxLocationKey(item.locations, sourceBox);
         return locationKey !== undefined && Boolean(item.locations[locationKey]);
     });
@@ -345,7 +363,7 @@ function applyBoxToBoxSelection(sourceBox, targetBox, selectedItems, isYesToAll 
     let affectedCount = 0;
 
     selectedItems.forEach(item => {
-        if (!item || !item.locations) return;
+        if (!isSparepartBaik(item) || !item.locations) return;
 
         const sourceLocationKey = getBoxToBoxLocationKey(item.locations, sourceBox);
         if (sourceLocationKey === undefined || !item.locations[sourceLocationKey]) return;
@@ -595,6 +613,11 @@ if (currentTab === 'packing') {
 
     // --- LOGIKA NORMAL (SIMPAN, OPNAME, DATA) ---
     const item = filteredItems.find(i => i.partNo.toUpperCase() === parsedCode);
+        if (currentTab === 'simpan' && item && !isSparepartBaik(item)) {
+            feedback('error');
+            showToast('SIMPAN hanya diizinkan untuk LOC_TYPE SPAREPART BAIK.');
+            return;
+        }
     
     if (currentTab === 'simpan' && isBox && isLegacyBoxCode(parsedCode)
         && !(boxToBoxModeActive && !boxToBoxSourceBox)) {
@@ -733,6 +756,11 @@ function executeUndo() {
     if (!lastAction) return;
     const { type, itemId, box, oldState } = lastAction;
     const item = localItems.find(i => i.id === itemId);
+    if (item && !isSparepartBaik(item)) {
+        feedback('error');
+        showToast('Undo lokasi/OPNAME hanya diizinkan untuk LOC_TYPE SPAREPART BAIK.');
+        return;
+    }
     if (item) {
         if (type === 'opname_add') {
             if (item.locations[box] > 0) {
@@ -754,7 +782,7 @@ function renderSimpanList(reset = true) {
     if(reset) renderLimit = 50;
     const container = document.getElementById('simpanList'); const filterNoBoxEl = document.getElementById('chkFilterNoBox');
     if(reset) container.innerHTML = ''; if(filteredItems.length === 0) return;
-    const visibleItems = filteredItems.filter(item => Number(item.sysQty) > 0);
+    const visibleItems = filteredItems.filter(item => isSparepartBaik(item) && Number(item.sysQty) > 0);
     const isFilterActive = filterNoBoxEl && filterNoBoxEl.checked;
     const show = visibleItems.slice(0, renderLimit);
     
@@ -903,6 +931,11 @@ function getPartLocationHistory(partNo) {
 }
 
 function selectPartSimpan(item) {
+    if (!isSparepartBaik(item)) {
+        feedback('error');
+        showToast('SIMPAN hanya diizinkan untuk LOC_TYPE SPAREPART BAIK.');
+        return;
+    }
     // Display detail panel for selected part (when user clicks part in list)
     updateActivePartPanel(item);
     if(typeof renderSmartSuggestion === 'function') renderSmartSuggestion(item);
@@ -936,7 +969,11 @@ function restoreMultiScanBufferReferences() {
 
 function addToMultiScan(item) {
     if (!requireAdminAccess('menambahkan part ke buffer SIMPAN')) return;
-    if (!item) return;
+    if (!isSparepartBaik(item)) {
+        feedback('error');
+        showToast('Multi-Scan hanya diizinkan untuk LOC_TYPE SPAREPART BAIK.');
+        return;
+    }
     
     const isDuplicate = multiScanBuffer.some(b => b.item.id === item.id && b.item.partNo === item.partNo);
     if (isDuplicate) {
@@ -1055,6 +1092,11 @@ async function processMultiScan(boxCode) {
         showToast('Sebagian part buffer tidak lagi ada di data lokal. Buffer dipertahankan; periksa atau hapus part yang hilang.');
         return;
     }
+    if (rebasedItems.some(entry => !isSparepartBaik(entry.currentItem))) {
+        feedback('error');
+        showToast('Multi-Scan hanya dapat memindahkan LOC_TYPE SPAREPART BAIK.');
+        return;
+    }
 
     if (!BOX_CODE_PATTERN.test(boxCode)) {
         feedback('error');
@@ -1154,6 +1196,12 @@ function executeSimpanAction(action) {
     if (!simpanConflictData) return;
     const { item, newBox } = simpanConflictData;
     if (!requireAdminAccess('memindahkan part')) return;
+    if (!isSparepartBaik(item)) {
+        closeSimpanConflictModal();
+        feedback('error');
+        showToast('SIMPAN hanya diizinkan untuk LOC_TYPE SPAREPART BAIK.');
+        return;
+    }
     if (isLegacyBoxCode(newBox)) {
         closeSimpanConflictModal();
         feedback('error');
@@ -1349,7 +1397,7 @@ async function restoreOpnameSession() {
     const recoveredItems = [];
     opnameBuffer = (saved.counts || []).reduce((restored, count) => {
         const item = localItems.find(candidate => candidate.id === count.itemId);
-        if (!item || !(Number(count.qty) > 0)) return restored;
+        if (!isSparepartBaik(item) || !(Number(count.qty) > 0)) return restored;
         const savedCount = Number(item.opnameCounts?.[saved.box]);
         const hasSavedCount = Object.prototype.hasOwnProperty.call(item.opnameCounts || {}, saved.box);
         const recoveredQty = saved.schema === 2
@@ -1444,13 +1492,16 @@ async function processOpnameScan(rawCode, isBox) {
 
     const parsed = parseQRCode(rawCode);
     const partNo = (parsed ? parsed.partNo : rawCode).trim().toUpperCase();
-    const matchingItems = localItems.filter(candidate => candidate.partNo.toUpperCase() === partNo);
+    const partMatches = localItems.filter(candidate => String(candidate.partNo || '').toUpperCase() === partNo);
+    const matchingItems = partMatches.filter(isSparepartBaik);
     const item = matchingItems.find(candidate => Number(candidate.locations && candidate.locations[activeBoxFilter]) > 0);
     if (!item) {
         feedback('error');
-        showToast(matchingItems.length
-            ? `Part ${partNo} tidak terdaftar di box ${activeBoxFilter}.`
-            : `Part ${partNo} tidak ada di daftar stok.`);
+        showToast(partMatches.length && matchingItems.length === 0
+            ? `Part ${partNo} bukan LOC_TYPE SPAREPART BAIK; OPNAME ditolak.`
+            : matchingItems.length
+                ? `Part ${partNo} tidak terdaftar di box ${activeBoxFilter}.`
+                : `Part ${partNo} tidak ada di daftar stok.`);
         return;
     }
 
@@ -1463,6 +1514,7 @@ function getOpnameBoxItems() {
     if (!box) return [];
     const seen = new Set();
     const dataset = localItems.filter(item => {
+        if (!isSparepartBaik(item)) return false;
         if (!(Number(item.locations && item.locations[box]) > 0)) return false;
         if (seen.has(item.id)) return false;
         seen.add(item.id);
@@ -1470,7 +1522,7 @@ function getOpnameBoxItems() {
     });
     if (Array.isArray(opnameBuffer)) {
         opnameBuffer.forEach(b => {
-            if (b.item && Number(b.item.locations && b.item.locations[box]) > 0 && !seen.has(b.item.id)) {
+            if (b.item && isSparepartBaik(b.item) && Number(b.item.locations && b.item.locations[box]) > 0 && !seen.has(b.item.id)) {
                 seen.add(b.item.id);
                 dataset.push(b.item);
             }
@@ -1622,6 +1674,7 @@ async function clearOpname() {
             }
             const changedItems = [];
             localItems.forEach(item => {
+                if (!isSparepartBaik(item)) return;
                 const boxes = new Set([
                     ...Object.keys(item.locations || {}),
                     ...Object.keys(item.opnameCounts || {})
@@ -1672,7 +1725,7 @@ async function resetCurrentBoxOpname() {
         const box = activeBoxFilter;
         const changedItems = [];
         localItems.forEach(item => {
-            if (!(Number(item.locations && item.locations[box]) > 0)) return;
+            if (!isSparepartBaik(item) || !(Number(item.locations && item.locations[box]) > 0)) return;
             if (Object.prototype.hasOwnProperty.call(item.opnameCounts || {}, box) && Number(item.opnameCounts[box]) === 0) return;
             changedItems.push({ ...item, opnameCounts: { ...(item.opnameCounts || {}), [box]: 0 } });
         });
@@ -1815,6 +1868,11 @@ async function saveManualEdit() {
     const itemIndex = localItems.findIndex(candidate => candidate.id === editId);
     if (itemIndex < 0) return;
     const item = localItems[itemIndex];
+    if (!isSparepartBaik(item)) {
+        feedback('error');
+        showToast('Qty lokasi dan OPNAME hanya dapat diubah untuk LOC_TYPE SPAREPART BAIK.');
+        return;
+    }
     const locationEdits = [...document.querySelectorAll('.edit-qty-input')].map(input => ({
         box: input.dataset.box,
         value: input.value.trim(),
@@ -2089,6 +2147,11 @@ function switchTab(id, options = {}) {
 // ============================================
 
 async function addToOpnameBuffer(item, confirmedOverTarget = false) {
+    if (!isSparepartBaik(item)) {
+        feedback('error');
+        showToast('OPNAME hanya diizinkan untuk LOC_TYPE SPAREPART BAIK.');
+        return false;
+    }
     const box = activeBoxFilter;
     if (!box || opnameBufferBox !== box) return false;
     const currentQty = Object.prototype.hasOwnProperty.call(item.opnameCounts || {}, box)
@@ -2175,6 +2238,11 @@ function closeOpnameOverScanModal() {
 }
 
 async function persistOpnameBufferQuantity(entry, nextQty) {
+    if (!isSparepartBaik(entry?.item)) {
+        feedback('error');
+        showToast('Koreksi OPNAME hanya diizinkan untuk LOC_TYPE SPAREPART BAIK.');
+        return false;
+    }
     const box = opnameBufferBox;
     if (opnameCommitInProgress) {
         feedback('warning');
@@ -2341,6 +2409,11 @@ function clearData() {
 // ============================================
 
 function addToSimpanBuffer(item) {
+    if (!isSparepartBaik(item)) {
+        feedback('error');
+        showToast('SIMPAN hanya diizinkan untuk LOC_TYPE SPAREPART BAIK.');
+        return;
+    }
     // Validate simpanBuffer is array
     if (!Array.isArray(simpanBuffer)) simpanBuffer = [];
     
@@ -2449,6 +2522,11 @@ function handleMove(partId, newBox) {
     if (!bufferItem) return;
     
     const item = bufferItem.item;
+    if (!isSparepartBaik(item)) {
+        feedback('error');
+        showToast('SIMPAN hanya diizinkan untuk LOC_TYPE SPAREPART BAIK.');
+        return;
+    }
     
     // Clear old locations
     item.locations = {};
@@ -2483,6 +2561,11 @@ function handleSplit(partId, newBox) {
     if (!bufferItem) return;
     
     const item = bufferItem.item;
+    if (!isSparepartBaik(item)) {
+        feedback('error');
+        showToast('SIMPAN hanya diizinkan untuk LOC_TYPE SPAREPART BAIK.');
+        return;
+    }
     
     // Add new location (split lokasi)
     if (!item.locations[newBox]) {
@@ -2548,6 +2631,7 @@ function forceSaveAllConflicts() {
      */
     simpanBuffer.forEach(bufferItem => {
         const item = bufferItem.item;
+        if (!isSparepartBaik(item)) return;
         
         // Clear old locations and set target box
         item.locations = {};

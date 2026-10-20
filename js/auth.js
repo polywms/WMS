@@ -88,7 +88,7 @@ function applyRoleUi() {
     const roleButton = document.getElementById('roleSessionButton');
     if (roleButton) {
         roleButton.hidden = !currentRole;
-        roleButton.innerHTML = '<i class="fas fa-right-from-bracket" aria-hidden="true"></i>';
+        roleButton.innerHTML = `<i class="fas ${isUser ? 'fa-right-left' : 'fa-right-from-bracket'}" aria-hidden="true"></i>`;
         roleButton.title = isUser ? 'Ganti mode pengguna' : 'Keluar dari sesi Admin';
         roleButton.setAttribute('aria-label', isUser ? 'Ganti mode pengguna' : 'Keluar dari sesi Admin');
     }

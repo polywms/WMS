@@ -32,6 +32,7 @@ Arsitektur layering sederhana: View (HTML/Tab) → Controller (core.js processSc
 - Password Admin dibuat lewat `setupAdminPassword()` dengan minimum 4 karakter; password yang lebih panjang tetap diterima dan server memvalidasi batas minimum saat setup serta login.
 - User hanya dapat mencari data lokal dengan mengetik atau scan kamera; navigasi dan handler membatasi tab serta aksi tulis. Pilihan User diingat, data lokal tampil segera, lalu GET read-only memeriksa update di latar belakang; bila data baru tersimpan, halaman reload otomatis ke Cari.
 - Refresh User tidak menampilkan kontrol sinkronisasi manual dan tidak menulis ke cloud. `SYS_QTY` selalu mengikuti cloud, termasuk untuk record berantrean; lokasi dan hitungan opname lokal tetap dipertahankan.
+- Filter lokasi Admin memilih `SPAREPART BAIK` sebagai default saat tersedia. SIMPAN, relokasi, edit qty lokasi, dan OPNAME hanya menerima item dengan `LOC_TYPE` tersebut; jenis lain tetap tersedia untuk pencarian DATA.
 - Sesi Admin berlaku 8 jam; semua POST tulis diverifikasi token di `code.gs`. Guard UI tidak menggantikan validasi server.
 - Import stock mencocokkan identitas part, memperbarui hanya qty dan timestamp sinkronisasi server untuk record lama, menambah record baru tanpa lokasi, dan merekonsiliasi ID server.
 - Kolom G `DB_MASTER` diproteksi dari editor spreadsheet. Import tidak menulis ulang kolom G record lama; part baru diinisialisasi dengan lokasi kosong. Lokasi hanya berubah lewat alur scan SIMPAN.
@@ -53,7 +54,7 @@ processScan(code) [core.js] — Parse & route per tab
   ↓
 processScan(code) [core.js] — Parse & route per tab
   ↓
-filteredItems.find() — Match part in localItems
+filteredItems.find() — Match part; pastikan LOC_TYPE = SPAREPART BAIK
   ↓
 selectPartSimpan(item) [core.js] — Select active part
   ↓
@@ -73,6 +74,8 @@ User opens sync dialog → Upload to server [database.js] — POST queued record
 ### Flow 2: Opname (Inventory Check)
 ```
 Scan box → handleOpnameScan() → setOpnameBoxFilter()
+  ↓
+Batasi daftar dan scan part ke `LOC_TYPE` SPAREPART BAIK
   ↓
 handleOpnameRender() — Show parts registered in active box with X/Y based on SYS_QTY as the canonical target, while preserving local split-box state (`locations` and `opnameCounts` stay local)
   ↓
