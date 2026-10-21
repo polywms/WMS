@@ -12,6 +12,7 @@
  * - opnameBuffer/opnameBufferBox/opnameBufferCommitted — Hitungan fisik per box dan status simpan sesi
  * - currentTab: String — Active tab ID (simpan, opname, data, off-bs, packing)
  * - filteredItems: Array<Item> — Filtered items list untuk render
+ * - locations are box membership maps; physical quantities belong in opnameCounts
  * - boxToBoxYesToAll: Boolean — Persetujuan otomatis box-to-box hingga mode dimatikan
  * - Sync: IndexedDB outbox and server revisions; manual batch upload, no automatic retry timer
  * - Item identity and legacy-box classification shared by import, scan, and sync paths
@@ -53,9 +54,7 @@ function isLegacyBoxCode(boxCode) {
 }
 
 function areWmsLocationsEqual(left, right) {
-    const normalize = locations => Object.entries(locations || {})
-        .sort(([leftBox], [rightBox]) => leftBox.localeCompare(rightBox))
-        .map(([box, qty]) => [box, Number(qty)]);
+    const normalize = locations => Object.keys(locations || {}).sort((leftBox, rightBox) => leftBox.localeCompare(rightBox));
     return JSON.stringify(normalize(left)) === JSON.stringify(normalize(right));
 }
 

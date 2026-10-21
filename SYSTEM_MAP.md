@@ -32,7 +32,7 @@ Arsitektur layering sederhana: View (HTML/Tab) → Controller (core.js processSc
 - Password Admin dibuat lewat `setupAdminPassword()` dengan minimum 4 karakter; password yang lebih panjang tetap diterima dan server memvalidasi batas minimum saat setup serta login.
 - User hanya dapat mencari data lokal dengan mengetik atau scan kamera; navigasi dan handler membatasi tab serta aksi tulis. Pilihan User diingat, data lokal tampil segera, lalu GET read-only memeriksa update di latar belakang; bila data baru tersimpan, halaman reload otomatis ke Cari.
 - Refresh User tidak menampilkan kontrol sinkronisasi manual dan tidak menulis ke cloud. `SYS_QTY` selalu mengikuti cloud, termasuk untuk record berantrean; lokasi dan hitungan opname lokal tetap dipertahankan.
-- Filter lokasi Admin memilih `SPAREPART BAIK` sebagai default saat tersedia. SIMPAN, relokasi, edit qty lokasi, dan OPNAME hanya menerima item dengan `LOC_TYPE` tersebut; jenis lain tetap tersedia untuk pencarian DATA.
+- Filter lokasi Admin memilih `SPAREPART BAIK` sebagai default saat tersedia. SIMPAN, relokasi, edit hitungan Opname aktif, dan OPNAME hanya menerima item dengan `LOC_TYPE` tersebut; jenis lain tetap tersedia untuk pencarian DATA.
 - Sesi Admin berlaku 8 jam; semua POST tulis diverifikasi token di `code.gs`. Guard UI tidak menggantikan validasi server.
 - Import stock mencocokkan identitas part, memperbarui hanya qty dan timestamp sinkronisasi server untuk record lama, menambah record baru tanpa lokasi, dan merekonsiliasi ID server.
 - Kolom G `DB_MASTER` diproteksi dari editor spreadsheet. Import tidak menulis ulang kolom G record lama; part baru diinisialisasi dengan lokasi kosong. Lokasi hanya berubah lewat alur scan SIMPAN.
@@ -77,34 +77,34 @@ Scan box → handleOpnameScan() → setOpnameBoxFilter()
   ↓
 Batasi daftar dan scan part ke `LOC_TYPE` SPAREPART BAIK
   ↓
-handleOpnameRender() — Show parts registered in active box with X/Y based on SYS_QTY as the canonical target, while preserving local split-box state (`locations` and `opnameCounts` stay local)
+handleOpnameRender() — Show parts registered in active box; badge X is the sum of positive `opnameCounts` across assigned boxes and Y is `SYS_QTY`
   ↓
 Scan part QR → handleOpnameScan() — Reject parts not registered in the active box
   ↓
-When box is selected, show the latest saved scan count from `item.opnameCounts[box]` as X
-  (a box with no previous count starts at 0; `locations` remains split membership, `SYS_QTY` is the target for the badge)
+Each box is membership-only in `locations`; its physical count is stored separately in `item.opnameCounts[box]`
+  (a missing count key means 0; zero counts are removed from the map)
   ↓
 Each scan reads saved X, adds 1, and persists immediately; scanning never resets prior X
   ↓
 The browser serializes scan writes; a failed write leaves the old X unchanged and reports an error
   ↓
-addToOpnameBuffer() — Active box location quantity is Y; if next X > Y, ask for confirmation
+addToOpnameBuffer() — Increment the active box count; if aggregate count across assigned boxes exceeds `SYS_QTY`, ask for confirmation
   ↓
 Confirmed scan beyond Y also persists X+1 immediately
   ↓
 Buffer controls decrement X by one or reset that part to 0; each correction persists immediately
   ↓
-Persist recent scan list in localStorage; IndexedDB `opnameCounts` is authoritative; filters compare X with Y
+Persist recent scan list in localStorage; IndexedDB `opnameCounts` is authoritative; badge uses aggregate count while filters/statistics stay scoped to active box
   ↓
 Tutup Box → mark the box workflow finished; count writes are local and remain pending until manual upload
   ↓
 Changing boxes clears only the recent-scan display; every box's saved counts remain unchanged
   ↓
-Manual qty edits in `editLocsList` update location and saved OPNAME count/session
+Manual count edits in `edit-opname-count-input` update only the active box's `opnameCounts`; entering 0 removes that count key
   ↓
 Remove part from active box in the edit modal deletes only that box's location and opname count, then saves through the local upload queue
   ↓
-Reset current box → set its saved X to 0; preserve locations and box membership
+Reset current box → remove its saved count keys; preserve location membership
   ↓
 Each scan/correction → saveDBBatch() for that part → IndexedDB + persistent upload queue (no automatic cloud request)
   ↓
@@ -115,7 +115,8 @@ After switching boxes and selecting a previously saved box, X is restored from i
 - Upload perubahan lokal hanya menulis `LOCATIONS` dan `OPNAME_COUNTS`; identity dan revision hanya untuk pencocokan serta konflik.
 - Upload normal tidak menulis `SYS_QTY` atau metadata master. Import stock adalah alur yang mengubah `SYS_QTY` di cloud.
 - Download selalu menerapkan `SYS_QTY` cloud ke lokal, termasuk pada record ber-outbox, dan memperbarui snapshot antrean tanpa mengubah revision.
-- Hitungan OPNAME tetap lokal; `SYS_QTY` adalah target badge OPNAME (`0/4`).
+- `LOCATIONS` menyimpan membership box saja; `OPNAME_COUNTS` menyimpan count fisik positif per box, dan count 0 tidak disimpan.
+- Hitungan OPNAME tetap lokal; badge part memakai jumlah count seluruh box dibanding `SYS_QTY` cloud.
 
 ### Flow 3: Off BS (Off-Balance-Sheet)
 ```
@@ -343,7 +344,8 @@ WMS/
 ### [database.js](js/database.js)
 **Fungsi Publik Utama**:
 - `initDB()` — Buka IndexedDB dan tampilkan data lokal tanpa request cloud
-- IndexedDB v2 stores `items`, `outbox`, and a one-time migration marker; legacy `wms_syncQueue` is imported before cleanup
+- Startup migration canonicalizes `locations` as box membership and removes zero/orphan `opnameCounts` from items/outbox
+- IndexedDB v2 stores `items`, `outbox`, and migration markers; legacy `wms_syncQueue` is imported before cleanup
 - `loadDataFromLocal()` — Read all items dari IndexedDB → localItems
 - `saveDB()` / `saveDBBatch()` — Atomically write item and outbox entry
 - `processSyncQueue()` — Upload outbox snapshots, accept revision acknowledgments, retain failures/conflicts
@@ -370,12 +372,13 @@ WMS/
 - `confirmBoxToBoxYesToAll()` — Gabungkan semua part saat ini dan aktifkan auto-approval sampai mode dimatikan
 - `updateBoxToBoxIndicator()` — Render box sumber/tujuan dengan status validasi tujuan
 - `checkSimpanConflict(item, newBox)` — Prompt move/split decision
-- `handleOpnameRender()` — Filter & render opname list per box using latest saved counts against that box's location quantity
+- `handleOpnameRender()` — Filter per box and render aggregate Opname count against `SYS_QTY`
 - `getOpnameBufferQty(itemId, item)` — Read latest saved cumulative count for the active box
-- `saveManualEdit()` / `syncOpnameCountFromLocation()` — Edit qty/counts only for existing locations
+- `getOpnameTotalCount(item)` — Sum physical counts only for boxes assigned in `locations`
+- `saveManualEdit()` — Edit only the active box's physical Opname count
 - `removeOpnamePartFromActiveBox()` — Remove a part and its count from only the active OPNAME box through the local upload queue
-- `resetCurrentBoxOpname()` — Set saved X to zero without changing box membership
-- `confirmOpnameOverScan()` — Confirm an opname scan that exceeds the active box's location quantity
+- `resetCurrentBoxOpname()` — Remove saved count keys for the active box without changing membership
+- `confirmOpnameOverScan()` — Confirm aggregate physical count that exceeds `SYS_QTY`
 - `decrementOpnameBuffer()` / `removeFromOpnameBuffer()` — Reduce one or all counted units for a part
 - `renderDataList(reset)` — Display all items dengan search/filter
 - `switchTab(id)` — Change active tab & re-render
@@ -407,7 +410,7 @@ WMS/
 ### [excel.js](js/excel.js)
 **Fungsi Publik Utama**:
 - `handleImport(input)` — Read Excel dan consolidate per identitas; record lama hanya memperbarui qty dan mempertahankan lokasi, record baru tanpa lokasi; setelah upload bulk terotorisasi, rekonsiliasi ID lokal dengan server
-- `exportData()` — Admin-only export localItems ke XLSX file
+- `exportData()` — Admin-only export box membership and per-box physical counts to XLSX
 - `exportOffBsData()` — Export offBsSession ke XLSX
 - `downloadNewParts()` — Download "PART BARU" list
 - `backupJson()` — Backup localItems + offBsSession ke JSON file
@@ -456,7 +459,7 @@ WMS/
 **Peran**: Backend server logic; data persist ke Google Sheets; deduplication  
 **Caller**: database.js (manual `downloadFromServer()` and `processSyncQueue()`)
 **Sheets Used**:
-- `DB_MASTER` — Master item data (id, partNo, desc, locType, techName, sysQty, locations JSON, labelIssues JSON, opnameCounts JSON in column J, `REVISION` column appended to existing headers)
+- `DB_MASTER` — Master item data (id, partNo, desc, locType, techName, sysQty, locations membership JSON, labelIssues JSON, opnameCounts physical counts JSON in column J, `REVISION` column appended to existing headers)
 - `LOG_SCAN` — Audit log (partNo, action, detail, timestamp)
 - `TEMP_OFF_BS` — Off-balance-sheet staging (time, box, partNo, qty, docNo, qr, updated_at timestamp)
 - `WMS_USER_ROLE` — Protected, hidden Admin password hash + salt (never plaintext)
@@ -585,13 +588,13 @@ Item {
   locType: string,             // "UMUM", "TEKNISI", "OFF BS", "SPAREPART BAIK"
   techName: string,            // Nama teknisi (jika TEKNISI location)
   sysQty: number,              // Target qty dari master
-  locations: {                 // Lokasi & qty fisik
-    [box]: qty,
+  locations: {                 // Membership lokasi; bukan kuantitas
+    "A-01": true,
+    "B-10": true
+  },
+  opnameCounts: {              // Hasil hitung fisik positif per box; key bernilai 0 dihapus
     "A-01": 5,
     "B-10": 3
-  },
-  opnameCounts: {              // Hasil hitung OPNAME tersimpan per box (terpisah dari membership)
-    [box]: number
   },
   labelIssues: {               // Label quality issues
     DAMAGED: number,
@@ -872,7 +875,7 @@ XLSX.writeFile(wb, "filename.xlsx");
   - Updated `executeSimpanAction(action)`: Handle SPLIT/MOVE without quantity logic
   - `closeSimpanConflictModal()`: Close modal and reset state
 - ✅ **Updated processScan() SIMPAN Branch**:
-  - If part has NO locations → Direct save (implicit: locations[box] = 1)
+  - If part has NO locations → Direct save (`locations[box] = true` membership)
   - If part HAS locations → Show conflict modal for user decision
 - ✅ **Removed**:
   - `toggleWorkflowMode()` function

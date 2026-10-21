@@ -2,7 +2,7 @@
  * Tujuan: Import, export, backup, dan restore data WMS melalui file Excel/JSON.
  * Caller: Tombol data/settings di index.html.
  * Dependensi: SheetJS, database.js (IndexedDB/sync), dan UI utilities.
- * Main Functions: handleImport() refreshes stock qty, preserves pending edits/revisions, and reconciles server IDs; exportData(), backupJson(), restoreJson(), import harga.
+ * Main Functions: handleImport() refreshes stock qty, preserves pending edits/revisions, and reconciles server IDs; exportData()/backupJson() export location membership and per-box Opname counts; restoreJson() and import harga.
  * Side Effects: Membaca file, menulis IndexedDB/cloud dan waktu upload ke localStorage, mengunduh file, dan reload aplikasi.
  */
 
@@ -245,7 +245,7 @@ function exportData() {
         
         if (hasLocations) {
             // Jika ada lokasi, buat satu baris per lokasi
-            Object.entries(item.locations).forEach(([lokasi, qty]) => {
+            Object.keys(item.locations).forEach(lokasi => {
                 flattenedData.push({
                     'Part Number': item.partNo,
                     'Deskripsi': item.desc || '',
@@ -253,7 +253,7 @@ function exportData() {
                     'Nama Teknisi': item.techName || '',
                     'Qty Sistem': item.sysQty || 0,
                     'Lokasi': lokasi,
-                    'Qty Hitung': qty,
+                    'Qty Hitung': Number(item.opnameCounts?.[lokasi]) || 0,
                     'Harga': item.harga || 0
                 });
             });
@@ -278,11 +278,11 @@ function exportData() {
         const hasLocations = item.locations && Object.keys(item.locations).length > 0;
         
         if (hasLocations) {
-            Object.entries(item.locations).forEach(([lokasi, qty]) => {
+            Object.keys(item.locations).forEach(lokasi => {
                 dataBaru.push({
                     'Part Number': item.partNo,
                     'Lokasi Ditemukan': lokasi,
-                    'Qty Ditemukan': qty,
+                    'Qty Ditemukan': Number(item.opnameCounts?.[lokasi]) || 0,
                     'Harga': item.harga || 0,
                     'Tanggal Ditemukan': item.lastOpnameDate || '-'
                 });
@@ -401,7 +401,7 @@ function exportLabelReport() {
 function backupJson() {
     if (!requireAdminAccess('membuat backup lokasi')) return;
     showLoading("<i class='fas fa-save'></i> Backup JSON", "Mempersiapkan file...");
-    const b = new Blob([JSON.stringify(localItems.map(i => ({ partNo: i.partNo, locations: i.locations, harga: i.harga || 0 })))], {type:'application/json'});
+    const b = new Blob([JSON.stringify(localItems.map(i => ({ partNo: i.partNo, locations: i.locations, opnameCounts: i.opnameCounts || {}, harga: i.harga || 0 })))], {type:'application/json'});
     const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = `Mapping_Lokasi_${new Date().toISOString().slice(0,10)}.json`; a.click();
     setTimeout(hideLoading, 500);
 }

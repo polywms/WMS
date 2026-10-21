@@ -2,7 +2,7 @@
  * Tujuan: Persistensi IndexedDB, sinkronisasi Admin, dan refresh baca otomatis untuk User.
  * Caller: main.js, core.js, dan handler kontrol sinkronisasi di index.html.
  * Dependensi: auth.js (Admin-authorized writes), config.js (db, antrean, sesi), IndexedDB, API_URL.
- * Main Functions: initDB() migrates the IndexedDB outbox; saveDB()/saveDBBatch() atomically store records and queue; sync uploads local locations/opname counts only, while cloud downloads always refresh SYS_QTY.
+ * Main Functions: initDB() migrates the IndexedDB outbox and location/count schema; saveDB()/saveDBBatch() atomically store records and queue; sync uploads local locations/opname counts only, while cloud downloads always refresh SYS_QTY.
  * Side Effects: IndexedDB item/outbox read/write, sync-log localStorage, background User GET, and user-triggered Admin POST/GET requests.
  */
 // js/database.js
@@ -189,35 +189,98 @@ function loadSyncQueueFromOutbox() {
     return new Promise((resolve, reject) => {
         const request = db.transaction('outbox', 'readonly').objectStore('outbox').getAll();
         request.onsuccess = () => {
-            syncQueue = request.result || [];
+            syncQueue = (request.result || []).map(normalizeWmsItemMaps);
             resolve(syncQueue);
         };
         request.onerror = () => reject(request.error || new Error('Gagal membaca antrean upload.'));
     });
 }
 
+function migrateWmsLocationSchema() {
+    return new Promise((resolve, reject) => {
+        let tx;
+        try {
+            tx = db.transaction(['items', 'outbox', 'meta'], 'readwrite');
+            const itemsStore = tx.objectStore('items');
+            const outboxStore = tx.objectStore('outbox');
+            const metaStore = tx.objectStore('meta');
+            const markerRequest = metaStore.get('locationMembershipSchemaV1');
+            markerRequest.onsuccess = () => {
+                if (markerRequest.result) return;
+                const migrateStore = store => {
+                    const cursorRequest = store.openCursor();
+                    cursorRequest.onsuccess = event => {
+                        const cursor = event.target.result;
+                        if (!cursor) return;
+                        const normalized = normalizeWmsItemMaps(cursor.value);
+                        if (!areWmsRecordsEqual(cursor.value, normalized)) cursor.update(normalized);
+                        cursor.continue();
+                    };
+                    cursorRequest.onerror = () => tx.abort();
+                };
+                migrateStore(itemsStore);
+                migrateStore(outboxStore);
+                metaStore.put({ id: 'locationMembershipSchemaV1' });
+            };
+            markerRequest.onerror = () => tx.abort();
+        } catch (error) {
+            reject(error);
+            return;
+        }
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error || new Error('Migrasi lokasi dan hitungan Opname gagal.'));
+        tx.onabort = () => reject(tx.error || new Error('Migrasi lokasi dan hitungan Opname dibatalkan.'));
+    });
+}
+
 function normalizeWmsLocationMap(locations) {
     const normalized = {};
-    Object.entries(locations || {}).forEach(([box, qty]) => {
+    Object.entries(locations || {}).forEach(([box, value]) => {
         const cleanBox = String(box || '').trim();
-        const numericQty = Number(qty) || 0;
-        if (!cleanBox || numericQty <= 0) return;
-        normalized[cleanBox] = (Number(normalized[cleanBox]) || 0) + numericQty;
+        const hasLocation = value === true || (value !== false && value !== null && value !== '' && Number(value) > 0);
+        if (!cleanBox || !hasLocation) return;
+        normalized[cleanBox] = true;
     });
     return normalized;
+}
+
+function normalizeWmsOpnameCountMap(counts, locations = null) {
+    const merged = {};
+    Object.entries(counts || {}).forEach(([box, value]) => {
+        const cleanBox = String(box || '').trim();
+        const count = Number(value);
+        if (!cleanBox || typeof value === 'boolean' || !Number.isInteger(count) || count <= 0) return;
+        if (locations && !Object.prototype.hasOwnProperty.call(locations, cleanBox)) return;
+        merged[cleanBox] = (Number(merged[cleanBox]) || 0) + count;
+    });
+    return merged;
+}
+
+function normalizeWmsItemMaps(item) {
+    const locations = normalizeWmsLocationMap(item?.locations);
+    return {
+        ...item,
+        locations,
+        opnameCounts: normalizeWmsOpnameCountMap(item?.opnameCounts, locations)
+    };
 }
 
 function mergeWmsLocationMaps(...maps) {
     const merged = {};
     maps.filter(Boolean).forEach(source => {
-        Object.entries(source || {}).forEach(([box, qty]) => {
-            const cleanBox = String(box || '').trim();
-            const numericQty = Number(qty) || 0;
-            if (!cleanBox || numericQty <= 0) return;
-            merged[cleanBox] = (Number(merged[cleanBox]) || 0) + numericQty;
+        Object.keys(normalizeWmsLocationMap(source)).forEach(box => { merged[box] = true; });
+    });
+    return merged;
+}
+
+function mergeWmsOpnameCountMaps(...maps) {
+    const merged = {};
+    maps.filter(Boolean).forEach(source => {
+        Object.entries(normalizeWmsOpnameCountMap(source)).forEach(([box, count]) => {
+            merged[box] = (Number(merged[box]) || 0) + count;
         });
     });
-    return Object.fromEntries(Object.entries(merged).filter(([, qty]) => Number(qty) > 0));
+    return merged;
 }
 
 function dedupeLocalItemsByIdentity(items) {
@@ -232,7 +295,7 @@ function dedupeLocalItemsByIdentity(items) {
             merged.set(key, {
                 ...item,
                 locations: normalizeWmsLocationMap(item.locations),
-                opnameCounts: normalizeWmsLocationMap(item.opnameCounts)
+                opnameCounts: normalizeWmsOpnameCountMap(item.opnameCounts, normalizeWmsLocationMap(item.locations))
             });
             return;
         }
@@ -246,7 +309,7 @@ function dedupeLocalItemsByIdentity(items) {
             locType: existing.locType || item.locType,
             techName: existing.techName || item.techName,
             locations: mergeWmsLocationMaps(existing.locations || {}, item.locations || {}),
-            opnameCounts: mergeWmsLocationMaps(existing.opnameCounts || {}, item.opnameCounts || {}),
+            opnameCounts: mergeWmsOpnameCountMaps(existing.opnameCounts || {}, item.opnameCounts || {}),
             updated_at: Math.max(Number(existing.updated_at) || 0, Number(item.updated_at) || 0),
             revision: Math.max(Number(existing.revision) || 0, Number(item.revision) || 0)
         };
@@ -255,7 +318,7 @@ function dedupeLocalItemsByIdentity(items) {
         if (!candidate.harga && item.harga) candidate.harga = item.harga;
         if ((Number(candidate.sysQty) || 0) <= 0 && (Number(item.sysQty) || 0) > 0) candidate.sysQty = Number(item.sysQty) || 0;
 
-        merged.set(key, candidate);
+        merged.set(key, normalizeWmsItemMaps(candidate));
     });
 
     const deduped = Array.from(merged.values()).sort((a, b) => String(a.partNo).localeCompare(String(b.partNo)));
@@ -276,7 +339,7 @@ function dedupeSyncQueueByIdentity(queue) {
         const key = getWmsItemIdentityKey(item);
         const existing = merged.get(key);
         if (!existing) {
-            merged.set(key, { ...item, locations: normalizeWmsLocationMap(item.locations), opnameCounts: normalizeWmsLocationMap(item.opnameCounts) });
+            merged.set(key, normalizeWmsItemMaps(item));
             return;
         }
 
@@ -287,22 +350,23 @@ function dedupeSyncQueueByIdentity(queue) {
             updated_at: Math.max(Number(existing.updated_at) || 0, Number(item.updated_at) || 0),
             revision: Math.max(Number(existing.revision) || 0, Number(item.revision) || 0),
             locations: mergeWmsLocationMaps(existing.locations || {}, item.locations || {}),
-            opnameCounts: mergeWmsLocationMaps(existing.opnameCounts || {}, item.opnameCounts || {})
+            opnameCounts: mergeWmsOpnameCountMaps(existing.opnameCounts || {}, item.opnameCounts || {})
         };
-        merged.set(key, candidate);
+        merged.set(key, normalizeWmsItemMaps(candidate));
     });
     return Array.from(merged.values());
 }
 
 function toCloudSyncPayload(item) {
     if (!item || !String(item.partNo || '').trim()) return null;
+    const normalized = normalizeWmsItemMaps(item);
     return {
         id: item.id,
         partNo: item.partNo,
         locType: item.locType || '',
         techName: item.techName || '',
-        locations: item.locations || {},
-        opnameCounts: item.opnameCounts || {},
+        locations: normalized.locations,
+        opnameCounts: normalized.opnameCounts,
         revision: Number(item.revision) || 0,
     };
 }
@@ -359,6 +423,7 @@ function initDB() {
             db = e.target.result; 
             try {
                 await migrateLegacySyncQueue();
+                await migrateWmsLocationSchema();
                 await loadSyncQueueFromOutbox();
                 await loadDataFromLocal();
                 const integrityFixed = await validateAndRepairLocalDataIntegrity();
@@ -381,7 +446,7 @@ function loadDataFromLocal() {
     return new Promise(resolve => {
         const request = db.transaction('items', 'readonly').objectStore('items').getAll();
         request.onsuccess = async e => {
-            localItems = e.target.result || [];
+            localItems = (e.target.result || []).map(normalizeWmsItemMaps);
             localItems.forEach(i => {
                 if(!i.locations) i.locations = {};
                 if(!i.lastOpnameDate) i.lastOpnameDate = '';
@@ -448,6 +513,7 @@ async function downloadFromServer(options = {}) {
         const mergeCandidates = result.data
             .filter(item => item && item.id !== undefined && item.id !== null)
             .map(cloudItem => {
+                cloudItem = normalizeWmsItemMaps(cloudItem);
                 const localItem = localById.get(cloudItem.id)
                     || localByKey.get(getWmsItemIdentityKey(cloudItem));
                 if (pendingIds.has(cloudItem.id) || pendingKeys.has(getWmsItemIdentityKey(cloudItem))) {
@@ -592,7 +658,7 @@ async function downloadFromServer(options = {}) {
 
 function saveDB(item, actionName = "UPDATE", actionDetail = "") {
     if (!requireAdminAccess('menyimpan perubahan lokal')) return false;
-    const record = { ...item, updated_at: Date.now(), revision: Number(item.revision) || 0, localVersion: `${Date.now()}-${Math.random()}` };
+    const record = { ...normalizeWmsItemMaps(item), updated_at: Date.now(), revision: Number(item.revision) || 0, localVersion: `${Date.now()}-${Math.random()}` };
     Object.assign(item, record);
     const tx = db.transaction(['items', 'outbox'], 'readwrite');
     tx.objectStore('items').put(record);
@@ -621,7 +687,7 @@ function saveDBBatch(items, actionName = "UPDATE", actionDetail = "") {
 
     const timestamp = Date.now();
     const records = items.map(item => ({
-        ...item,
+        ...normalizeWmsItemMaps(item),
         updated_at: timestamp,
         revision: Number(item.revision) || 0,
         localVersion: `${timestamp}-${Math.random()}`

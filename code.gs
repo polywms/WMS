@@ -2,7 +2,7 @@
  * Tujuan: Endpoint Google Apps Script untuk otorisasi sesi Admin, sinkronisasi lokasi/hitungan opname, dan import SYS_QTY.
  * Caller: js/database.js melalui Google Sheets API.
  * Dependensi: SpreadsheetApp, ContentService, sheet DB_MASTER/LOG_SCAN.
- * Main Functions: doGet()/doPost() expose cloud-owned SYS_QTY, sync local LOCATIONS/OPNAME_COUNTS, stock import, and revision conflict control.
+ * Main Functions: doGet()/doPost() expose cloud-owned SYS_QTY, normalize LOCATIONS as box membership and positive OPNAME_COUNTS as physical counts, handle stock import, and enforce revision conflicts.
  * Side Effects: Membaca/menulis Google Sheets dan mengirim respons HTTP.
  */
 
@@ -13,6 +13,28 @@ const SHEET_ROLE = "WMS_USER_ROLE";
 const ADMIN_SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 const PASSWORD_HASH_ITERATIONS = 12000;
 const ADMIN_PASSWORD_MIN_LENGTH = 4;
+
+function normalizeLocationMembershipMap(locations) {
+  const normalized = {};
+  Object.entries(locations || {}).forEach(([box, value]) => {
+    const cleanBox = String(box || "").trim();
+    const hasLocation = value === true || (value !== false && value !== null && value !== "" && Number(value) > 0);
+    if (cleanBox && hasLocation) normalized[cleanBox] = true;
+  });
+  return normalized;
+}
+
+function normalizeOpnameCountMap(counts, locations) {
+  const normalized = {};
+  Object.entries(counts || {}).forEach(([box, value]) => {
+    const cleanBox = String(box || "").trim();
+    const count = Number(value);
+    if (!cleanBox || typeof value === "boolean" || !Number.isInteger(count) || count <= 0) return;
+    if (!Object.prototype.hasOwnProperty.call(locations || {}, cleanBox)) return;
+    normalized[cleanBox] = count;
+  });
+  return normalized;
+}
 
 function doGet(e) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -55,12 +77,14 @@ function doGet(e) {
 
     let locations = {};
     try { locations = JSON.parse(row[locationIndex >= 0 ? locationIndex : 6] || '{}') || {}; } catch (error) {}
+    locations = normalizeLocationMembershipMap(locations);
 
     let labelIssues = {};
     try { labelIssues = JSON.parse(row[labelIndex >= 0 ? labelIndex : 7] || '{}') || {}; } catch (error) {}
 
     let opnameCounts = {};
     try { opnameCounts = JSON.parse(row[opnameIndex >= 0 ? opnameIndex : 9] || '{}') || {}; } catch (error) {}
+    opnameCounts = normalizeOpnameCountMap(opnameCounts, locations);
 
     items.push({
       id: Number(row[0]),
@@ -951,13 +975,18 @@ function mergeDataFast(sheet, incomingItems, revisionColumnIndex) {
     if (hasOpnameCounts && (!item.opnameCounts || typeof item.opnameCounts !== "object" || Array.isArray(item.opnameCounts))) {
       throw new Error(`OPNAME_COUNTS tidak valid untuk part ${item.partNo}.`);
     }
-    const keptLocations = hasLocations
-      ? JSON.stringify(item.locations)
-      : (existingRow ? existingRow[6] || '{}' : '{}');
+    let existingLocations = {};
+    let existingOpnameCounts = {};
+    try { existingLocations = JSON.parse(existingRow ? existingRow[6] || '{}' : '{}') || {}; } catch (error) {}
+    try { existingOpnameCounts = JSON.parse(existingRow ? existingRow[9] || '{}' : '{}') || {}; } catch (error) {}
+    const normalizedLocations = normalizeLocationMembershipMap(hasLocations ? item.locations : existingLocations);
+    const normalizedOpnameCounts = normalizeOpnameCountMap(
+      hasOpnameCounts ? item.opnameCounts : existingOpnameCounts,
+      normalizedLocations
+    );
+    const keptLocations = JSON.stringify(normalizedLocations);
     const keptLabelIssues = existingRow ? existingRow[7] || '{}' : '{}';
-    const keptOpnameCounts = hasOpnameCounts
-      ? JSON.stringify(item.opnameCounts)
-      : (existingRow ? existingRow[9] || '{}' : '{}');
+    const keptOpnameCounts = JSON.stringify(normalizedOpnameCounts);
     const rowData = [
       existingRow ? existingRow[0] : item.id,
       item.partNo,

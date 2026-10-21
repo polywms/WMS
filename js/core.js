@@ -23,14 +23,14 @@
  * - updateBoxToBoxIndicator() — Render box asal/tujuan; pertahankan pasangan valid sampai scan box berikutnya
  * - getBoxToBoxItems() — Temukan part sumber berdasarkan kode box yang dinormalisasi
  * - confirmBoxToBoxYesToAll() — Setujui semua part dan lewati konfirmasi hingga mode B2B dimatikan
- * - handleOpnameScan()/handleOpnameRender() — OPNAME SPAREPART BAIK dengan counted/SYS_QTY dan split box lokal
+ * - handleOpnameScan()/handleOpnameRender() — OPNAME SPAREPART BAIK dengan hitungan per box dan total counted/SYS_QTY
  * - handleOpnameScan() — Reject part scans that do not belong to the active box
  * - getOpnameBufferQty(itemId, item) — Read the latest saved cumulative count for the active box
  * - resetCurrentBoxOpname() — Reset only the saved count, preserving part-to-box locations
  * - confirmOpnameOverScan()/decrementOpnameBuffer() — Confirm over-target scans and correct counted quantity
  * - addToOpnameBuffer()/commitOpnameBox() — Persist every cumulative scan immediately; SELESAI only closes the box flow
- * - syncOpnameCountFromLocation() — Keep quantity edits for existing boxes aligned with OPNAME
- * - saveManualEdit() — Edit existing-box counts without changing location membership
+ * - getOpnameTotalCount(item) — Sum physical counts across the item's assigned boxes
+ * - saveManualEdit() — Edit the active box's physical count without changing locations
  * - removeOpnamePartFromActiveBox() — Remove a part from only the active OPNAME box
  * - updateActivePartPanel(item) — Display part detail (location-only view)
  * - selectPartSimpan(item) — Select part dari list
@@ -372,9 +372,10 @@ function applyBoxToBoxSelection(sourceBox, targetBox, selectedItems, isYesToAll 
         const oldLocations = JSON.parse(JSON.stringify(item.locations));
         const targetLocationKey = getBoxToBoxLocationKey(item.locations, targetBox);
         if (targetLocationKey === undefined) {
-            item.locations[targetBox] = item.locations[sourceLocationKey];
+            item.locations[targetBox] = true;
         }
         delete item.locations[sourceLocationKey];
+        if (item.opnameCounts) delete item.opnameCounts[sourceLocationKey];
         item.lastBox = targetBox;
 
         if (JSON.stringify(item.locations) !== JSON.stringify(oldLocations)) {
@@ -693,7 +694,7 @@ if (currentTab === 'packing') {
             
             // Case 1: Part belum pernah tersimpan → Direct save
             if (existingLocations.length === 0) {
-                activeItem.locations[boxCode] = 1;
+                activeItem.locations[boxCode] = true;
                 activeItem.lastBox = boxCode;
                 saveDB(activeItem);
                 addHistoryLog(activeItem.partNo, boxCode);
@@ -764,14 +765,16 @@ function executeUndo() {
     }
     if (item) {
         if (type === 'opname_add') {
-            if (item.locations[box] > 0) {
-                item.locations[box]--;
-                if (item.locations[box] === 0) delete item.locations[box]; 
+            const currentCount = Number(item.opnameCounts?.[box]) || 0;
+            if (currentCount > 0) {
+                item.opnameCounts = { ...(item.opnameCounts || {}) };
+                if (currentCount === 1) delete item.opnameCounts[box];
+                else item.opnameCounts[box] = currentCount - 1;
                 saveDB(item); feedback('success'); showToast("Undo Berhasil (Qty -1)");
                 if (currentTab === 'opname') handleOpnameRender();
             }
         } else if (type === 'simpan_set' || type === 'simpan_conflict') {
-            if (oldState) item.locations = JSON.parse(JSON.stringify(oldState)); else delete item.locations[box];
+            if (oldState) item.locations = Object.fromEntries(Object.keys(oldState).map(location => [location, true])); else delete item.locations[box];
             saveDB(item); feedback('success'); showToast("Undo Berhasil");
             if (currentTab === 'simpan') { renderSimpanList(false); }
         }
@@ -789,12 +792,8 @@ function renderSimpanList(reset = true) {
     
     show.forEach(i => {
         const isActive = tempPart && tempPart.id === i.id;
-        const hasLoc = Object.keys(i.locations).length > 0;
-        const locTags = Object.entries(i.locations).map(([k,v])=>`<span class="loc-badge">${k}</span>`).join('');
-        const totalQty = Object.values(i.locations).reduce((a,b)=>a+b,0);
-        
-        // Tulis jumlah tersimpan di sebelah part number
-        const qtyDisplay = totalQty > 0 ? `<span style="background:#dcfce7; color:#16a34a; padding:2px 8px; border-radius:8px; font-size:0.8rem; font-weight:bold; margin-left:8px; border:1px solid #86efac;">x ${totalQty}</span>` : '';
+        const hasLoc = Object.keys(i.locations || {}).length > 0;
+        const locTags = Object.keys(i.locations || {}).map(box => `<span class="loc-badge">${box}</span>`).join('');
         
         if (isFilterActive && hasLoc) return;
         const div = document.createElement('div');
@@ -807,7 +806,6 @@ function renderSimpanList(reset = true) {
         <div style="flex:1">
             <div style="display:flex; align-items:center; flex-wrap:wrap; gap:6px; margin-bottom:4px;">
                 <span class="part-code" style="font-size:1.05rem; font-weight:bold;">${i.partNo}</span>
-                ${qtyDisplay}
                 ${locTags ? `<div style="display:flex; gap:4px; margin-left:auto; flex-wrap:wrap;">${locTags}</div>` : ''}
             </div>
             <span class="part-desc" style="font-size:0.85rem; color:#64748b;">${i.desc}</span>
@@ -1118,7 +1116,7 @@ async function processMultiScan(boxCode) {
         bufferItem.sourceLocations = Object.keys(currentItem.locations || {});
         return {
             ...currentItem,
-            locations: { [boxCode]: 1 },
+            locations: { [boxCode]: true },
             lastBox: boxCode
         };
     });
@@ -1216,13 +1214,13 @@ function executeSimpanAction(action) {
         // Delete all old locations
         oldLocs.forEach(loc => delete item.locations[loc]);
         // Add new location
-        item.locations[newBox] = 1;
+        item.locations[newBox] = true;
         
         showToast(`✓ ${item.partNo} dipindah ke ${newBox}`);
     } else if (action === 'split') {
         // SPLIT: Keep old locations, add new one
         if (!item.locations[newBox]) {
-            item.locations[newBox] = 1;
+            item.locations[newBox] = true;
         }
         
         showToast(`✓ ${item.partNo} disimpan di ${newBox} (+ lokasi lama)`);
@@ -1334,6 +1332,7 @@ function createNewItem(code) {
 
 function getOpnameBufferQty(itemId, item = null) {
     const sourceItem = item || localItems.find(candidate => candidate.id === itemId);
+    if (!sourceItem || !activeBoxFilter || !Object.prototype.hasOwnProperty.call(sourceItem.locations || {}, activeBoxFilter)) return 0;
     const buf = Array.isArray(opnameBuffer)
         ? opnameBuffer.find(entry => entry.item && entry.item.id === itemId)
         : null;
@@ -1344,27 +1343,24 @@ function getOpnameBufferQty(itemId, item = null) {
     return 0;
 }
 
-function getOpnameTargetQty(item, box = activeBoxFilter) {
-    const totalQty = Number(item?.sysQty) || 0;
-    if (totalQty > 0) return totalQty;
-    if (box) return Number(item?.locations?.[box]) || 0;
-    return 0;
+function getOpnameTotalCount(item) {
+    const locations = item?.locations || {};
+    return Object.entries(item?.opnameCounts || {}).reduce((total, [box, count]) => {
+        if (!Object.prototype.hasOwnProperty.call(locations, box)) return total;
+        const numericCount = Number(count);
+        return Number.isInteger(numericCount) && numericCount > 0 ? total + numericCount : total;
+    }, 0);
+}
+
+function getOpnameTargetQty(item) {
+    return Number(item?.sysQty) || 0;
 }
 
 function getLocationSplitSummaryForBox(item, box = activeBoxFilter) {
-    const entries = Object.entries(item?.locations || {})
-        .filter(([location, qty]) => String(location || '').trim() && Number(qty) > 0);
-    if (entries.length === 0) return 'Belum ada split';
-
-    const normalizedBox = String(box || '').trim().toUpperCase();
-    const activeEntry = entries.find(([location]) => String(location).trim().toUpperCase() === normalizedBox);
-    const summary = [`This box${box ? ` ${box}` : ''}: ${Number(activeEntry?.[1]) || 0}`];
-    const otherEntries = entries.filter(([location]) => String(location).trim().toUpperCase() !== normalizedBox);
-    const spareEntries = otherEntries.filter(([location]) => /^SPARE-/i.test(String(location).trim()));
-    const otherMainEntries = otherEntries.filter(([location]) => !/^SPARE-/i.test(String(location).trim()));
-    spareEntries.forEach(([location, qty]) => summary.push(`Spare ${location}: ${Number(qty) || 0}`));
-    otherMainEntries.forEach(([location, qty]) => summary.push(`Other ${location}: ${Number(qty) || 0}`));
-    return summary.join(' | ');
+    const boxes = Object.keys(item?.locations || {});
+    if (boxes.length === 0) return 'Belum ada lokasi';
+    const counts = item?.opnameCounts || {};
+    return `Hitungan fisik: ${boxes.map(location => `${location}: ${Number(counts[location]) || 0}${location === box ? ' (aktif)' : ''}`).join(' | ')}`;
 }
 
 function persistOpnameSession() {
@@ -1398,7 +1394,9 @@ async function restoreOpnameSession() {
     const recoveredItems = [];
     opnameBuffer = (saved.counts || []).reduce((restored, count) => {
         const item = localItems.find(candidate => candidate.id === count.itemId);
-        if (!isSparepartBaik(item) || !(Number(count.qty) > 0)) return restored;
+        if (!isSparepartBaik(item)
+            || !Object.prototype.hasOwnProperty.call(item.locations || {}, saved.box)
+            || !(Number(count.qty) > 0)) return restored;
         const savedCount = Number(item.opnameCounts?.[saved.box]);
         const hasSavedCount = Object.prototype.hasOwnProperty.call(item.opnameCounts || {}, saved.box);
         const recoveredQty = saved.schema === 2
@@ -1495,7 +1493,7 @@ async function processOpnameScan(rawCode, isBox) {
     const partNo = (parsed ? parsed.partNo : rawCode).trim().toUpperCase();
     const partMatches = localItems.filter(candidate => String(candidate.partNo || '').toUpperCase() === partNo);
     const matchingItems = partMatches.filter(isSparepartBaik);
-    const item = matchingItems.find(candidate => Number(candidate.locations && candidate.locations[activeBoxFilter]) > 0);
+    const item = matchingItems.find(candidate => Object.prototype.hasOwnProperty.call(candidate.locations || {}, activeBoxFilter));
     if (!item) {
         feedback('error');
         showToast(partMatches.length && matchingItems.length === 0
@@ -1516,14 +1514,14 @@ function getOpnameBoxItems() {
     const seen = new Set();
     const dataset = localItems.filter(item => {
         if (!isSparepartBaik(item)) return false;
-        if (!(Number(item.locations && item.locations[box]) > 0)) return false;
+        if (!Object.prototype.hasOwnProperty.call(item.locations || {}, box)) return false;
         if (seen.has(item.id)) return false;
         seen.add(item.id);
         return true;
     });
     if (Array.isArray(opnameBuffer)) {
         opnameBuffer.forEach(b => {
-            if (b.item && isSparepartBaik(b.item) && Number(b.item.locations && b.item.locations[box]) > 0 && !seen.has(b.item.id)) {
+            if (b.item && isSparepartBaik(b.item) && Object.prototype.hasOwnProperty.call(b.item.locations || {}, box) && !seen.has(b.item.id)) {
                 seen.add(b.item.id);
                 dataset.push(b.item);
             }
@@ -1594,7 +1592,7 @@ function handleOpnameRender(reset = true) {
     const pendingIds = new Set(syncQueue.map(item => String(item.id)));
     let html = '';
     show.forEach(i => {
-        const counted = getOpnameBufferQty(i.id, i);
+        const counted = getOpnameTotalCount(i);
         const target = getOpnameTargetQty(i);
         const splitText = getLocationSplitSummaryForBox(i, activeBoxFilter);
         let badgeClass = 'qty-uncounted';
@@ -1657,10 +1655,7 @@ function showOpnameInfo(item) {
     document.getElementById('opnameInfoPanel').style.display = 'block';
     document.getElementById('infoPartNo').innerText = item.partNo;
     document.getElementById('infoPartDesc').innerText = item.desc;
-    const splitList = Object.entries(item.locations || {})
-        .filter(([box, qty]) => box && Number(qty) > 0)
-        .map(([box, qty]) => `${box}: ${qty}`)
-        .join(', ');
+    const splitList = Object.keys(item.locations || {}).join(', ');
     document.getElementById('infoLocList').innerText = splitList || "Belum ada lokasi";
     document.getElementById('opnameList').style.display = 'none';
 }
@@ -1673,18 +1668,9 @@ async function clearOpname() {
                 showToast('Penyimpanan OPNAME sedang berlangsung. Tunggu hingga selesai.');
                 return;
             }
-            const changedItems = [];
-            localItems.forEach(item => {
-                if (!isSparepartBaik(item)) return;
-                const boxes = new Set([
-                    ...Object.keys(item.locations || {}),
-                    ...Object.keys(item.opnameCounts || {})
-                ]);
-                if (boxes.size === 0) return;
-                const opnameCounts = { ...(item.opnameCounts || {}) };
-                boxes.forEach(box => { opnameCounts[box] = 0; });
-                changedItems.push({ ...item, opnameCounts });
-            });
+            const changedItems = localItems
+                .filter(item => isSparepartBaik(item) && Object.keys(item.opnameCounts || {}).length > 0)
+                .map(item => ({ ...item, opnameCounts: {} }));
             opnameCommitInProgress = true;
             try {
                 const savedItems = await saveDBBatch(changedItems, 'OPNAME', 'Reset semua hitungan: 0');
@@ -1726,9 +1712,11 @@ async function resetCurrentBoxOpname() {
         const box = activeBoxFilter;
         const changedItems = [];
         localItems.forEach(item => {
-            if (!isSparepartBaik(item) || !(Number(item.locations && item.locations[box]) > 0)) return;
-            if (Object.prototype.hasOwnProperty.call(item.opnameCounts || {}, box) && Number(item.opnameCounts[box]) === 0) return;
-            changedItems.push({ ...item, opnameCounts: { ...(item.opnameCounts || {}), [box]: 0 } });
+            if (!isSparepartBaik(item) || !Object.prototype.hasOwnProperty.call(item.locations || {}, box)) return;
+            if (!Object.prototype.hasOwnProperty.call(item.opnameCounts || {}, box)) return;
+            const opnameCounts = { ...(item.opnameCounts || {}) };
+            delete opnameCounts[box];
+            changedItems.push({ ...item, opnameCounts });
         });
         opnameCommitInProgress = true;
         try {
@@ -1760,9 +1748,7 @@ async function resetCurrentBoxOpname() {
 }
 
 function formatLocationSplitSummary(locations = {}) {
-    const entries = Object.entries(locations || {})
-        .filter(([box, qty]) => box && Number(qty) > 0)
-        .map(([box, qty]) => `${String(box).trim()}:${Number(qty)}`);
+    const entries = Object.keys(locations || {}).filter(box => String(box).trim());
     return entries.length > 0 ? entries.join(', ') : 'Belum ada split';
 }
 
@@ -1775,8 +1761,8 @@ function renderDataList(reset = false) {
     const show = dataset.slice(0, renderLimit); if(show.length===0) { container.innerHTML='<div style="text-align:center; padding:20px; color:#999">Tidak ditemukan</div>'; return; }
     let html = '';
     show.forEach(i => {
-        const total = Object.values(i.locations || {}).reduce((a,b)=>a+b,0); 
-        const locBadges = Object.entries(i.locations || {}).map(([k,v])=>`<span class="loc-badge" style="font-size:0.7rem; padding:2px 6px;">${k}(${v})</span>`).join('');
+        const total = getOpnameTotalCount(i);
+        const locBadges = Object.keys(i.locations || {}).map(box=>`<span class="loc-badge" style="font-size:0.7rem; padding:2px 6px;">${box}</span>`).join('');
         const splitSummary = formatLocationSplitSummary(i.locations);
         const opnameDate = i.lastOpnameDate ? new Date(i.lastOpnameDate).toLocaleDateString('id-ID', {year:'numeric', month:'short', day:'numeric'}) : '-';
         let color = total!==i.sysQty ? 'var(--danger)' : (total>0 ? 'var(--opname)' : 'var(--text)');
@@ -1825,13 +1811,39 @@ function openEditModal(id) {
         document.getElementById('editLastOpnameDate').parentElement.style.display = 'none';
     }
     
-    const list = document.getElementById('editLocsList'); list.innerHTML='';
-    Object.keys(item.locations || {}).forEach(box => { const r = document.createElement('div'); r.style.cssText="display:flex; justify-content:space-between; margin-bottom:8px; align-items:center;"; r.innerHTML=`<b>${box}</b> <div style="display:flex; gap:5px;"><input type="number" min="0" step="1" class="edit-qty-input" data-box="${box}" value="${item.locations[box]}" style="width:60px; padding:5px;"></div>`; list.appendChild(r); });
+    const list = document.getElementById('editLocsList');
+    list.replaceChildren();
+    const activeOpnameBox = currentTab === 'opname' ? activeBoxFilter : null;
+    if (activeOpnameBox && Object.prototype.hasOwnProperty.call(item.locations || {}, activeOpnameBox)) {
+        const row = document.createElement('label');
+        row.style.cssText = 'display:flex; justify-content:space-between; margin-bottom:8px; align-items:center;';
+        const label = document.createElement('b');
+        label.textContent = `Hitungan fisik ${activeOpnameBox}`;
+        const input = document.createElement('input');
+        input.type = 'number';
+        input.min = '0';
+        input.step = '1';
+        input.className = 'edit-opname-count-input';
+        input.dataset.box = activeOpnameBox;
+        input.value = getOpnameBufferQty(item.id, item);
+        input.style.cssText = 'width:80px; padding:5px;';
+        row.append(label, input);
+        list.appendChild(row);
+    } else {
+        Object.keys(item.locations || {}).forEach(box => {
+            const row = document.createElement('div');
+            row.style.cssText = 'margin-bottom:8px;';
+            row.textContent = box;
+            list.appendChild(row);
+        });
+    }
     document.getElementById('editNewBox').parentElement.parentElement.style.display = 'none';
+    const saveButton = document.querySelector('#editModal button[onclick="saveManualEdit()"]');
+    if (saveButton) saveButton.hidden = currentTab !== 'opname';
     const deleteContainer = document.getElementById('editDeleteBtnContainer');
     deleteContainer.innerHTML = item.desc === 'PART BARU' ? `<button class="btn btn-danger" style="margin-top:15px;" onclick="deletePartBaru(${item.id})"><i class="fas fa-trash-alt"></i> Hapus Part Ini Permanen</button>` : '';
     const activeBox = activeBoxFilter;
-    if (currentTab === 'opname' && activeBox && Number(item.locations?.[activeBox]) > 0) {
+    if (currentTab === 'opname' && activeBox && Object.prototype.hasOwnProperty.call(item.locations || {}, activeBox)) {
         const removeButton = document.createElement('button');
         removeButton.type = 'button';
         removeButton.className = 'btn btn-danger';
@@ -1857,7 +1869,7 @@ async function removeOpnamePartFromActiveBox(id, box) {
     const itemIndex = localItems.findIndex(item => item.id === id);
     if (itemIndex < 0) return;
     const item = localItems[itemIndex];
-    if (!isSparepartBaik(item) || !(Number(item.locations?.[box]) > 0)) {
+    if (!isSparepartBaik(item) || !Object.prototype.hasOwnProperty.call(item.locations || {}, box)) {
         feedback('error');
         showToast('Part tidak terdaftar di box aktif.');
         return;
@@ -1897,24 +1909,6 @@ async function removeOpnamePartFromActiveBox(id, box) {
     showToast(`${item.partNo} dihapus dari box ${box}.`);
 }
 
-function syncOpnameCountFromLocation(item, box, qty, removed = false) {
-    if (!item.locations) item.locations = {};
-    if (!item.opnameCounts) item.opnameCounts = {};
-    if (removed) delete item.opnameCounts[box];
-    else item.opnameCounts[box] = qty;
-
-    if (opnameBufferBox !== box || !opnameBufferStarted) return;
-    const entryIndex = opnameBuffer.findIndex(entry => entry.item.id === item.id);
-    if (removed || qty <= 0) {
-        if (entryIndex >= 0) opnameBuffer.splice(entryIndex, 1);
-    } else if (entryIndex >= 0) {
-        opnameBuffer[entryIndex].qty = qty;
-    } else {
-        opnameBuffer.push({ item, qty });
-    }
-    persistOpnameSession();
-}
-
 function deleteLocation(id, box) {
     feedback('warning');
     showToast('Kode lokasi hanya dapat diubah melalui scan pindah.');
@@ -1926,7 +1920,12 @@ function addManualLoc() {
 }
 
 async function saveManualEdit() {
-    if (!requireAdminAccess('mengubah qty lokasi')) return;
+    if (!requireAdminAccess('mengubah hitungan Opname')) return;
+    if (currentTab !== 'opname' || !activeBoxFilter) {
+        feedback('warning');
+        showToast('Hitungan fisik hanya dapat diedit dari Opname dengan box aktif.');
+        return;
+    }
     if (opnameCommitInProgress) {
         feedback('warning');
         showToast('Penyimpanan OPNAME sedang berlangsung. Tunggu hingga selesai.');
@@ -1940,66 +1939,55 @@ async function saveManualEdit() {
         showToast('Qty lokasi dan OPNAME hanya dapat diubah untuk LOC_TYPE SPAREPART BAIK.');
         return;
     }
-    const locationEdits = [...document.querySelectorAll('.edit-qty-input')].map(input => ({
-        box: input.dataset.box,
-        value: input.value.trim(),
-        qty: Number(input.value)
-    }));
-    const existingLocations = item.locations || {};
-    if (locationEdits.some(edit => !Object.prototype.hasOwnProperty.call(existingLocations, edit.box))) {
+    const input = document.querySelector('.edit-opname-count-input');
+    const box = input?.dataset.box;
+    const value = input?.value.trim() || '';
+    const qty = Number(value);
+    if (!input || box !== activeBoxFilter || !Object.prototype.hasOwnProperty.call(item.locations || {}, box)) {
         feedback('error');
-        showToast('Kode lokasi hanya dapat diubah melalui scan pindah.');
+        showToast('Box aktif tidak lagi sesuai. Buka ulang edit part dari box aktif.');
         return;
     }
-    if (locationEdits.some(edit => !edit.box || !edit.value || !Number.isInteger(edit.qty) || edit.qty < 0)) {
+    if (!value || !Number.isInteger(qty) || qty < 0) {
         feedback('error');
-        showToast('Qty lokasi harus berupa bilangan bulat >= 0.');
+        showToast('Hitungan fisik harus berupa bilangan bulat >= 0.');
         return;
     }
     const updatedItem = {
         ...item,
-        locations: { ...(item.locations || {}) },
         opnameCounts: { ...(item.opnameCounts || {}) }
     };
-    const previousBuffer = opnameBuffer.map(entry => ({ ...entry }));
-    const previousCommitted = opnameBufferCommitted;
-    const previousStarted = opnameBufferStarted;
-    locationEdits.forEach(({ box, qty }) => {
-        updatedItem.locations[box] = qty;
-        syncOpnameCountFromLocation(updatedItem, box, qty);
-    });
+    if (qty === 0) delete updatedItem.opnameCounts[box];
+    else updatedItem.opnameCounts[box] = qty;
 
-    // Save lastOpnameDate ONLY if from OPNAME tab
-    if (currentTab === 'opname') {
-        const opnameDate = document.getElementById('editLastOpnameDate').value || new Date().toISOString().split('T')[0];
-        updatedItem.lastOpnameDate = opnameDate;
-    }
+    const opnameDate = document.getElementById('editLastOpnameDate').value || new Date().toISOString().split('T')[0];
+    updatedItem.lastOpnameDate = opnameDate;
     
     updatedItem.updated_at = Date.now();
-    const editsActiveBox = locationEdits.some(edit => edit.box === opnameBufferBox);
-    if (editsActiveBox && opnameBufferStarted) {
-        opnameBufferCommitted = false;
-        persistOpnameSession();
-    }
+    opnameCommitInProgress = true;
     try {
-        const [savedItem] = await saveDBBatch([updatedItem], 'LOCATION', 'Simpan qty lokasi manual');
+        const [savedItem] = await saveDBBatch([updatedItem], 'OPNAME', `Koreksi hitungan ${box}: ${qty}`);
         localItems[itemIndex] = savedItem;
         const filteredIndex = filteredItems.findIndex(candidate => candidate.id === savedItem.id);
         if (filteredIndex >= 0) filteredItems[filteredIndex] = savedItem;
-        opnameBuffer.forEach(entry => {
-            if (entry.item.id === savedItem.id) entry.item = savedItem;
-        });
-        opnameBufferCommitted = previousCommitted;
-        persistOpnameSession();
+        if (opnameBufferBox === box) {
+            const entryIndex = opnameBuffer.findIndex(entry => entry.item.id === savedItem.id);
+            if (qty === 0) opnameBuffer = opnameBuffer.filter(entry => entry.item.id !== savedItem.id);
+            else if (entryIndex >= 0) {
+                opnameBuffer[entryIndex].item = savedItem;
+                opnameBuffer[entryIndex].qty = qty;
+            } else opnameBuffer.push({ item: savedItem, qty });
+            opnameBufferStarted = true;
+            opnameBufferCommitted = true;
+            persistOpnameSession();
+        }
     } catch (error) {
-        console.error('Gagal menyimpan qty lokasi:', error);
-        opnameBuffer = previousBuffer;
-        opnameBufferCommitted = previousCommitted;
-        opnameBufferStarted = previousStarted;
-        persistOpnameSession();
+        console.error('Gagal menyimpan hitungan Opname:', error);
         feedback('error');
-        showToast('Qty lokasi gagal disimpan. Perubahan dibatalkan; coba lagi.');
+        showToast('Hitungan Opname gagal disimpan. Perubahan dibatalkan; coba lagi.');
         return;
+    } finally {
+        opnameCommitInProgress = false;
     }
     document.getElementById('editModal').style.display='none'; 
     renderOpnameBuffer();
@@ -2026,7 +2014,27 @@ function deletePartBaru(id) {
 function addLabelIssue(type) { if (!requireAdminAccess('memperbarui label part') || !tempPart) return; if (!tempPart.labelIssues) tempPart.labelIssues = { DAMAGED: 0, NO_LABEL: 0 }; let typeName = type === 'DAMAGED' ? 'Rusak' : 'Tanpa Label'; let input = prompt(`Berapa buah part ${tempPart.partNo} yang labelnya ${typeName}? \n(Ketik angka saja)`, "1"); let qty = parseInt(input); if (!isNaN(qty) && qty > 0) { tempPart.labelIssues[type] += qty; saveDB(tempPart); feedback('success'); showToast(`${qty} part ditandai`); selectPartSimpan(tempPart); } }
 function openLabelReport() { if (!requireAdminAccess('melihat laporan label')) return; const container = document.getElementById('labelReportList'); let html = ''; let count = 0; localItems.forEach(i => { if (i.labelIssues && (i.labelIssues.DAMAGED > 0 || i.labelIssues.NO_LABEL > 0)) { count++; html += `<div style="padding:10px; border:1px solid var(--border); border-radius:6px; background:#fef2f2;"><b>${i.partNo}</b> <span style="font-size:0.8rem; color:var(--secondary)">${i.desc}</span><div style="display:flex; gap:15px; margin-top:8px; font-size:0.85rem; font-weight:bold;">${i.labelIssues.NO_LABEL > 0 ? `<span style="color:var(--danger);"><i class="fas fa-tag"></i> Hilang: ${i.labelIssues.NO_LABEL} pcs</span>` : ''}${i.labelIssues.DAMAGED > 0 ? `<span style="color:#d97706;"><i class="fas fa-tags"></i> Rusak: ${i.labelIssues.DAMAGED} pcs</span>` : ''}</div><div style="font-size:0.75rem; color:var(--secondary); margin-top:6px;">Lokasi: ${Object.keys(i.locations).join(', ') || 'Belum Box'}</div></div>`; } }); if (count === 0) html = '<div style="text-align:center; padding:30px; color:var(--opname);"><i class="fas fa-check-circle" style="font-size:2rem; margin-bottom:10px; display:block;"></i>Semua Label Aman!</div>'; container.innerHTML = html; document.getElementById('labelReportModal').style.display = 'flex'; }
 function openRakModal() { if (!requireAdminAccess('membuka laporan rak')) return; const raks = new Set(); localItems.forEach(i => Object.keys(i.locations).forEach(box => raks.add(box.charAt(0).toUpperCase()))); const sel = document.getElementById('rakSelect'); sel.innerHTML = '<option value="">-- Pilih Rak --</option>'; [...raks].sort().forEach(r => sel.innerHTML += `<option value="${r}">Rak ${r}</option>`); document.getElementById('rakSummaryList').innerHTML = '<div style="text-align:center; color:#999; padding:20px;">Pilih rak di atas</div>'; document.getElementById('rakModal').style.display = 'flex'; }
-function renderRakSummary() { const rak = document.getElementById('rakSelect').value; const container = document.getElementById('rakSummaryList'); if (!rak) { container.innerHTML = ''; return; } let html = ''; let missingCount = 0; localItems.forEach(i => { const boxesInRak = Object.keys(i.locations).filter(b => b.startsWith(rak)); if (boxesInRak.length > 0) { const totalFisik = Object.values(i.locations).reduce((a,b)=>a+b,0); if (totalFisik < i.sysQty) { missingCount++; html += `<div style="padding:10px; border-left:4px solid var(--danger); background:#fef2f2; border-radius:4px;"><div style="display:flex; justify-content:space-between;"><b style="color:var(--danger)">${i.partNo}</b><span style="font-size:0.8rem; font-weight:bold; color:var(--danger)">${totalFisik} / ${i.sysQty}</span></div><div style="font-size:0.8rem; color:#666; margin-top:4px;">Harusnya di: ${boxesInRak.map(b => `${b}(${i.locations[b]})`).join(', ')}</div></div>`; } } }); if (missingCount === 0) html = '<div style="text-align:center; padding:30px; color:#16a34a; font-weight:bold;"><i class="fas fa-check-circle" style="font-size:3rem; margin-bottom:10px; display:block;"></i>Aman & Komplit!</div>'; container.innerHTML = html; }
+function renderRakSummary() {
+    const rak = document.getElementById('rakSelect').value;
+    const container = document.getElementById('rakSummaryList');
+    if (!rak) {
+        container.innerHTML = '';
+        return;
+    }
+    let html = '';
+    let missingCount = 0;
+    localItems.forEach(item => {
+        const boxesInRak = Object.keys(item.locations || {}).filter(box => box.startsWith(rak));
+        if (boxesInRak.length === 0) return;
+        const totalCount = getOpnameTotalCount(item);
+        if (totalCount < item.sysQty) {
+            missingCount++;
+            html += `<div style="padding:10px; border-left:4px solid var(--danger); background:#fef2f2; border-radius:4px;"><div style="display:flex; justify-content:space-between;"><b style="color:var(--danger)">${item.partNo}</b><span style="font-size:0.8rem; font-weight:bold; color:var(--danger)">${totalCount} / ${item.sysQty}</span></div><div style="font-size:0.8rem; color:#666; margin-top:4px;">Box: ${boxesInRak.join(', ')}</div></div>`;
+        }
+    });
+    if (missingCount === 0) html = '<div style="text-align:center; padding:30px; color:#16a34a; font-weight:bold;"><i class="fas fa-check-circle" style="font-size:3rem; margin-bottom:10px; display:block;"></i>Aman & Komplit!</div>';
+    container.innerHTML = html;
+}
 
 // ============================================
 // SMART SUGGESTION FUNCTIONS
@@ -2225,12 +2233,13 @@ async function addToOpnameBuffer(item, confirmedOverTarget = false) {
         ? Number(item.opnameCounts[box]) || 0
         : 0;
     const nextQty = currentQty + 1;
-    const targetQty = getOpnameTargetQty(item, box);
+    const nextTotalQty = getOpnameTotalCount(item) + 1;
+    const targetQty = getOpnameTargetQty(item);
 
-    if (nextQty > targetQty && !confirmedOverTarget) {
+    if (nextTotalQty > targetQty && !confirmedOverTarget) {
         pendingOpnameOverScan = item;
         document.getElementById('opnameOverScanPart').textContent = item.partNo;
-        document.getElementById('opnameOverScanQty').textContent = `${nextQty} / ${targetQty}`;
+        document.getElementById('opnameOverScanQty').textContent = `${nextTotalQty} / ${targetQty}`;
         document.getElementById('opnameOverScanModal').style.display = 'flex';
         feedback('scan_over');
         return false;
@@ -2266,7 +2275,7 @@ async function addToOpnameBuffer(item, confirmedOverTarget = false) {
 
     opnameBufferCommitted = true;
     opnameBufferStarted = true;
-    const countedQty = nextQty;
+    const countedQty = getOpnameTotalCount(localItems.find(candidate => candidate.id === item.id) || item);
     if (countedQty < targetQty) feedback('scan_normal');
     else if (countedQty === targetQty) feedback('scan_complete');
     else feedback('scan_over');
@@ -2276,7 +2285,7 @@ async function addToOpnameBuffer(item, confirmedOverTarget = false) {
     addHistoryLog(item.partNo, `OPNAME ${box}: ${nextQty}`);
     lastOpnameScanId = item.id;
     handleOpnameRender();
-    showToast(`${item.partNo}: ${box} ${nextQty}/${targetQty} tersimpan`);
+    showToast(`${item.partNo}: total ${countedQty}/${targetQty}; ${box} ${nextQty} tersimpan`);
     return true;
 }
 
@@ -2322,10 +2331,10 @@ async function persistOpnameBufferQuantity(entry, nextQty) {
         return false;
     }
 
-    const updatedItem = {
-        ...entry.item,
-        opnameCounts: { ...(entry.item.opnameCounts || {}), [box]: nextQty }
-    };
+    const opnameCounts = { ...(entry.item.opnameCounts || {}) };
+    if (nextQty === 0) delete opnameCounts[box];
+    else opnameCounts[box] = nextQty;
+    const updatedItem = { ...entry.item, opnameCounts };
     opnameCommitInProgress = true;
     try {
         const [savedItem] = await saveDBBatch(
@@ -2512,18 +2521,7 @@ function addToSimpanBuffer(item) {
         simpanBuffer.push(bufferItem);
     }
     
-    // Hitung visualTotalQty untuk audio feedback
-    const existingQtyInDB = Object.values(item.locations).reduce((a, b) => a + b, 0);
-    const visualTotalQty = existingQtyInDB + scanQty;
-    
-    // Audio feedback
-    if (visualTotalQty < item.sysQty) {
-        feedback('scan_normal');
-    } else if (visualTotalQty === item.sysQty) {
-        feedback('scan_complete');
-    } else {
-        feedback('scan_over');
-    }
+    feedback('scan');
     
     if(typeof renderSmartSuggestion === 'function') renderSmartSuggestion(item);
 }
@@ -2599,7 +2597,7 @@ function handleMove(partId, newBox) {
     item.locations = {};
     
     // Set new location
-    item.locations[newBox] = bufferItem.qty;
+    item.locations[newBox] = true;
     item.lastBox = newBox;
     
     // Remove from buffer (moved to database)
@@ -2635,10 +2633,7 @@ function handleSplit(partId, newBox) {
     }
     
     // Add new location (split lokasi)
-    if (!item.locations[newBox]) {
-        item.locations[newBox] = 0;
-    }
-    item.locations[newBox] += bufferItem.qty;
+    item.locations[newBox] = true;
     
     // Keep old locations intact, update lastBox to new box
     item.lastBox = newBox;
@@ -2649,7 +2644,7 @@ function handleSplit(partId, newBox) {
     // Save to database
     saveDB(item);
     feedback('success');
-    showToast(`<i class="fas fa-check-circle"></i> ${item.partNo} di-split ke ${newBox} (total: ${Object.values(item.locations).reduce((a,b)=>a+b,0)} pcs)`);
+    showToast(`<i class="fas fa-check-circle"></i> ${item.partNo} ditambahkan ke lokasi ${newBox}`);
     
     // Refresh modal
     const remainingConflicts = simpanBuffer.filter(b => b.hasConflict);
@@ -2702,7 +2697,7 @@ function forceSaveAllConflicts() {
         
         // Clear old locations and set target box
         item.locations = {};
-        item.locations[targetBufferBox] = bufferItem.qty;
+        item.locations[targetBufferBox] = true;
         item.lastBox = targetBufferBox;
         
         // Save to database
@@ -2762,18 +2757,7 @@ function editBufferQty(itemId) {
     // Update qty di buffer
     bufferItem.qty = newQty;
     
-    // Hitung ulang visualTotalQty
-    const dbQty = Object.values(item.locations).reduce((a, b) => a + b, 0);
-    const visualTotalQty = dbQty + newQty;
-    
-    // Trigger audio feedback berdasarkan status qty baru
-    if (visualTotalQty < item.sysQty) {
-        feedback('scan_normal');
-    } else if (visualTotalQty === item.sysQty) {
-        feedback('scan_complete');
-    } else {
-        feedback('scan_over');
-    }
+    feedback('scan');
     
     // Update UI dan tampilkan toast
     showToast(`${item.partNo} diubah menjadi ${newQty} scan`);
