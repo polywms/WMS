@@ -31,6 +31,7 @@
  * - addToOpnameBuffer()/commitOpnameBox() — Persist every cumulative scan immediately; SELESAI only closes the box flow
  * - syncOpnameCountFromLocation() — Keep quantity edits for existing boxes aligned with OPNAME
  * - saveManualEdit() — Edit existing-box counts without changing location membership
+ * - removeOpnamePartFromActiveBox() — Remove a part from only the active OPNAME box
  * - updateActivePartPanel(item) — Display part detail (location-only view)
  * - selectPartSimpan(item) — Select part dari list
  * - addToMultiScan()/processMultiScan(box) — Buffer dan relokasi batch SIMPAN
@@ -1827,7 +1828,73 @@ function openEditModal(id) {
     const list = document.getElementById('editLocsList'); list.innerHTML='';
     Object.keys(item.locations || {}).forEach(box => { const r = document.createElement('div'); r.style.cssText="display:flex; justify-content:space-between; margin-bottom:8px; align-items:center;"; r.innerHTML=`<b>${box}</b> <div style="display:flex; gap:5px;"><input type="number" min="0" step="1" class="edit-qty-input" data-box="${box}" value="${item.locations[box]}" style="width:60px; padding:5px;"></div>`; list.appendChild(r); });
     document.getElementById('editNewBox').parentElement.parentElement.style.display = 'none';
-    document.getElementById('editDeleteBtnContainer').innerHTML = item.desc === 'PART BARU' ? `<button class="btn btn-danger" style="margin-top:15px;" onclick="deletePartBaru(${item.id})"><i class="fas fa-trash-alt"></i> Hapus Part Ini Permanen</button>` : '';
+    const deleteContainer = document.getElementById('editDeleteBtnContainer');
+    deleteContainer.innerHTML = item.desc === 'PART BARU' ? `<button class="btn btn-danger" style="margin-top:15px;" onclick="deletePartBaru(${item.id})"><i class="fas fa-trash-alt"></i> Hapus Part Ini Permanen</button>` : '';
+    const activeBox = activeBoxFilter;
+    if (currentTab === 'opname' && activeBox && Number(item.locations?.[activeBox]) > 0) {
+        const removeButton = document.createElement('button');
+        removeButton.type = 'button';
+        removeButton.className = 'btn btn-danger';
+        removeButton.style.marginTop = '15px';
+        removeButton.innerHTML = '<i class="fas fa-trash-alt" aria-hidden="true"></i> Hapus dari Box Aktif';
+        removeButton.addEventListener('click', () => removeOpnamePartFromActiveBox(item.id, activeBox));
+        deleteContainer.appendChild(removeButton);
+    }
+}
+
+async function removeOpnamePartFromActiveBox(id, box) {
+    if (!requireAdminAccess('menghapus part dari box Opname')) return;
+    if (currentTab !== 'opname' || !box || activeBoxFilter !== box) {
+        feedback('warning');
+        showToast('Box aktif berubah. Buka kembali edit part dari box yang dipilih.');
+        return;
+    }
+    if (opnameCommitInProgress) {
+        feedback('warning');
+        showToast('Penyimpanan OPNAME sedang berlangsung. Tunggu hingga selesai.');
+        return;
+    }
+    const itemIndex = localItems.findIndex(item => item.id === id);
+    if (itemIndex < 0) return;
+    const item = localItems[itemIndex];
+    if (!isSparepartBaik(item) || !(Number(item.locations?.[box]) > 0)) {
+        feedback('error');
+        showToast('Part tidak terdaftar di box aktif.');
+        return;
+    }
+    if (!confirm(`Hapus ${item.partNo} dari box ${box}? Hitungan Opname part ini di box tersebut juga akan dihapus.`)) return;
+
+    const updatedItem = {
+        ...item,
+        locations: { ...(item.locations || {}) },
+        opnameCounts: { ...(item.opnameCounts || {}) }
+    };
+    delete updatedItem.locations[box];
+    delete updatedItem.opnameCounts[box];
+    opnameCommitInProgress = true;
+    try {
+        const [savedItem] = await saveDBBatch([updatedItem], 'LOCATION', `Hapus part dari box ${box}`);
+        localItems[itemIndex] = savedItem;
+        const filteredIndex = filteredItems.findIndex(candidate => candidate.id === savedItem.id);
+        if (filteredIndex >= 0) filteredItems[filteredIndex] = savedItem;
+        if (opnameBufferBox === box) {
+            opnameBuffer = opnameBuffer.filter(entry => entry.item?.id !== savedItem.id);
+            if (opnameBufferStarted) opnameBufferCommitted = false;
+            persistOpnameSession();
+        }
+    } catch (error) {
+        console.error('Gagal menghapus part dari box Opname:', error);
+        feedback('error');
+        showToast('Part gagal dihapus dari box. Tidak ada perubahan yang disimpan.');
+        return;
+    } finally {
+        opnameCommitInProgress = false;
+    }
+    document.getElementById('editModal').style.display = 'none';
+    renderOpnameBuffer();
+    handleOpnameRender();
+    feedback('success');
+    showToast(`${item.partNo} dihapus dari box ${box}.`);
 }
 
 function syncOpnameCountFromLocation(item, box, qty, removed = false) {

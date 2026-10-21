@@ -102,6 +102,8 @@ Changing boxes clears only the recent-scan display; every box's saved counts rem
   ↓
 Manual qty edits in `editLocsList` update location and saved OPNAME count/session
   ↓
+Remove part from active box in the edit modal deletes only that box's location and opname count, then saves through the local upload queue
+  ↓
 Reset current box → set its saved X to 0; preserve locations and box membership
   ↓
 Each scan/correction → saveDBBatch() for that part → IndexedDB + persistent upload queue (no automatic cloud request)
@@ -370,7 +372,8 @@ WMS/
 - `checkSimpanConflict(item, newBox)` — Prompt move/split decision
 - `handleOpnameRender()` — Filter & render opname list per box using latest saved counts against that box's location quantity
 - `getOpnameBufferQty(itemId, item)` — Read latest saved cumulative count for the active box
-- `saveManualEdit()` / `syncOpnameCountFromLocation()` — Edit qty/counts only for existing locations; adding/removing location codes is reserved for the scanned SIMPAN flow
+- `saveManualEdit()` / `syncOpnameCountFromLocation()` — Edit qty/counts only for existing locations
+- `removeOpnamePartFromActiveBox()` — Remove a part and its count from only the active OPNAME box through the local upload queue
 - `resetCurrentBoxOpname()` — Set saved X to zero without changing box membership
 - `confirmOpnameOverScan()` — Confirm an opname scan that exceeds the active box's location quantity
 - `decrementOpnameBuffer()` / `removeFromOpnameBuffer()` — Reduce one or all counted units for a part
