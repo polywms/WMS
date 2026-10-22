@@ -2,7 +2,7 @@
  * Tujuan: Inisialisasi aplikasi WMS dan lifecycle PWA.
  * Caller: Browser melalui window.onload.
  * Dependensi: database.js (initDB), core.js (render dan state SIMPAN), Service Worker API.
- * Main Functions: registerServiceWorker(), checkForUpdates() updates the header version label, role-aware window.onload restores the SIMPAN buffer.
+ * Main Functions: registerServiceWorker(), checkForUpdates() updates the header version label, role-aware window.onload restores SIMPAN buffers and synchronizes exclusive-mode controls.
  * Side Effects: IndexedDB init, registrasi cache, wake lock, pembacaan waktu upload dari localStorage, background refresh User, dan sinkronisasi tampilan.
  */
 let wakeLock = null;
@@ -146,6 +146,7 @@ window.onload = async () => {
     if (multiScanInstruction && !isMultipleScan) {
         multiScanInstruction.textContent = 'Buffer dipertahankan; aktifkan Multi-Scan untuk melanjutkan.';
     }
+    if (typeof updateSimpanModeControls === 'function') updateSimpanModeControls();
     if ((isMultipleScan || hasPendingMultiScan) && typeof renderMultiScanList === 'function') renderMultiScanList();
     
     // Check for updates after 3 seconds

@@ -19,16 +19,17 @@
  * - processScan(code) — Route scan per currentTab dan menolak SIMPAN non-SPAREPART BAIK
  * - isSparepartBaik(item)/populateFilters() — Terapkan filter awal dan izin lokasi hanya untuk SPAREPART BAIK
  * - switchTab(id) — Enforce User-only Cari and stop SIMPAN modes safely when leaving
- * - toggleMultipleScanMode()/toggleBoxToBoxMode() — Mutually exclusive SIMPAN relocation modes
+ * - toggleMultipleScanMode()/toggleBoxToBoxMode()/updateSimpanModeControls() — Mutually exclusive SIMPAN relocation modes
  * - updateBoxToBoxIndicator() — Render box asal/tujuan; pertahankan pasangan valid sampai scan box berikutnya
  * - getBoxToBoxItems() — Temukan part sumber berdasarkan kode box yang dinormalisasi
  * - confirmBoxToBoxYesToAll() — Setujui semua part dan lewati konfirmasi hingga mode B2B dimatikan
  * - handleOpnameScan()/handleOpnameRender() — OPNAME SPAREPART BAIK dengan hitungan per box dan total counted/SYS_QTY
  * - handleOpnameScan() — Reject part scans that do not belong to the active box
  * - getOpnameBufferQty(itemId, item) — Read the latest saved cumulative count for the active box
- * - resetCurrentBoxOpname() — Reset only the saved count, preserving part-to-box locations
+ * - resetCurrentBoxOpname()/clearCurrentBoxOpnameContents() — Reset counts or remove active-box membership
  * - confirmOpnameOverScan()/decrementOpnameBuffer() — Confirm over-target scans and correct counted quantity
- * - addToOpnameBuffer()/commitOpnameBox() — Persist every cumulative scan immediately; SELESAI only closes the box flow
+ * - addToOpnameBuffer() — Persist every cumulative scan immediately to the active box
+ * - setOpnameFilter()/openRakModal() — Filter the Opname list by count status and populated rack/column/level
  * - getOpnameTotalCount(item) — Sum physical counts across the item's assigned boxes
  * - saveManualEdit() — Edit the active box's physical count without changing locations
  * - removeOpnamePartFromActiveBox() — Remove a part from only the active OPNAME box
@@ -68,6 +69,7 @@ let pendingOpnameOverScan = null;
 let opnameBufferStarted = false;
 let opnameCommitInProgress = false;
 let opnameScanQueue = Promise.resolve();
+let opnameLocationFilter = { rack: '', column: '', level: '' };
 
 // ===== QR CODE PARSER =====
 function parseQRCode(rawCode) {
@@ -172,13 +174,13 @@ function toggleMultipleScanMode() {
     const enabling = simpanMode !== 'multiple';
     chk.checked = enabling;
     if (enabling && boxToBoxModeActive) {
-        chk.checked = false;
+        updateSimpanModeControls();
         showToast('Matikan mode Box ke Box terlebih dahulu.');
         return;
     }
     if (!enabling && multiScanBuffer.length > 0
         && !confirm(`Buffer Multi-Scan berisi ${multiScanBuffer.length} part. Nonaktifkan mode dan simpan buffer untuk dilanjutkan nanti?`)) {
-        chk.checked = true;
+        updateSimpanModeControls();
         return;
     }
     simpanMode = enabling ? 'multiple' : 'single';
@@ -189,14 +191,37 @@ function toggleMultipleScanMode() {
     if (instruction) instruction.textContent = enabling
         ? 'SCAN BOX TUJUAN UNTUK KONFIRMASI PINDAH'
         : 'Buffer dipertahankan; aktifkan Multi-Scan untuk melanjutkan.';
-    const button = document.getElementById('multipleScanIcon');
-    if (button) button.setAttribute('aria-pressed', String(enabling));
+    updateSimpanModeControls();
     if (enabling) showToast('<i class="fas fa-layer-group"></i> Multi-Scan aktif - scan part lalu scan box tujuan');
     else showToast(multiScanBuffer.length
         ? 'Mode Multi-Scan nonaktif. Buffer dipertahankan; aktifkan lagi untuk melanjutkan.'
         : '<i class="fas fa-cube"></i> Mode SINGLE - scan part lalu box');
     renderMultiScanList();
     document.getElementById('mainInput').focus();
+}
+
+function updateSimpanModeControls() {
+    const multipleActive = simpanMode === 'multiple';
+    const multipleButton = document.getElementById('multipleScanIcon');
+    const boxToBoxButton = document.getElementById('boxToBoxBtn');
+    const checkbox = document.getElementById('chkMultipleScan');
+    if (checkbox) checkbox.checked = multipleActive;
+    if (multipleButton) {
+        multipleButton.setAttribute('aria-pressed', String(multipleActive));
+        multipleButton.disabled = boxToBoxModeActive;
+        multipleButton.title = boxToBoxModeActive
+            ? 'Matikan Box ke Box untuk mengaktifkan Multi-Scan'
+            : multipleActive ? 'Matikan Multi-Scan' : 'Aktifkan Multi-Scan';
+    }
+    if (boxToBoxButton) {
+        boxToBoxButton.setAttribute('aria-pressed', String(boxToBoxModeActive));
+        boxToBoxButton.disabled = multipleActive || (!boxToBoxModeActive && multiScanBuffer.length > 0);
+        boxToBoxButton.title = multipleActive
+            ? 'Matikan Multi-Scan untuk mengaktifkan Box ke Box'
+            : multiScanBuffer.length > 0 && !boxToBoxModeActive
+                ? 'Selesaikan atau bersihkan buffer Multi-Scan terlebih dahulu'
+                : boxToBoxModeActive ? 'Matikan Box ke Box' : 'Box to Box';
+    }
 }
 
 function toggleHistoryAccordion() {
@@ -243,31 +268,21 @@ function toggleBoxToBoxMode() {
         return;
     }
     if (!boxToBoxModeActive && simpanMode === 'multiple') {
-        document.getElementById('chkMultipleScan').checked = false;
-        simpanMode = 'single';
-        localStorage.setItem('wms_simpanMode', simpanMode);
-        const multiButton = document.getElementById('multipleScanIcon');
-        if (multiButton) multiButton.setAttribute('aria-pressed', 'false');
-        document.getElementById('multiScanPanel').style.display = 'none';
+        updateSimpanModeControls();
+        showToast('Matikan Multi-Scan terlebih dahulu.');
+        return;
     }
     boxToBoxModeActive = !boxToBoxModeActive;
     boxToBoxSourceBox = null;
     boxToBoxYesToAll = false;
 
+    updateSimpanModeControls();
     if (boxToBoxModeActive) {
-        btn.style.background = 'var(--active-color)';
-        btn.style.color = 'white';
-        btn.style.borderColor = 'var(--active-color)';
         btn.title = 'Box to Box: scan box sumber';
-        btn.setAttribute('aria-pressed', 'true');
         updateBoxToBoxIndicator();
         showToast('<i class="fas fa-exchange-alt"></i> Mode Box to Box aktif. Scan box sumber dulu.');
     } else {
-        btn.style.background = 'white';
-        btn.style.color = 'var(--secondary)';
-        btn.style.borderColor = '#cbd5e1';
         btn.title = 'Box to Box';
-        btn.setAttribute('aria-pressed', 'false');
         updateBoxToBoxIndicator();
         showToast('<i class="fas fa-times"></i> Mode Box to Box dibatalkan');
     }
@@ -371,11 +386,20 @@ function applyBoxToBoxSelection(sourceBox, targetBox, selectedItems, isYesToAll 
 
         const oldLocations = JSON.parse(JSON.stringify(item.locations));
         const targetLocationKey = getBoxToBoxLocationKey(item.locations, targetBox);
+        const destinationKey = targetLocationKey || targetBox;
+        const sourceCount = Math.max(0, Number(item.opnameCounts?.[sourceLocationKey]) || 0);
+        const targetCount = Math.max(0, Number(item.opnameCounts?.[destinationKey]) || 0);
         if (targetLocationKey === undefined) {
             item.locations[targetBox] = true;
         }
         delete item.locations[sourceLocationKey];
-        if (item.opnameCounts) delete item.opnameCounts[sourceLocationKey];
+        if (item.opnameCounts) {
+            item.opnameCounts = { ...item.opnameCounts };
+            delete item.opnameCounts[sourceLocationKey];
+            const movedCount = sourceCount + targetCount;
+            if (movedCount > 0) item.opnameCounts[destinationKey] = movedCount;
+            else delete item.opnameCounts[destinationKey];
+        }
         item.lastBox = targetBox;
 
         if (JSON.stringify(item.locations) !== JSON.stringify(oldLocations)) {
@@ -994,6 +1018,7 @@ function addToMultiScan(item) {
 }
 
 function renderMultiScanList() {
+    updateSimpanModeControls();
     const countEl = document.getElementById('multiCount');
     const listEl = document.getElementById('multiTagsContainer');
     if (!countEl || !listEl) return;
@@ -1508,20 +1533,71 @@ async function processOpnameScan(rawCode, isBox) {
     await addToOpnameBuffer(item);
 }
 
+function hasOpnameLocationFilter() {
+    return Boolean(opnameLocationFilter.rack || opnameLocationFilter.column || opnameLocationFilter.level);
+}
+
+function parseOpnameLocationBox(box) {
+    const normalized = String(box || '').trim().toUpperCase();
+    let match = normalized.match(/^SPARE-([A-Z][0-9])-(\d{2})$/);
+    if (match) return { rack: 'SPARE', column: match[1], level: match[2] };
+    match = normalized.match(/^([A-Z])-([A-Z][0-9])-(\d{2})$/);
+    if (match) return { rack: match[1], column: match[2], level: match[3] };
+    match = normalized.match(/^([A-Z])([0-9]{0,2})-(\d{2,3})$/);
+    if (match) return { rack: match[1], column: match[2], level: match[3] };
+
+    const segments = normalized.split('-');
+    return {
+        rack: segments[0] || '',
+        column: segments.length > 2 ? segments[1] : (segments[0] || '').slice(1),
+        level: segments.length > 1 ? segments.slice(segments.length > 2 ? 2 : 1).join('-') : ''
+    };
+}
+
+function getOpnameLocationBoxKeys(item) {
+    return Object.keys(item?.locations || {}).filter(box => {
+        if (!item.locations[box]) return false;
+        const location = parseOpnameLocationBox(box);
+        return (!opnameLocationFilter.rack || location.rack === opnameLocationFilter.rack)
+            && (!opnameLocationFilter.column || location.column === opnameLocationFilter.column)
+            && (!opnameLocationFilter.level || location.level === opnameLocationFilter.level);
+    });
+}
+
+function getOpnameDisplayCount(item) {
+    if (!hasOpnameLocationFilter()) return getOpnameTotalCount(item);
+    return getOpnameLocationBoxKeys(item).reduce((total, box) => {
+        const count = box === activeBoxFilter
+            ? getOpnameBufferQty(item.id, item)
+            : Number(item.opnameCounts?.[box]) || 0;
+        return total + Math.max(0, count);
+    }, 0);
+}
+
+function getOpnameFilterCount(item) {
+    return hasOpnameLocationFilter() ? getOpnameDisplayCount(item) : getOpnameBufferQty(item.id, item);
+}
+
 function getOpnameBoxItems() {
     const box = activeBoxFilter;
-    if (!box) return [];
+    if (!box && !hasOpnameLocationFilter()) return [];
     const seen = new Set();
     const dataset = localItems.filter(item => {
         if (!isSparepartBaik(item)) return false;
-        if (!Object.prototype.hasOwnProperty.call(item.locations || {}, box)) return false;
+        const matchesLocation = hasOpnameLocationFilter()
+            ? getOpnameLocationBoxKeys(item).length > 0
+            : Object.prototype.hasOwnProperty.call(item.locations || {}, box);
+        if (!matchesLocation) return false;
         if (seen.has(item.id)) return false;
         seen.add(item.id);
         return true;
     });
     if (Array.isArray(opnameBuffer)) {
         opnameBuffer.forEach(b => {
-            if (b.item && isSparepartBaik(b.item) && Object.prototype.hasOwnProperty.call(b.item.locations || {}, box) && !seen.has(b.item.id)) {
+            const matchesLocation = b.item && (hasOpnameLocationFilter()
+                ? getOpnameLocationBoxKeys(b.item).length > 0
+                : Object.prototype.hasOwnProperty.call(b.item.locations || {}, box));
+            if (b.item && isSparepartBaik(b.item) && matchesLocation && !seen.has(b.item.id)) {
                 seen.add(b.item.id);
                 dataset.push(b.item);
             }
@@ -1532,10 +1608,12 @@ function getOpnameBoxItems() {
 
 function filterOpnameDataset(dataset) {
     return dataset.filter(i => {
-        const counted = getOpnameBufferQty(i.id, i);
+        const counted = getOpnameFilterCount(i);
         const target = getOpnameTargetQty(i);
+        if (opnameFilter === 'match') return counted > 0 && counted === target;
         if (opnameFilter === 'diff') return counted > 0 && counted !== target;
         if (opnameFilter === 'zero') return counted === 0;
+        if (opnameFilter === 'counted') return counted > 0;
         return true;
     });
 }
@@ -1544,26 +1622,43 @@ function updateOpnameStats() {
     const matchEl = document.getElementById('opnameStatMatch');
     if (!matchEl) return;
     const box = activeBoxFilter;
-    if (!box) {
-        matchEl.textContent = '0 OK';
-        document.getElementById('opnameStatDiff').textContent = '0 selisih';
-        document.getElementById('opnameStatZero').textContent = '0 belum';
-        document.getElementById('opnameStatPcs').textContent = '0 pcs';
+    if (!box && !hasOpnameLocationFilter()) {
+        matchEl.textContent = '0';
+        document.getElementById('opnameStatDiff').textContent = '0';
+        document.getElementById('opnameStatZero').textContent = '0';
+        document.getElementById('opnameStatPcs').textContent = '0';
+        updateOpnameFilterUI();
         return;
     }
     let match = 0, diff = 0, zero = 0, pcs = 0;
     getOpnameBoxItems().forEach(i => {
-        const counted = getOpnameBufferQty(i.id, i);
+        const counted = getOpnameFilterCount(i);
         const target = getOpnameTargetQty(i);
         pcs += counted;
         if (counted === 0) zero++;
         else if (counted === target) match++;
         else diff++;
     });
-    matchEl.textContent = `${match} OK`;
-    document.getElementById('opnameStatDiff').textContent = `${diff} selisih`;
-    document.getElementById('opnameStatZero').textContent = `${zero} belum`;
-    document.getElementById('opnameStatPcs').textContent = `${pcs} pcs`;
+    matchEl.textContent = String(match);
+    document.getElementById('opnameStatDiff').textContent = String(diff);
+    document.getElementById('opnameStatZero').textContent = String(zero);
+    document.getElementById('opnameStatPcs').textContent = String(pcs);
+    updateOpnameFilterUI();
+}
+
+function updateOpnameFilterUI() {
+    document.querySelectorAll('.opname-stat[data-opname-filter]').forEach(button => {
+        const active = button.dataset.opnameFilter === opnameFilter;
+        button.classList.toggle('active', active);
+        button.setAttribute('aria-pressed', String(active));
+    });
+    const label = document.getElementById('opnameActiveFilter');
+    if (!label) return;
+    const names = { all: 'Semua part', match: 'OK', diff: 'Selisih', zero: 'Belum dihitung', counted: 'Sudah dihitung' };
+    const locations = [opnameLocationFilter.rack && `Rak ${opnameLocationFilter.rack}`,
+        opnameLocationFilter.column && `Kolom ${opnameLocationFilter.column}`,
+        opnameLocationFilter.level && `Tingkat ${opnameLocationFilter.level}`].filter(Boolean);
+    label.textContent = `${names[opnameFilter] || names.all}${locations.length ? ` • ${locations.join(' / ')}` : ''}`;
 }
 
 function handleOpnameRender(reset = true) {
@@ -1572,7 +1667,7 @@ function handleOpnameRender(reset = true) {
     if (reset) renderLimit = 50;
     container.innerHTML = '';
 
-    if (!activeBoxFilter) {
+    if (!activeBoxFilter && !hasOpnameLocationFilter()) {
         updateOpnameStats();
         document.getElementById('opnameLoading').style.display = 'none';
         return;
@@ -1592,7 +1687,7 @@ function handleOpnameRender(reset = true) {
     const pendingIds = new Set(syncQueue.map(item => String(item.id)));
     let html = '';
     show.forEach(i => {
-        const counted = getOpnameTotalCount(i);
+        const counted = getOpnameDisplayCount(i);
         const target = getOpnameTargetQty(i);
         const splitText = getLocationSplitSummaryForBox(i, activeBoxFilter);
         let badgeClass = 'qty-uncounted';
@@ -1617,6 +1712,10 @@ function handleOpnameRender(reset = true) {
 }
 
 function setOpnameBoxFilter(box) { 
+    if (activeBoxFilter !== box) {
+        opnameLocationFilter = { rack: '', column: '', level: '' };
+        opnameFilter = 'all';
+    }
     activeBoxFilter = box; 
     opnameBufferBox = box;
     const nameEl = document.getElementById('activeBoxName');
@@ -1648,7 +1747,18 @@ function clearOpnameBoxFilter() {
     if (list) list.style.display = 'flex';
     handleOpnameRender(true); 
 }
-function setOpnameFilter(type, btn) { opnameFilter = type; document.querySelectorAll('.segment-btn').forEach(b => b.classList.remove('active')); btn.classList.add('active'); handleOpnameRender(true); }
+function setOpnameFilter(type) {
+    opnameFilter = type;
+    updateOpnameFilterUI();
+    handleOpnameRender(true);
+}
+
+function clearOpnameFilters() {
+    opnameLocationFilter = { rack: '', column: '', level: '' };
+    opnameFilter = 'all';
+    updateOpnameFilterUI();
+    handleOpnameRender(true);
+}
 
 function showOpnameInfo(item) {
     tempPart = item;
@@ -1745,6 +1855,65 @@ async function resetCurrentBoxOpname() {
         showToast(`<i class="fas fa-check-circle"></i> Hitungan box ${box} direset ke 0`);
         handleOpnameRender();
     }
+}
+
+async function clearCurrentBoxOpnameContents() {
+    if (!requireAdminAccess('menghapus isi box Opname')) return;
+    if (!activeBoxFilter) {
+        feedback('warning');
+        showToast('Scan box terlebih dahulu.');
+        return;
+    }
+    if (opnameCommitInProgress) {
+        feedback('warning');
+        showToast('Penyimpanan box sedang berlangsung. Tunggu hingga selesai.');
+        return;
+    }
+    const box = activeBoxFilter;
+    if (!confirm(`Hapus semua part dari box ${box}? Perubahan akan masuk antrean upload lokal.`)) return;
+
+    const changedItems = localItems
+        .filter(item => isSparepartBaik(item) && Object.prototype.hasOwnProperty.call(item.locations || {}, box))
+        .map(item => {
+            const locations = { ...(item.locations || {}) };
+            const opnameCounts = { ...(item.opnameCounts || {}) };
+            delete locations[box];
+            delete opnameCounts[box];
+            return { ...item, locations, opnameCounts };
+        });
+    if (changedItems.length === 0) {
+        showToast(`Box ${box} sudah kosong.`);
+        return;
+    }
+
+    opnameCommitInProgress = true;
+    try {
+        const savedItems = await saveDBBatch(changedItems, 'OPNAME', `Hapus semua isi box ${box}`);
+        savedItems.forEach(savedItem => {
+            const index = localItems.findIndex(item => item.id === savedItem.id);
+            if (index >= 0) localItems[index] = savedItem;
+            const filteredIndex = filteredItems.findIndex(item => item.id === savedItem.id);
+            if (filteredIndex >= 0) filteredItems[filteredIndex] = savedItem;
+        });
+    } catch (error) {
+        console.error(`Gagal menghapus isi box ${box}:`, error);
+        feedback('error');
+        showToast(`Isi box ${box} gagal dihapus. Data lokal tidak diubah.`);
+        return;
+    } finally {
+        opnameCommitInProgress = false;
+    }
+
+    opnameBuffer = [];
+    opnameBufferCommitted = true;
+    opnameBufferStarted = false;
+    opnameBufferBox = box;
+    lastOpnameScanId = null;
+    persistOpnameSession();
+    renderOpnameBuffer();
+    handleOpnameRender();
+    feedback('success');
+    showToast(`Isi box ${box} dihapus dari perangkat dan masuk antrean upload.`);
 }
 
 function formatLocationSplitSummary(locations = {}) {
@@ -2013,27 +2182,148 @@ function deletePartBaru(id) {
 }
 function addLabelIssue(type) { if (!requireAdminAccess('memperbarui label part') || !tempPart) return; if (!tempPart.labelIssues) tempPart.labelIssues = { DAMAGED: 0, NO_LABEL: 0 }; let typeName = type === 'DAMAGED' ? 'Rusak' : 'Tanpa Label'; let input = prompt(`Berapa buah part ${tempPart.partNo} yang labelnya ${typeName}? \n(Ketik angka saja)`, "1"); let qty = parseInt(input); if (!isNaN(qty) && qty > 0) { tempPart.labelIssues[type] += qty; saveDB(tempPart); feedback('success'); showToast(`${qty} part ditandai`); selectPartSimpan(tempPart); } }
 function openLabelReport() { if (!requireAdminAccess('melihat laporan label')) return; const container = document.getElementById('labelReportList'); let html = ''; let count = 0; localItems.forEach(i => { if (i.labelIssues && (i.labelIssues.DAMAGED > 0 || i.labelIssues.NO_LABEL > 0)) { count++; html += `<div style="padding:10px; border:1px solid var(--border); border-radius:6px; background:#fef2f2;"><b>${i.partNo}</b> <span style="font-size:0.8rem; color:var(--secondary)">${i.desc}</span><div style="display:flex; gap:15px; margin-top:8px; font-size:0.85rem; font-weight:bold;">${i.labelIssues.NO_LABEL > 0 ? `<span style="color:var(--danger);"><i class="fas fa-tag"></i> Hilang: ${i.labelIssues.NO_LABEL} pcs</span>` : ''}${i.labelIssues.DAMAGED > 0 ? `<span style="color:#d97706;"><i class="fas fa-tags"></i> Rusak: ${i.labelIssues.DAMAGED} pcs</span>` : ''}</div><div style="font-size:0.75rem; color:var(--secondary); margin-top:6px;">Lokasi: ${Object.keys(i.locations).join(', ') || 'Belum Box'}</div></div>`; } }); if (count === 0) html = '<div style="text-align:center; padding:30px; color:var(--opname);"><i class="fas fa-check-circle" style="font-size:2rem; margin-bottom:10px; display:block;"></i>Semua Label Aman!</div>'; container.innerHTML = html; document.getElementById('labelReportModal').style.display = 'flex'; }
-function openRakModal() { if (!requireAdminAccess('membuka laporan rak')) return; const raks = new Set(); localItems.forEach(i => Object.keys(i.locations).forEach(box => raks.add(box.charAt(0).toUpperCase()))); const sel = document.getElementById('rakSelect'); sel.innerHTML = '<option value="">-- Pilih Rak --</option>'; [...raks].sort().forEach(r => sel.innerHTML += `<option value="${r}">Rak ${r}</option>`); document.getElementById('rakSummaryList').innerHTML = '<div style="text-align:center; color:#999; padding:20px;">Pilih rak di atas</div>'; document.getElementById('rakModal').style.display = 'flex'; }
+function getOpnameLocationEntries() {
+    const entries = [];
+    localItems.forEach(item => {
+        if (!isSparepartBaik(item)) return;
+        Object.keys(item.locations || {}).forEach(box => {
+            if (!item.locations[box]) return;
+            const location = parseOpnameLocationBox(box);
+            const count = box === activeBoxFilter
+                ? getOpnameBufferQty(item.id, item)
+                : Number(item.opnameCounts?.[box]) || 0;
+            entries.push({ item, box, ...location, count: Math.max(0, count) });
+        });
+    });
+    return entries;
+}
+
+function getOpnameLocationStatus(entry) {
+    if (entry.count === 0) return 'zero';
+    return entry.count === getOpnameTargetQty(entry.item) ? 'match' : 'diff';
+}
+
+function populateOpnameLocationSelect(select, values, placeholder, selectedValue) {
+    select.replaceChildren();
+    const placeholderOption = document.createElement('option');
+    placeholderOption.value = '';
+    placeholderOption.textContent = placeholder;
+    select.appendChild(placeholderOption);
+    values.forEach(value => {
+        const option = document.createElement('option');
+        option.value = value;
+        option.textContent = value;
+        select.appendChild(option);
+    });
+    select.value = values.includes(selectedValue) ? selectedValue : '';
+}
+
+function renderRakMetricButtons(container, entries, rack, column, level) {
+    const metrics = document.createElement('div');
+    metrics.className = 'rak-summary-metrics';
+    const counts = { match: 0, diff: 0, zero: 0, pcs: 0 };
+    const itemCounts = new Map();
+    entries.forEach(entry => {
+        const current = itemCounts.get(entry.item.id) || { item: entry.item, count: 0 };
+        current.count += entry.count;
+        itemCounts.set(entry.item.id, current);
+    });
+    itemCounts.forEach(entry => {
+        const status = getOpnameLocationStatus(entry);
+        if (status === 'match') counts.match++;
+        else if (status === 'diff') counts.diff++;
+        else counts.zero++;
+        counts.pcs += entry.count;
+    });
+    [
+        ['match', 'OK', counts.match],
+        ['diff', 'Selisih', counts.diff],
+        ['zero', 'Belum', counts.zero],
+        ['counted', 'Qty (pcs)', counts.pcs]
+    ].forEach(([filter, label, value]) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'rak-summary-metric';
+        button.textContent = `${label}: ${value}`;
+        button.addEventListener('click', () => applyOpnameLocationFilter(filter, rack, column, level));
+        metrics.appendChild(button);
+    });
+    container.appendChild(metrics);
+}
+
+function applyOpnameLocationFilter(filter, rack, column, level) {
+    opnameLocationFilter = { rack, column, level };
+    opnameFilter = filter;
+    const modal = document.getElementById('rakModal');
+    if (modal) modal.style.display = 'none';
+    updateOpnameFilterUI();
+    handleOpnameRender(true);
+}
+
+function openRakModal() {
+    if (!requireAdminAccess('membuka laporan rak')) return;
+    const modal = document.getElementById('rakModal');
+    modal.style.display = 'flex';
+    const rackSelect = document.getElementById('rakSelect');
+    const columnSelect = document.getElementById('opnameColumnSelect');
+    const levelSelect = document.getElementById('opnameLevelSelect');
+    rackSelect.value = opnameLocationFilter.rack;
+    columnSelect.value = opnameLocationFilter.column;
+    levelSelect.value = opnameLocationFilter.level;
+    renderRakSummary();
+}
+
 function renderRakSummary() {
-    const rak = document.getElementById('rakSelect').value;
+    const rackSelect = document.getElementById('rakSelect');
+    const columnSelect = document.getElementById('opnameColumnSelect');
+    const levelSelect = document.getElementById('opnameLevelSelect');
     const container = document.getElementById('rakSummaryList');
-    if (!rak) {
-        container.innerHTML = '';
+    const entries = getOpnameLocationEntries();
+    const priorRack = rackSelect.value;
+    const priorColumn = columnSelect.value;
+    const priorLevel = levelSelect.value;
+    const racks = [...new Set(entries.map(entry => entry.rack).filter(Boolean))].sort();
+    populateOpnameLocationSelect(rackSelect, racks, 'Semua rak', priorRack || opnameLocationFilter.rack);
+
+    const rack = rackSelect.value;
+    const rackEntries = entries.filter(entry => !rack || entry.rack === rack);
+    const columns = [...new Set(rackEntries.map(entry => entry.column).filter(Boolean))].sort();
+    populateOpnameLocationSelect(columnSelect, columns, 'Semua kolom', priorColumn || (rack === opnameLocationFilter.rack ? opnameLocationFilter.column : ''));
+
+    const column = columnSelect.value;
+    const columnEntries = rackEntries.filter(entry => !column || entry.column === column);
+    const levels = [...new Set(columnEntries.map(entry => entry.level).filter(Boolean))].sort();
+    populateOpnameLocationSelect(levelSelect, levels, 'Semua tingkat', priorLevel || (rack === opnameLocationFilter.rack && column === opnameLocationFilter.column ? opnameLocationFilter.level : ''));
+
+    const level = levelSelect.value;
+    const selectedEntries = columnEntries.filter(entry => !level || entry.level === level);
+    container.replaceChildren();
+    if (entries.length === 0) {
+        container.textContent = 'Belum ada part SPAREPART BAIK yang memiliki lokasi box.';
         return;
     }
-    let html = '';
-    let missingCount = 0;
-    localItems.forEach(item => {
-        const boxesInRak = Object.keys(item.locations || {}).filter(box => box.startsWith(rak));
-        if (boxesInRak.length === 0) return;
-        const totalCount = getOpnameTotalCount(item);
-        if (totalCount < item.sysQty) {
-            missingCount++;
-            html += `<div style="padding:10px; border-left:4px solid var(--danger); background:#fef2f2; border-radius:4px;"><div style="display:flex; justify-content:space-between;"><b style="color:var(--danger)">${item.partNo}</b><span style="font-size:0.8rem; font-weight:bold; color:var(--danger)">${totalCount} / ${item.sysQty}</span></div><div style="font-size:0.8rem; color:#666; margin-top:4px;">Box: ${boxesInRak.join(', ')}</div></div>`;
-        }
+
+    if (!rack) {
+        racks.forEach(rackName => {
+            const rackEntries = entries.filter(entry => entry.rack === rackName);
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'rak-summary-card';
+            const partCount = new Set(rackEntries.map(entry => entry.item.id)).size;
+            button.textContent = `Rak ${rackName} · ${new Set(rackEntries.map(entry => entry.box)).size} box · ${partCount} part · ${rackEntries.reduce((sum, entry) => sum + entry.count, 0)} pcs`;
+            button.addEventListener('click', () => applyOpnameLocationFilter('all', rackName, '', ''));
+            container.appendChild(button);
+        });
+        return;
+    }
+
+    renderRakMetricButtons(container, selectedEntries, rack, column, level);
+    selectedEntries.forEach(entry => {
+        const row = document.createElement('div');
+        row.className = `rak-summary-entry ${getOpnameLocationStatus(entry)}`;
+        row.textContent = `${entry.box} · ${entry.item.partNo} · ${entry.count}/${getOpnameTargetQty(entry.item)} pcs · ${getOpnameLocationStatus(entry) === 'match' ? 'OK' : getOpnameLocationStatus(entry) === 'zero' ? 'Belum' : 'Selisih'}`;
+        container.appendChild(row);
     });
-    if (missingCount === 0) html = '<div style="text-align:center; padding:30px; color:#16a34a; font-weight:bold;"><i class="fas fa-check-circle" style="font-size:3rem; margin-bottom:10px; display:block;"></i>Aman & Komplit!</div>';
-    container.innerHTML = html;
 }
 
 // ============================================
@@ -2168,6 +2458,7 @@ function switchTab(id, options = {}) {
     }
     
     currentTab = id;
+    updateSimpanModeControls();
     document.body.classList.toggle('data-view-active', id === 'data');
     document.body.classList.toggle('simpan-tab-active', currentRole === 'admin' && id === 'simpan');
     

@@ -2,7 +2,7 @@
     Tujuan: Entry point UI untuk workflow WMS Magelang.
     Caller: Browser/PWA shell; event handlers diteruskan ke main.js dan core.js.
     Dependensi: css/style.css, Font Awesome, dan modul JavaScript di js/.
-    Main Functions: Menyediakan role gate Admin/User, navigasi, Cari, SIMPAN/OPNAME, status sinkronisasi, impor/ekspor, dan resolusi konflik data.
+    Main Functions: Menyediakan role gate Admin/User, navigasi, Cari, SIMPAN/OPNAME dengan filter statistik/rak, status sinkronisasi, impor/ekspor, dan resolusi konflik data.
     Side Effects: Mengubah DOM, memicu scan, penyimpanan lokal, dan sinkronisasi cloud melalui handler.
 -->
 <!-- WMS Magelang - Entry point UI -->
@@ -78,7 +78,11 @@
                     <h3 id="syncConflictTitle"><i class="fas fa-triangle-exclamation" aria-hidden="true"></i> Konflik Versi Data</h3>
                     <button type="button" class="icon-only" onclick="closeSyncConflictModal()" aria-label="Tutup konflik"><i class="fas fa-times" aria-hidden="true"></i></button>
                 </div>
-                <p class="sync-modal-note">Cloud berubah sejak data lokal dibuat. Tinjau tiap part: memilih Cloud membuang perubahan lokal pada part tersebut; mempertahankan lokal akan mengantrekannya untuk upload ulang.</p>
+                <p class="sync-modal-note">Pilih prioritas untuk semua konflik, atau tentukan pilihan per part dari daftar di bawah.</p>
+                <div class="sync-conflict-priority-actions">
+                    <button type="button" class="btn btn-outline" onclick="resolveAllSyncConflicts('cloud')" title="Ganti data lokal untuk semua konflik dengan versi Cloud">Gunakan Cloud</button>
+                    <button type="button" class="btn btn-primary" onclick="resolveAllSyncConflicts('local')" title="Gunakan data lokal untuk menimpa versi Cloud pada semua konflik">Gunakan Local</button>
+                </div>
                 <div id="syncConflictList" class="sync-conflict-list"></div>
             </div>
         </div>
@@ -252,15 +256,14 @@
                     </div>
                     <div class="opname-box-details">
                         <div class="opname-stats">
-                            <span class="opname-stat" id="opnameStatMatch">0 OK</span>
-                            <span class="opname-stat diff" id="opnameStatDiff">0 selisih</span>
-                            <span class="opname-stat zero" id="opnameStatZero">0 belum</span>
-                            <span class="opname-stat" id="opnameStatPcs">0 pcs</span>
+                            <button type="button" class="opname-stat" data-opname-filter="match" onclick="setOpnameFilter('match')" aria-pressed="false"><span class="opname-stat-label">OK</span><strong id="opnameStatMatch">0</strong></button>
+                            <button type="button" class="opname-stat diff" data-opname-filter="diff" onclick="setOpnameFilter('diff')" aria-pressed="false"><span class="opname-stat-label">Selisih</span><strong id="opnameStatDiff">0</strong></button>
+                            <button type="button" class="opname-stat zero" data-opname-filter="zero" onclick="setOpnameFilter('zero')" aria-pressed="false"><span class="opname-stat-label">Belum</span><strong id="opnameStatZero">0</strong></button>
+                            <button type="button" class="opname-stat" data-opname-filter="counted" onclick="setOpnameFilter('counted')" aria-pressed="false"><span class="opname-stat-label">Qty (pcs)</span><strong id="opnameStatPcs">0</strong></button>
                         </div>
                         <div class="opname-box-actions">
-                            <button class="btn-sm btn-success" onclick="commitOpnameBox()" title="Tandai sesi box selesai. Scan tersimpan di perangkat; upload tetap manual.">Tutup Box</button>
-                            <button class="btn-sm btn-outline" onclick="unlockOpnameBox()" title="Ganti box">Ganti</button>
-                            <button class="btn-sm btn-outline icon-only" onclick="resetCurrentBoxOpname()" title="Reset qty box ini" aria-label="Reset qty box ini"><i class="fas fa-undo" aria-hidden="true"></i></button>
+                            <button type="button" class="btn-sm btn-outline" onclick="resetCurrentBoxOpname()" title="Ulangi hitungan box aktif"><i class="fas fa-undo" aria-hidden="true"></i> Ulang Opname</button>
+                            <button type="button" class="btn-sm btn-danger" onclick="clearCurrentBoxOpnameContents()" title="Hapus semua part dari box aktif">Hapus Semua Isi Box Aktif</button>
                         </div>
                     </div>
                 </div>
@@ -282,11 +285,10 @@
                     </div>
                     <div style="color:#c2410c; font-weight:bold;"><i class="fas fa-arrow-right"></i> SCAN BOX UNTUK MULAI HITUNG</div>
                 </div>
-                <div class="segment-control">
-                    <button class="btn-sm btn-outline icon-only" style="border-left:1px solid var(--border);" onclick="openRakModal()"><i class="fas fa-chart-pie"></i></button>
-                    <div class="segment-btn active" onclick="setOpnameFilter('all', this)">SEMUA</div>
-                    <div class="segment-btn" onclick="setOpnameFilter('diff', this)">SELISIH</div>
-                    <div class="segment-btn" onclick="setOpnameFilter('zero', this)">BELUM</div>
+                <div class="opname-list-tools">
+                    <button type="button" class="btn-sm btn-outline" onclick="openRakModal()"><i class="fas fa-chart-pie" aria-hidden="true"></i> Filter Rak / Kolom / Tingkat</button>
+                    <button type="button" class="btn-sm btn-outline" onclick="clearOpnameFilters()">Reset Filter</button>
+                    <span id="opnameActiveFilter" aria-live="polite">Semua part</span>
                 </div>
                 <div id="opnameList" class="list-container"></div>
                 <div id="opnameLoading" style="text-align:center; padding:15px; display:none; color:var(--secondary);">Load more...</div>
@@ -598,10 +600,15 @@
         <div class="overlay" id="rakModal">
             <div class="modal">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
-                    <h3 style="margin:0;"><i class="fas fa-search"></i> Cek Selisih Rak</h3>
+                    <h3 style="margin:0;"><i class="fas fa-search"></i> Filter Opname per Lokasi</h3>
                     <button class="icon-only" onclick="document.getElementById('rakModal').style.display='none'" style="border:none; background:none; font-size:1.5rem; color:var(--danger);"><i class="fas fa-times"></i></button>
                 </div>
-                <select id="rakSelect" onchange="renderRakSummary()"><option value="">-- Loading Rak... --</option></select>
+                <div class="rak-filter-fields">
+                    <label>Rak<select id="rakSelect" onchange="document.getElementById('opnameColumnSelect').value=''; document.getElementById('opnameLevelSelect').value=''; renderRakSummary()"><option value="">Semua rak</option></select></label>
+                    <label>Kolom<select id="opnameColumnSelect" onchange="document.getElementById('opnameLevelSelect').value=''; renderRakSummary()"><option value="">Semua kolom</option></select></label>
+                    <label>Tingkat<select id="opnameLevelSelect" onchange="renderRakSummary()"><option value="">Semua tingkat</option></select></label>
+                </div>
+                <p class="sync-modal-note">Pilih salah satu ringkasan untuk menerapkan filter lokasi dan status ke daftar Opname.</p>
                 <div id="rakSummaryList" style="margin-top:15px; max-height:55vh; overflow-y:auto; display:flex; flex-direction:column; gap:8px;"></div>
             </div>
         </div>

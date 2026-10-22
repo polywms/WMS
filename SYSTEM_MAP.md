@@ -48,7 +48,7 @@ User Scan Code
   ↓
 handleInputKeyDown() [core.js]
   ↓
-(optional) Box-to-Box Merge Mode [core.js] — saat aktif tampilkan box asal dan tujuan di bawah scanner; validasi box asal terhadap part lokal saat discan dan cocokkan key lokasi tanpa membedakan kapital/spasi; tujuan oranye saat standby/invalid dan hijau setelah scan tujuan valid; pasangan yang selesai tetap ditampilkan hijau beserta asal/tujuannya; scan box berikutnya memulai pasangan baru dan mengembalikan tujuan ke oranye; pasangan valid meminta konfirmasi pertama kali, lalu Yes to All melewati konfirmasi untuk pasangan berikutnya hingga mode dimatikan
+(optional) Box-to-Box Merge Mode [core.js] — saat aktif tampilkan box asal dan tujuan di bawah scanner; validasi box asal terhadap part lokal saat discan dan cocokkan key lokasi tanpa membedakan kapital/spasi; tujuan oranye saat standby/invalid dan hijau setelah scan tujuan valid; pasangan yang selesai tetap ditampilkan hijau beserta asal/tujuannya; scan box berikutnya memulai pasangan baru dan mengembalikan tujuan ke oranye; pasangan valid meminta konfirmasi pertama kali, lalu Yes to All melewati konfirmasi untuk pasangan berikutnya hingga mode dimatikan; hitungan opname per part ikut dipindahkan dan ditambahkan ke hitungan box tujuan.
   ↓
 processScan(code) [core.js] — Parse & route per tab
   ↓
@@ -96,7 +96,7 @@ Buffer controls decrement X by one or reset that part to 0; each correction pers
   ↓
 Persist recent scan list in localStorage; IndexedDB `opnameCounts` is authoritative; badge uses aggregate count while filters/statistics stay scoped to active box
   ↓
-Tutup Box → mark the box workflow finished; count writes are local and remain pending until manual upload
+Clickable opname stats → filter the active-box list by OK, selisih, belum, or counted quantity; rack modal filters populated locations by rack/column/level and applies a selected status to the list
   ↓
 Changing boxes clears only the recent-scan display; every box's saved counts remain unchanged
   ↓
@@ -104,7 +104,7 @@ Manual count edits in `edit-opname-count-input` update only the active box's `op
   ↓
 Remove part from active box in the edit modal deletes only that box's location and opname count, then saves through the local upload queue
   ↓
-Reset current box → remove its saved count keys; preserve location membership
+Reset current box → remove its saved count keys; preserve location membership. Hapus Semua Isi Box Aktif removes that box membership and its count from each listed part through the local upload queue
   ↓
 Each scan/correction → saveDBBatch() for that part → IndexedDB + persistent upload queue (no automatic cloud request)
   ↓
@@ -191,7 +191,7 @@ Scan Part 1, 2, 3...
   ↓
 addToOpnameBuffer(item) → session count +1; every scan persists the session in localStorage
   ↓
-Tutup Box → mark the box workflow finished; individual scans are already committed locally
+Reset current box → clears per-box count keys while preserving box membership; clear active-box contents removes both membership and count through the local upload queue
   ↓
 Each saveDBBatch() writes item + outbox entry in one IndexedDB transaction
   ↓
@@ -349,7 +349,7 @@ WMS/
 - `loadDataFromLocal()` — Read all items dari IndexedDB → localItems
 - `saveDB()` / `saveDBBatch()` — Atomically write item and outbox entry
 - `processSyncQueue()` — Upload outbox snapshots, accept revision acknowledgments, retain failures/conflicts
-- `resolveSyncConflict()` — Per-record use-cloud or requeue-reviewed-local decision
+- `resolveSyncConflict()` / `resolveAllSyncConflicts()` — Per-record or atomic batch priority for Cloud vs. Local conflict resolution
 - `uploadToServer()` — Upload pending master records from the sync dialog
 - `downloadFromServer()` — GET and merge cloud records without deleting local-only or pending data
 - `refreshUserDataInBackground()` — User-only read refresh; keeps cached data visible and reloads only after changed cloud data is committed locally
@@ -368,16 +368,19 @@ WMS/
 - `processScan(code)` — Parse scan result, route ke tab handler (SIMPAN/OPNAME/OFF BS/PACKING)
 - `selectPartSimpan(item)` — Set active part, render suggestion panel; qty 0 tidak dirender di SIMPAN/OPNAME
 - `switchTab(id)` — Enforce User-only Cari and stop SIMPAN modes safely while preserving confirmed buffer
-- `toggleBoxToBoxMode()` — Toggle manual mode relokasi box dan reset persetujuan sesi
+- `toggleMultipleScanMode()` / `toggleBoxToBoxMode()` / `updateSimpanModeControls()` — Keep SIMPAN relocation modes visually synchronized and mutually exclusive
+- `applyBoxToBoxSelection()` — Move location membership and merge per-box OPNAME counts into the destination box
 - `confirmBoxToBoxYesToAll()` — Gabungkan semua part saat ini dan aktifkan auto-approval sampai mode dimatikan
 - `updateBoxToBoxIndicator()` — Render box sumber/tujuan dengan status validasi tujuan
 - `checkSimpanConflict(item, newBox)` — Prompt move/split decision
-- `handleOpnameRender()` — Filter per box and render aggregate Opname count against `SYS_QTY`
+- `handleOpnameRender()` / `setOpnameFilter()` — Filter the Opname list by active-box status or populated rack/column/level
+- `openRakModal()` / `renderRakSummary()` — List populated racks and summarize OK, selisih, belum, and counted pcs by location
 - `getOpnameBufferQty(itemId, item)` — Read latest saved cumulative count for the active box
 - `getOpnameTotalCount(item)` — Sum physical counts only for boxes assigned in `locations`
 - `saveManualEdit()` — Edit only the active box's physical Opname count
 - `removeOpnamePartFromActiveBox()` — Remove a part and its count from only the active OPNAME box through the local upload queue
 - `resetCurrentBoxOpname()` — Remove saved count keys for the active box without changing membership
+- `clearCurrentBoxOpnameContents()` — Remove active-box membership and counts through one local upload batch
 - `confirmOpnameOverScan()` — Confirm aggregate physical count that exceeds `SYS_QTY`
 - `decrementOpnameBuffer()` / `removeFromOpnameBuffer()` — Reduce one or all counted units for a part
 - `renderDataList(reset)` — Display all items dengan search/filter

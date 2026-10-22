@@ -2,7 +2,7 @@
  * Tujuan: Persistensi IndexedDB, sinkronisasi Admin, dan refresh baca otomatis untuk User.
  * Caller: main.js, core.js, dan handler kontrol sinkronisasi di index.html.
  * Dependensi: auth.js (Admin-authorized writes), config.js (db, antrean, sesi), IndexedDB, API_URL.
- * Main Functions: initDB() migrates the IndexedDB outbox and location/count schema; saveDB()/saveDBBatch() atomically store records and queue; sync uploads local locations/opname counts only, while cloud downloads always refresh SYS_QTY.
+ * Main Functions: initDB() migrates the IndexedDB outbox and location/count schema; saveDB()/saveDBBatch() atomically store records and queue; sync uploads local locations/opname counts only, with per-record or batch Cloud/Local conflict resolution.
  * Side Effects: IndexedDB item/outbox read/write, sync-log localStorage, background User GET, and user-triggered Admin POST/GET requests.
  */
 // js/database.js
@@ -69,11 +69,13 @@ function renderSyncConflicts() {
         useCloudButton.type = 'button';
         useCloudButton.className = 'btn btn-outline';
         useCloudButton.textContent = 'Gunakan Cloud';
+        useCloudButton.title = 'Ganti data lokal dengan versi Cloud';
         useCloudButton.addEventListener('click', () => resolveSyncConflict(conflict.clientId, 'cloud'));
         const keepLocalButton = document.createElement('button');
         keepLocalButton.type = 'button';
         keepLocalButton.className = 'btn btn-primary';
-        keepLocalButton.textContent = 'Pertahankan Lokal & antrekan ulang';
+        keepLocalButton.textContent = 'Gunakan Local';
+        keepLocalButton.title = 'Pertahankan data lokal dan antrekan untuk menimpa Cloud';
         keepLocalButton.addEventListener('click', () => resolveSyncConflict(conflict.clientId, 'local'));
         actions.append(useCloudButton, keepLocalButton);
         section.appendChild(actions);
@@ -129,6 +131,76 @@ async function resolveSyncConflict(clientId, resolution) {
     } catch (error) {
         console.error('Resolusi konflik gagal:', error);
         showToast(`Resolusi konflik gagal: ${error.message}. Antrean tetap tersimpan.`);
+    }
+}
+
+async function resolveAllSyncConflicts(resolution) {
+    if (resolution !== 'cloud' && resolution !== 'local') {
+        console.error('Prioritas resolusi konflik tidak valid:', resolution);
+        showToast('Pilihan resolusi konflik tidak valid.');
+        return;
+    }
+    const conflicts = [...pendingSyncConflicts];
+    if (conflicts.length === 0) return;
+    const description = resolution === 'cloud'
+        ? 'mengganti data lokal dengan Cloud dan membuang perubahan lokal yang konflik'
+        : 'mempertahankan data lokal untuk menimpa Cloud';
+    if (!confirm(`Terapkan pilihan ini untuk semua ${conflicts.length} konflik: ${description}?`)) return;
+
+    const resolutions = conflicts.map(conflict => {
+        const localItem = syncQueue.find(item => String(item.id) === String(conflict.clientId))
+            || localItems.find(item => String(item.id) === String(conflict.clientId));
+        const cloudItem = conflict.cloudItem;
+        if (!localItem || !cloudItem) return null;
+        const resolvedItem = resolution === 'cloud'
+            ? { ...localItem, ...cloudItem, id: cloudItem.id }
+            : { ...localItem, id: cloudItem.id, revision: conflict.revision };
+        if (resolution === 'cloud') delete resolvedItem.localVersion;
+        return { localItem, cloudItem, resolvedItem };
+    });
+    if (resolutions.some(item => !item)) {
+        showToast('Sebagian data konflik tidak lengkap. Tidak ada konflik yang diubah.');
+        return;
+    }
+
+    const priorityButtons = [...document.querySelectorAll('.sync-conflict-priority-actions button')];
+    priorityButtons.forEach(button => { button.disabled = true; });
+    try {
+        await new Promise((resolve, reject) => {
+            let tx;
+            try {
+                tx = db.transaction(['items', 'outbox'], 'readwrite');
+                const itemsStore = tx.objectStore('items');
+                const outboxStore = tx.objectStore('outbox');
+                resolutions.forEach(({ localItem, cloudItem, resolvedItem }) => {
+                    if (String(localItem.id) !== String(cloudItem.id)) {
+                        itemsStore.delete(localItem.id);
+                        outboxStore.delete(localItem.id);
+                    }
+                    itemsStore.put(resolvedItem);
+                    if (resolution === 'cloud') outboxStore.delete(resolvedItem.id);
+                    else outboxStore.put(resolvedItem);
+                });
+            } catch (error) {
+                reject(error);
+                return;
+            }
+            tx.oncomplete = resolve;
+            tx.onerror = () => reject(tx.error || new Error('Gagal menyimpan resolusi konflik.'));
+            tx.onabort = () => reject(tx.error || new Error('Resolusi konflik dibatalkan.'));
+        });
+        const resolvedIds = new Set(conflicts.map(conflict => String(conflict.clientId)));
+        pendingSyncConflicts = pendingSyncConflicts.filter(conflict => !resolvedIds.has(String(conflict.clientId)));
+        await loadSyncQueueFromOutbox();
+        await loadDataFromLocal();
+        updateLocalSyncStatus();
+        renderSyncConflicts();
+        showToast(`${conflicts.length} konflik diselesaikan dengan prioritas ${resolution === 'cloud' ? 'Cloud' : 'Local'}.`);
+    } catch (error) {
+        console.error('Resolusi massal konflik gagal:', error);
+        showToast(`Resolusi konflik gagal: ${error.message}. Data antrean tetap tersimpan.`);
+    } finally {
+        priorityButtons.forEach(button => { button.disabled = false; });
     }
 }
 

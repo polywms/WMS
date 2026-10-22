@@ -3,7 +3,7 @@
              * Tujuan: Menyediakan sistem visual responsif untuk workflow WMS.
              * Caller: index.html dan seluruh komponen UI berbasis class.
              * Dependensi: Variabel tema, Font Awesome, dan CSS layout native.
-             * Main Functions: Layout, role gate, sync activity feedback, SIMPAN controls, compact lists/buffer, and opname controls.
+             * Main Functions: Layout, role gate, compact sync status, mutually exclusive SIMPAN controls, clickable opname stats, and rack filters.
              * Side Effects: Mengubah tampilan dan spacing tanpa mengubah state aplikasi.
              */
             :root {
@@ -86,6 +86,10 @@
                 background: var(--active-color);
                 color: white;
             }
+            .simpan-mode-controls button:disabled {
+                opacity: 0.45;
+                cursor: not-allowed;
+            }
             #syncCloudButton.sync-busy i {
                 animation: sync-cloud-bounce 0.65s ease-in-out infinite alternate;
             }
@@ -96,8 +100,10 @@
             .sync-conflict-item { padding: 12px; border: 1px solid var(--border); border-left: 4px solid var(--warning); border-radius: 6px; background: var(--card); }
             .sync-conflict-item h4 { margin: 0 0 8px; overflow-wrap: anywhere; }
             .sync-conflict-item p { margin: 4px 0; color: var(--text-secondary); font-size: 0.82rem; overflow-wrap: anywhere; }
-            .sync-conflict-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
-            .sync-conflict-actions .btn { width: auto; margin: 0; }
+            .sync-conflict-priority-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 0 0 12px; }
+            .sync-conflict-priority-actions .btn { width: 100%; min-width: 0; margin: 0; }
+            .sync-conflict-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+            .sync-conflict-actions .btn { width: 100%; min-width: 0; margin: 0; }
             @keyframes sync-cloud-bounce {
                 from { transform: translateY(0); }
                 to { transform: translateY(-4px); }
@@ -172,6 +178,11 @@
             align-items: center;
             gap: 6px;
             min-width: 0;
+            width: fit-content;
+            max-width: min(260px, 100%);
+            padding: 1px 8px;
+            border-radius: 999px;
+            background: rgba(0, 0, 0, 0.15);
             font-size: 0.75rem;
             line-height: 1.25;
             white-space: nowrap;
@@ -693,9 +704,8 @@
                 margin: 0;
                 border-radius: 0;
             }
-            .opname-box-actions { display: flex; align-items: center; justify-content: stretch; gap: 5px; min-width: 0; padding-top: 5px; }
-            .opname-box-actions .btn-sm { flex: 1 1 auto; min-width: 0; min-height: 27px; padding: 2px 6px; font-size: 0.7rem; }
-            .opname-box-actions .icon-only { flex: 0 0 28px; width: 28px !important; min-width: 28px !important; height: 27px !important; min-height: 27px !important; padding: 2px !important; }
+            .opname-box-actions { display: grid; grid-template-columns: minmax(0, 1fr); align-items: stretch; gap: 6px; min-width: 0; padding-top: 5px; }
+            .opname-box-actions .btn-sm { width: 100%; min-width: 0; min-height: 32px; padding: 5px 8px; font-size: 0.72rem; }
             .opname-box-actions .btn-outline {
                 border: 1px solid #64748b !important;
                 box-shadow: 0 0 0 1px rgba(51, 65, 85, 0.12);
@@ -703,28 +713,46 @@
             .opname-stats {
                 display: grid;
                 grid-template-columns: repeat(4, minmax(0, 1fr));
-                gap: 0;
+                gap: 4px;
                 width: 100%;
             }
             .opname-stat {
+                display: grid;
+                grid-template-rows: auto auto;
+                justify-items: center;
+                align-content: center;
+                gap: 2px;
                 min-width: 0;
                 font-size: clamp(0.56rem, 2.5vw, 0.72rem);
                 font-weight: 700;
-                padding: 4px 2px;
-                border-radius: 0;
+                padding: 5px 2px;
+                border-radius: 6px;
                 background: #fff;
                 border: 1px solid #86efac;
-                border-right-width: 0;
                 color: #14532d;
                 text-align: center;
+                cursor: pointer;
                 white-space: nowrap;
                 overflow: hidden;
                 text-overflow: ellipsis;
             }
-            .opname-stat:first-child { border-radius: 0; }
-            .opname-stat:last-child { border-right-width: 1px; border-radius: 0; }
+            .opname-stat-label { overflow: hidden; text-overflow: ellipsis; }
+            .opname-stat strong { font-size: 0.9rem; line-height: 1.1; }
+            .opname-stat.active { outline: 2px solid currentColor; outline-offset: -2px; filter: saturate(1.15); }
             .opname-stat.diff { border-color: #fca5a5; color: #991b1b; background: #fef2f2; }
             .opname-stat.zero { border-color: #cbd5e1; color: #475569; background: #f8fafc; }
+            .opname-list-tools { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+            .opname-list-tools #opnameActiveFilter { margin-left: auto; color: var(--text-secondary); font-size: 0.78rem; }
+            .rak-filter-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+            .rak-filter-fields label { display: grid; gap: 4px; min-width: 0; color: var(--text-secondary); font-size: 0.78rem; font-weight: 700; }
+            .rak-filter-fields select { width: 100%; min-width: 0; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--card); color: var(--text); }
+            .rak-summary-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; width: 100%; }
+            .rak-summary-metric { min-width: 0; padding: 10px 6px; border: 1px solid var(--border); border-radius: 7px; background: var(--bg-secondary); color: var(--text); font-weight: 700; cursor: pointer; }
+            .rak-summary-card { padding: 12px; border: 1px solid var(--border); border-left: 4px solid var(--primary); border-radius: 7px; background: var(--card); color: var(--text); text-align: left; font-weight: 700; cursor: pointer; }
+            .rak-summary-entry { padding: 9px; border-left: 4px solid var(--border); border-radius: 5px; background: var(--bg-secondary); font-size: 0.8rem; overflow-wrap: anywhere; }
+            .rak-summary-entry.match { border-left-color: var(--success); }
+            .rak-summary-entry.diff { border-left-color: var(--danger); }
+            .rak-summary-entry.zero { border-left-color: #94a3b8; }
             .segment-control { 
             display: flex; 
             width: 100%; 
