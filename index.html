@@ -2,7 +2,7 @@
     Tujuan: Entry point UI untuk workflow WMS Magelang.
     Caller: Browser/PWA shell; event handlers diteruskan ke main.js dan core.js.
     Dependensi: css/style.css, Font Awesome, dan modul JavaScript di js/.
-    Main Functions: Menyediakan role gate Admin/User, navigasi, Cari, SIMPAN/OPNAME dengan filter statistik tabel/rak dan aksi box, status sinkronisasi, impor/ekspor, dan resolusi konflik data.
+    Main Functions: Menyediakan role gate Admin/User, navigasi mobile collapsible, Cari, SIMPAN/OPNAME dengan filter statistik tabel/rak dan aksi box, pilihan sinkronisasi terpisah, impor/ekspor, dan resolusi konflik data.
     Side Effects: Mengubah DOM, memicu scan, penyimpanan lokal, dan sinkronisasi cloud melalui handler.
 -->
 <!-- WMS Magelang - Entry point UI -->
@@ -66,9 +66,22 @@
                     <button type="button" class="icon-only" onclick="closeSyncModal()" aria-label="Tutup pilihan sinkronisasi"><i class="fas fa-times"></i></button>
                 </div>
                 <p id="syncQueueSummary" class="sync-modal-note" style="line-height:1.5; color:var(--secondary);">Perubahan lokal menunggu upload.</p>
-                <p class="sync-modal-note" style="line-height:1.5; color:var(--secondary);">Download menggabungkan data cloud tanpa menghapus perubahan lokal yang menunggu upload.</p>
-                <button type="button" class="btn btn-primary" onclick="uploadToServer()"><i class="fas fa-cloud-arrow-up"></i> Upload ke server</button>
-                <button type="button" class="btn btn-outline" onclick="downloadFromServer()"><i class="fas fa-cloud-arrow-down"></i> Download dari server</button>
+                <div class="sync-action-list">
+                    <button type="button" class="btn btn-primary sync-action-button" onclick="uploadToServer()">
+                        <i class="fas fa-cloud-arrow-up" aria-hidden="true"></i>
+                        <span class="sync-action-copy">
+                            <strong>Upload ke server</strong>
+                            <small>Kirim perubahan lokal yang menunggu, termasuk lokasi box dan hasil stock opname.</small>
+                        </span>
+                    </button>
+                    <button type="button" class="btn btn-outline sync-action-button" onclick="downloadFromServer()">
+                        <i class="fas fa-cloud-arrow-down" aria-hidden="true"></i>
+                        <span class="sync-action-copy">
+                            <strong>Perbarui data lokal dari server</strong>
+                            <small>Ambil data terbaru, termasuk qty stok. Perubahan lokal yang menunggu upload tetap dijaga.</small>
+                        </span>
+                    </button>
+                </div>
             </div>
         </div>
 
@@ -88,7 +101,7 @@
         </div>
 
         <!-- Bottom navigation is the single navigation surface for all tabs. -->
-        <nav class="bottom-nav" aria-label="Navigasi utama">
+        <nav id="bottomNav" class="bottom-nav" aria-label="Navigasi utama">
             <button class="nav-item active" data-tab="simpan" onclick="switchTab('simpan')" aria-label="Simpan">
                 <i class="fas fa-dolly" aria-hidden="true"></i><span>SIMPAN</span>
             </button>
@@ -106,6 +119,9 @@
             </button>
             <button class="nav-item" data-tab="settings" onclick="switchTab('settings')" aria-label="Pengaturan">
                 <i class="fas fa-cog" aria-hidden="true"></i><span>SETTING</span>
+            </button>
+            <button type="button" id="bottomNavToggle" class="bottom-nav-toggle" onclick="toggleMobileNavigation()" aria-controls="bottomNav" aria-expanded="true" aria-label="Tutup navigasi" title="Tutup navigasi">
+                <i class="fas fa-chevron-up" aria-hidden="true"></i>
             </button>
         </nav>
         

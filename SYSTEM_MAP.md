@@ -365,6 +365,7 @@ WMS/
 
 ### [core.js](js/core.js)
 **Fungsi Publik Utama**:
+- `toggleMobileNavigation()` — Collapse or expand mobile navigation without changing the active tab
 - `processScan(code)` — Parse scan result, route ke tab handler (SIMPAN/OPNAME/OFF BS/PACKING)
 - `selectPartSimpan(item)` — Set active part, render suggestion panel; qty 0 tidak dirender di SIMPAN/OPNAME
 - `switchTab(id)` — Enforce User-only Cari and stop SIMPAN modes safely while preserving confirmed buffer
@@ -433,6 +434,7 @@ WMS/
 - `showToast(message)` — Display floating toast notification
 - `toggleDarkMode()` — Switch light/dark theme
 - Bottom navigation — Switch between workflow and settings tabs
+
 
 **Peran**: UI utilities; feedback & styling helpers  
 **Caller**: core.js (feedback), event handlers (toggleDarkMode), any scanner success  

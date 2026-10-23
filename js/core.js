@@ -3,7 +3,7 @@
  * CORE LOGIC - WMS Magelang V6
  * ========================================
  * 
- * Tujuan: Main controller untuk role-aware scan routing, aturan SIMPAN/OPNAME SPAREPART BAIK, dan renders.
+ * Tujuan: Main controller untuk role-aware scan routing, aturan SIMPAN/OPNAME SPAREPART BAIK, renders, dan kontrol navigasi mobile.
  * Caller: main.js (via window.onload), UI events (onclick), keyboard (onkeydown)
  * Dependensi: auth.js (role guards), database.js (saveDB), utils.js (feedback), config.js (QR_PARSERS/box rules)
  * Box codes: legacy codes remain recognizable as sources; only new-format codes are valid destinations.
@@ -16,6 +16,7 @@
  * - NO progress badge (X/Y), NO qty validation, NO accumulation messages
  * 
  * Main Functions:
+ * - toggleMobileNavigation() â€” Collapse or expand mobile navigation without changing the selected tab
  * - processScan(code) — Route scan per currentTab dan menolak SIMPAN non-SPAREPART BAIK
  * - isSparepartBaik(item)/populateFilters() — Terapkan filter awal dan izin lokasi hanya untuk SPAREPART BAIK
  * - switchTab(id) — Enforce User-only Cari and stop SIMPAN modes safely when leaving
@@ -256,6 +257,23 @@ function toggleOptionsAccordion() {
         btn.style.color = 'var(--secondary)';
         btn.style.borderColor = '#cbd5e1';
     }
+}
+
+function toggleMobileNavigation() {
+    const nav = document.getElementById('bottomNav');
+    const button = document.getElementById('bottomNavToggle');
+    const icon = button?.querySelector('i');
+    if (!nav || !button || !icon) return;
+
+    const expanded = button.getAttribute('aria-expanded') === 'true';
+    const nextExpanded = !expanded;
+    nav.classList.toggle('is-collapsed', !nextExpanded);
+    document.body.classList.toggle('mobile-nav-collapsed', !nextExpanded);
+    button.setAttribute('aria-expanded', String(nextExpanded));
+    button.setAttribute('aria-label', nextExpanded ? 'Tutup navigasi' : 'Buka navigasi');
+    button.title = nextExpanded ? 'Tutup navigasi' : 'Buka navigasi';
+    icon.classList.toggle('fa-chevron-up', nextExpanded);
+    icon.classList.toggle('fa-chevron-down', !nextExpanded);
 }
 
 function toggleBoxToBoxMode() {

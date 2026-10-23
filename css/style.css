@@ -3,7 +3,7 @@
              * Tujuan: Menyediakan sistem visual responsif untuk workflow WMS.
              * Caller: index.html dan seluruh komponen UI berbasis class.
              * Dependensi: Variabel tema, Font Awesome, dan CSS layout native.
-             * Main Functions: Responsive application layout, compact header, consistent controls, scanner surface, navigation, opname stats, and rack filters.
+             * Main Functions: Responsive application layout, compact header, distinct sync actions, collapsible mobile navigation, consistent controls, opname stats, and rack filters.
              * Side Effects: Mengubah tampilan dan spacing tanpa mengubah state aplikasi.
              */
             :root {
@@ -2866,5 +2866,174 @@
                 .main-content-wrapper {
                     margin-left: 0;
                     margin-right: 100px;
+                }
+            }
+
+            .sync-action-list {
+                display: grid;
+                gap: 10px;
+                margin-top: 12px;
+            }
+
+            .sync-modal .sync-action-button {
+                display: grid;
+                grid-template-columns: 22px minmax(0, 1fr);
+                align-items: start;
+                gap: 10px;
+                width: 100%;
+                min-height: 70px;
+                padding: 12px 14px;
+                text-align: left;
+            }
+
+            .sync-action-button > i {
+                margin-top: 2px;
+                font-size: 1rem;
+            }
+
+            .sync-action-copy {
+                display: grid;
+                gap: 4px;
+                min-width: 0;
+            }
+
+            .sync-action-copy strong {
+                font-size: 0.9rem;
+                line-height: 1.25;
+            }
+
+            .sync-action-copy small {
+                color: inherit;
+                font-size: 0.76rem;
+                font-weight: 450;
+                line-height: 1.45;
+                opacity: 0.82;
+            }
+
+            .sync-modal .sync-action-button.btn-primary {
+                background: var(--primary);
+            }
+
+            .sync-modal .sync-action-button.btn-outline {
+                border: 1px solid var(--border);
+                background: var(--bg-secondary);
+                color: var(--text);
+            }
+
+            .sync-modal .sync-action-button.btn-outline:hover {
+                border-color: #94a3b8;
+                background: var(--bg);
+            }
+
+            .bottom-nav-toggle {
+                display: none;
+            }
+
+            @media (max-width: 799px) {
+                body {
+                    box-sizing: border-box;
+                    height: 100vh;
+                    height: 100dvh;
+                    padding-top: 128px;
+                    padding-bottom: 0;
+                }
+
+                body.mobile-nav-collapsed {
+                    padding-top: 100px;
+                }
+
+                .main-content-wrapper {
+                    width: 100%;
+                    max-width: none;
+                    margin: 0;
+                }
+
+                .bottom-nav {
+                    position: fixed;
+                    top: 64px;
+                    right: 0;
+                    bottom: auto;
+                    left: 0;
+                    z-index: 950;
+                    display: flex;
+                    align-items: stretch;
+                    gap: 4px;
+                    width: auto;
+                    min-height: 0;
+                    padding: 6px 8px;
+                    border: 0;
+                    border-bottom: 1px solid var(--border);
+                    border-radius: 0 !important;
+                    background: color-mix(in srgb, var(--card) 97%, transparent);
+                    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
+                    backdrop-filter: blur(14px);
+                    transition: background-color 0.18s ease, box-shadow 0.18s ease;
+                }
+
+                .bottom-nav .nav-item {
+                    flex: 1 1 0;
+                    min-width: 0;
+                    min-height: 48px;
+                    padding: 4px 2px;
+                    border: 0;
+                    border-radius: 8px !important;
+                    font-size: 0.64rem;
+                }
+
+                .bottom-nav .nav-item i {
+                    font-size: 1.05rem;
+                }
+
+                .bottom-nav-toggle {
+                    display: grid;
+                    flex: 0 0 36px;
+                    place-items: center;
+                    align-self: center;
+                    width: 36px;
+                    min-width: 36px;
+                    height: 36px;
+                    min-height: 36px !important;
+                    padding: 0;
+                    border: 1px solid var(--border);
+                    border-radius: 8px !important;
+                    background: var(--card);
+                    color: var(--text-secondary);
+                    cursor: pointer;
+                }
+
+                .bottom-nav-toggle:hover,
+                .bottom-nav-toggle:focus-visible {
+                    border-color: var(--primary);
+                    color: var(--primary);
+                }
+
+                .bottom-nav.is-collapsed {
+                    right: 10px;
+                    left: auto;
+                    width: 44px;
+                    padding: 4px;
+                    border: 1px solid var(--border);
+                    border-radius: 0 0 9px 9px !important;
+                    box-shadow: 0 3px 10px rgba(15, 23, 42, 0.08);
+                }
+
+                .bottom-nav.is-collapsed .nav-item {
+                    display: none;
+                }
+
+                .bottom-nav.is-collapsed .bottom-nav-toggle {
+                    flex-basis: 34px;
+                    width: 34px;
+                    min-width: 34px;
+                    height: 30px;
+                    min-height: 30px !important;
+                    border: 0;
+                    background: transparent;
+                }
+            }
+
+            @media (min-width: 800px) {
+                .bottom-nav-toggle {
+                    display: none;
                 }
             }
