@@ -2,7 +2,7 @@
     Tujuan: Entry point UI untuk workflow WMS Magelang.
     Caller: Browser/PWA shell; event handlers diteruskan ke main.js dan core.js.
     Dependensi: css/style.css, Font Awesome, dan modul JavaScript di js/.
-    Main Functions: Menyediakan role gate Admin/User, navigasi, Cari, SIMPAN/OPNAME dengan filter statistik/rak, status sinkronisasi, impor/ekspor, dan resolusi konflik data.
+    Main Functions: Menyediakan role gate Admin/User, navigasi, Cari, SIMPAN/OPNAME dengan filter statistik tabel/rak dan aksi box, status sinkronisasi, impor/ekspor, dan resolusi konflik data.
     Side Effects: Mengubah DOM, memicu scan, penyimpanan lokal, dan sinkronisasi cloud melalui handler.
 -->
 <!-- WMS Magelang - Entry point UI -->
@@ -255,15 +255,27 @@
                         <div id="opnameBoxName" style="display:none;"></div>
                     </div>
                     <div class="opname-box-details">
-                        <div class="opname-stats">
-                            <button type="button" class="opname-stat" data-opname-filter="match" onclick="setOpnameFilter('match')" aria-pressed="false"><span class="opname-stat-label">OK</span><strong id="opnameStatMatch">0</strong></button>
-                            <button type="button" class="opname-stat diff" data-opname-filter="diff" onclick="setOpnameFilter('diff')" aria-pressed="false"><span class="opname-stat-label">Selisih</span><strong id="opnameStatDiff">0</strong></button>
-                            <button type="button" class="opname-stat zero" data-opname-filter="zero" onclick="setOpnameFilter('zero')" aria-pressed="false"><span class="opname-stat-label">Belum</span><strong id="opnameStatZero">0</strong></button>
-                            <button type="button" class="opname-stat" data-opname-filter="counted" onclick="setOpnameFilter('counted')" aria-pressed="false"><span class="opname-stat-label">Qty (pcs)</span><strong id="opnameStatPcs">0</strong></button>
-                        </div>
+                        <table class="opname-stats">
+                            <thead>
+                                <tr>
+                                    <th scope="col"><button type="button" class="opname-stat" data-opname-filter="match" onclick="setOpnameFilter('match')" aria-pressed="false">OK</button></th>
+                                    <th scope="col"><button type="button" class="opname-stat diff" data-opname-filter="diff" onclick="setOpnameFilter('diff')" aria-pressed="false">Selisih</button></th>
+                                    <th scope="col"><button type="button" class="opname-stat zero" data-opname-filter="zero" onclick="setOpnameFilter('zero')" aria-pressed="false">Belum</button></th>
+                                    <th scope="col"><button type="button" class="opname-stat" data-opname-filter="counted" onclick="setOpnameFilter('counted')" aria-pressed="false">Qty (pcs)</button></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td><strong id="opnameStatMatch">0</strong></td>
+                                    <td><strong id="opnameStatDiff">0</strong></td>
+                                    <td><strong id="opnameStatZero">0</strong></td>
+                                    <td><strong id="opnameStatPcs">0</strong></td>
+                                </tr>
+                            </tbody>
+                        </table>
                         <div class="opname-box-actions">
-                            <button type="button" class="btn-sm btn-outline" onclick="resetCurrentBoxOpname()" title="Ulangi hitungan box aktif"><i class="fas fa-undo" aria-hidden="true"></i> Ulang Opname</button>
-                            <button type="button" class="btn-sm btn-danger" onclick="clearCurrentBoxOpnameContents()" title="Hapus semua part dari box aktif">Hapus Semua Isi Box Aktif</button>
+                            <button type="button" class="btn-sm btn-outline" onclick="resetCurrentBoxOpname()" title="Ulangi hitungan box aktif" aria-label="Ulangi hitungan box aktif"><i class="fas fa-undo" aria-hidden="true"></i></button>
+                            <button type="button" class="btn-sm btn-danger" onclick="clearCurrentBoxOpnameContents()" title="Hapus semua part dari box aktif" aria-label="Hapus semua part dari box aktif"><i class="fas fa-trash-can" aria-hidden="true"></i></button>
                         </div>
                     </div>
                 </div>

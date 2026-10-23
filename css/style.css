@@ -3,7 +3,7 @@
              * Tujuan: Menyediakan sistem visual responsif untuk workflow WMS.
              * Caller: index.html dan seluruh komponen UI berbasis class.
              * Dependensi: Variabel tema, Font Awesome, dan CSS layout native.
-             * Main Functions: Layout, role gate, compact sync status, mutually exclusive SIMPAN controls, clickable opname stats, and rack filters.
+             * Main Functions: Layout, role gate, compact sync status, mutually exclusive SIMPAN controls, table-style opname stats and box actions, and rack filters.
              * Side Effects: Mengubah tampilan dan spacing tanpa mengubah state aplikasi.
              */
             :root {
@@ -697,38 +697,43 @@
             }
             .opname-box-details {
                 display: grid;
-                grid-template-rows: auto auto;
-                align-content: center;
+                grid-template-columns: minmax(0, 1fr) auto;
+                align-items: center;
+                gap: 6px;
                 min-width: 0;
                 padding: 0;
                 margin: 0;
                 border-radius: 0;
             }
-            .opname-box-actions { display: grid; grid-template-columns: minmax(0, 1fr); align-items: stretch; gap: 6px; min-width: 0; padding-top: 5px; }
-            .opname-box-actions .btn-sm { width: 100%; min-width: 0; min-height: 32px; padding: 5px 8px; font-size: 0.72rem; }
+            .opname-box-actions { display: grid; grid-template-columns: minmax(0, 1fr); align-items: center; gap: 5px; min-width: 0; padding: 4px; }
+            .opname-box-actions .btn-sm { display: grid; place-items: center; width: 32px; min-width: 32px; height: 30px; min-height: 30px; padding: 0; font-size: 0.8rem; }
             .opname-box-actions .btn-outline {
                 border: 1px solid #64748b !important;
                 box-shadow: 0 0 0 1px rgba(51, 65, 85, 0.12);
             }
             .opname-stats {
-                display: grid;
-                grid-template-columns: repeat(4, minmax(0, 1fr));
-                gap: 4px;
+                border-collapse: collapse;
+                table-layout: fixed;
                 width: 100%;
+                min-width: 0;
+            }
+            .opname-stats th,
+            .opname-stats td {
+                width: 25%;
+                padding: 0;
+                border: 1px solid #86efac;
+                text-align: center;
             }
             .opname-stat {
-                display: grid;
-                grid-template-rows: auto auto;
-                justify-items: center;
-                align-content: center;
-                gap: 2px;
+                display: block;
+                width: 100%;
                 min-width: 0;
                 font-size: clamp(0.56rem, 2.5vw, 0.72rem);
                 font-weight: 700;
                 padding: 5px 2px;
-                border-radius: 6px;
-                background: #fff;
-                border: 1px solid #86efac;
+                border: 0;
+                border-radius: 0;
+                background: transparent;
                 color: #14532d;
                 text-align: center;
                 cursor: pointer;
@@ -736,11 +741,10 @@
                 overflow: hidden;
                 text-overflow: ellipsis;
             }
-            .opname-stat-label { overflow: hidden; text-overflow: ellipsis; }
-            .opname-stat strong { font-size: 0.9rem; line-height: 1.1; }
+            .opname-stats td { padding: 5px 2px; color: #14532d; font-size: 0.9rem; line-height: 1.1; }
             .opname-stat.active { outline: 2px solid currentColor; outline-offset: -2px; filter: saturate(1.15); }
-            .opname-stat.diff { border-color: #fca5a5; color: #991b1b; background: #fef2f2; }
-            .opname-stat.zero { border-color: #cbd5e1; color: #475569; background: #f8fafc; }
+            .opname-stat.diff { color: #991b1b; background: #fef2f2; }
+            .opname-stat.zero { color: #475569; background: #f8fafc; }
             .opname-list-tools { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
             .opname-list-tools #opnameActiveFilter { margin-left: auto; color: var(--text-secondary); font-size: 0.78rem; }
             .rak-filter-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
@@ -1765,7 +1769,13 @@
             }
             body.dark-mode .opname-stat {
             background: var(--card);
+            color: var(--text);
+            }
+            body.dark-mode .opname-stats th,
+            body.dark-mode .opname-stats td {
             border-color: var(--border);
+            }
+            body.dark-mode .opname-stats td {
             color: var(--text);
             }
             
