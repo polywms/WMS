@@ -18,6 +18,7 @@
  * Main Functions:
  * - toggleMobileNavigation() â€” Collapse or expand mobile navigation without changing the selected tab
  * - processScan(code)/normalizeBoxCode() — Normalize box QR dan route scan per tab
+ * - executeSimpanAction()/applyBoxToBoxSelection() — Confirm before replacing or removing box membership
  * - isSparepartBaik(item)/populateFilters() — Terapkan filter awal dan izin lokasi hanya untuk SPAREPART BAIK
  * - switchTab(id) — Enforce User-only Cari and stop SIMPAN modes safely when leaving
  * - toggleMultipleScanMode()/toggleBoxToBoxMode()/updateSimpanModeControls() — Mutually exclusive SIMPAN relocation modes
@@ -409,6 +410,8 @@ function applyBoxToBoxSelection(sourceBox, targetBox, selectedItems, isYesToAll 
         showToast(`Lokasi legacy ${targetBox} tidak dapat menjadi tujuan.`);
         return;
     }
+    if ([sourceBox, targetBox].some(box => BUFFER_STOCK_BOX_PATTERN.test(String(box).trim().toUpperCase()))
+        && !confirm(`KONFIRMASI PINDAH LOKASI\n\n${selectedItems.length} part akan dipindahkan dari ${sourceBox} ke ${targetBox}.\nLokasi sumber dan hitungan opname box sumber akan dilepas untuk part terpilih.${isYesToAll ? '\n\nMode Yes to All sedang aktif.' : ''}\n\nLanjutkan?`)) return;
     let affectedCount = 0;
 
     selectedItems.forEach(item => {
@@ -1167,7 +1170,14 @@ async function processMultiScan(boxCode) {
         return;
     }
 
-    const confirmed = confirm(`Pindahkan ${selectedItems.length} part ke box ${boxCode}?\n\n${selectedItems.map(entry => entry.item.partNo).join('\n')}`);
+    const sourceSummary = rebasedItems.map(({ currentItem }) =>
+        `${currentItem.partNo}: ${Object.keys(currentItem.locations || {}).join(', ') || '(belum ada lokasi)'}`
+    ).join('\n');
+    const bufferWarning = BUFFER_STOCK_BOX_PATTERN.test(boxCode)
+        || rebasedItems.some(({ currentItem }) => Object.keys(currentItem.locations || {}).some(box => BUFFER_STOCK_BOX_PATTERN.test(box)))
+        ? '\nPERHATIAN: Aksi melibatkan box buffer. Pastikan box utama dan tujuan sudah benar.'
+        : '';
+    const confirmed = confirm(`KONFIRMASI PINDAH ${selectedItems.length} PART\n\nLokasi lama setiap part akan diganti ke ${boxCode}.${bufferWarning}\n\n${sourceSummary}\n\nLanjutkan?`);
     if (!confirmed) return;
 
     const updatedItems = rebasedItems.map(({ bufferItem, currentItem }) => {
@@ -1267,6 +1277,14 @@ function executeSimpanAction(action) {
         return;
     }
     const oldLocs = Object.keys(item.locations);
+    const bufferWarning = oldLocs.some(box => BUFFER_STOCK_BOX_PATTERN.test(box))
+        || BUFFER_STOCK_BOX_PATTERN.test(newBox)
+        ? '\nPERHATIAN: Aksi melibatkan box buffer. Pastikan lokasi utama part tetap terlacak.'
+        : '';
+    const actionWarning = action === 'move'
+        ? `LOKASI ASAL AKAN DIHAPUS: ${oldLocs.join(', ')}. Hanya ${newBox} yang tersisa.`
+        : `Lokasi asal tetap dipertahankan; ${newBox} akan ditambahkan.`;
+    if (!confirm(`KONFIRMASI ${action === 'move' ? 'PINDAH' : 'TAMBAH LOKASI'}\n\nPart: ${item.partNo}\n${actionWarning}${bufferWarning}\n\nLanjutkan?`)) return;
     
     if (action === 'move') {
         // MOVE: Replace old location(s) with new one
@@ -1904,8 +1922,6 @@ async function clearCurrentBoxOpnameContents() {
         return;
     }
     const box = activeBoxFilter;
-    if (!confirm(`Hapus semua part dari box ${box}? Perubahan akan masuk antrean upload lokal.`)) return;
-
     const changedItems = localItems
         .filter(item => isSparepartBaik(item) && Object.prototype.hasOwnProperty.call(item.locations || {}, box))
         .map(item => {
@@ -1919,6 +1935,14 @@ async function clearCurrentBoxOpnameContents() {
         showToast(`Box ${box} sudah kosong.`);
         return;
     }
+    const lastLocationCount = changedItems.filter(item => Object.keys(item.locations).length === 0).length;
+    const bufferWarning = BUFFER_STOCK_BOX_PATTERN.test(box)
+        ? '\nPERHATIAN: Ini box buffer stock; pastikan bukan lokasi utama yang masih diperlukan.'
+        : '';
+    const lastLocationWarning = lastLocationCount
+        ? `\n${lastLocationCount} part akan kehilangan seluruh lokasi terdaftar.`
+        : '';
+    if (!confirm(`KONFIRMASI HAPUS ISI BOX ${box}\n\n${changedItems.length} part dan hitungan Opname di box ini akan dihapus.${lastLocationWarning}${bufferWarning}\n\nPerubahan masuk antrean upload lokal. Lanjutkan?`)) return;
 
     opnameCommitInProgress = true;
     try {
@@ -2115,7 +2139,14 @@ async function removeOpnamePartFromActiveBox(id, box) {
         showToast('Part tidak terdaftar di box aktif.');
         return;
     }
-    if (!confirm(`Hapus ${item.partNo} dari box ${box}? Hitungan Opname part ini di box tersebut juga akan dihapus.`)) return;
+    const isLastLocation = Object.keys(item.locations || {}).length === 1;
+    const bufferWarning = BUFFER_STOCK_BOX_PATTERN.test(box)
+        ? '\nPERHATIAN: Box ini berformat buffer stock.'
+        : '';
+    const lastLocationWarning = isLastLocation
+        ? '\nIni lokasi terakhir part. Part akan kehilangan seluruh tracking lokasi.'
+        : '';
+    if (!confirm(`KONFIRMASI HAPUS LOKASI\n\nPart: ${item.partNo}\nBox: ${box}\nHitungan Opname di box ini juga akan dihapus.${lastLocationWarning}${bufferWarning}\n\nLanjutkan?`)) return;
 
     const updatedItem = {
         ...item,

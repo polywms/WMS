@@ -104,9 +104,9 @@ Changing boxes clears only the recent-scan display; every box's saved counts rem
   ↓
 Manual count edits in `edit-opname-count-input` update only the active box's `opnameCounts`; entering 0 removes that count key
   ↓
-Remove part from active box in the edit modal deletes only that box's location and opname count, then saves through the local upload queue
+Remove part from active box in the edit modal confirms the target box, warns if it is a buffer box or the part's last location, then deletes only that box's location/count through the local upload queue
   ↓
-Reset current box → remove its saved count keys; preserve location membership. Hapus Semua Isi Box Aktif removes that box membership and its count from each listed part through the local upload queue
+Reset current box → remove its saved count keys; preserve location membership. Hapus Semua Isi Box Aktif confirms the affected part count, warns if a part will lose its last location, then removes that box membership/count through the local upload queue
   ↓
 Each scan/correction → saveDBBatch() for that part → IndexedDB + persistent upload queue (no automatic cloud request)
   ↓
@@ -761,6 +761,7 @@ const QR_PARSERS = {
 - Legacy box: `/^[A-Z][0-9]{0,2}-[0-9]{2,3}$/` (e.g., A-01, A2-01, K-999)
 - New box: `/^[A-Z]-[A-Z][0-9]-[0-9]{2}$/` (e.g., A-A3-01)
 - Buffer stock: `/^[A-Z0-9]+-[A-Z]-[A-Z][0-9]-[0-9]{2}$/` (e.g., BUFFER-E-A1-01); supported by client and server validation
+- Destructive Move/Split, Box-to-box, Multi-Scan, and Opname removal actions require explicit confirmation; buffer boxes and last-location removals show additional warnings
 - OFF BS box: Must start with `RTF` (e.g., RTF-001, RTF-A05)
 
 **Usage in Flows**:

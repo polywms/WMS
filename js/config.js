@@ -21,6 +21,7 @@
  * - QR_PARSERS: Object dengan pattern & extract function per format
  * - Supported formats: standard (baru), sclMGL (lama), scl2025 (legacy), simple (fallback)
  * - Box codes: legacy, standard new, SPARE, and PREFIX-X-XY-YY buffer stock formats
+ * - BUFFER_STOCK_BOX_PATTERN identifies buffer-stock locations for destructive-action warnings
  * - Priority: standard → sclMGL → scl2025 → simple (first match wins)
  * 
  * Side Effects:
@@ -39,6 +40,7 @@ const MAX_QUEUE_SIZE = 500;      // Prevent queue overflow
 const BOX_CODE_PATTERN = /^(?:[A-Z][0-9]{0,2}-[0-9]{2,3}|[A-Z]-[A-Z][0-9]-[0-9]{2}|SPARE-[A-Z][0-9]-[0-9]{2}|[A-Z0-9]+-[A-Z]-[A-Z][0-9]-[0-9]{2})$/;
 const LEGACY_BOX_CODE_PATTERN = /^[A-Z][0-9]{0,2}-[0-9]{2,3}$/;
 const NEW_BOX_CODE_PATTERN = /^(?:[A-Z]-[A-Z][0-9]-[0-9]{2}|SPARE-[A-Z][0-9]-[0-9]{2}|[A-Z0-9]+-[A-Z]-[A-Z][0-9]-[0-9]{2})$/;
+const BUFFER_STOCK_BOX_PATTERN = /^[A-Z0-9]+-[A-Z]-[A-Z][0-9]-[0-9]{2}$/;
 
 function getWmsItemIdentityKey(item) {
     const partNo = String(item.partNo || '').trim().toUpperCase();
