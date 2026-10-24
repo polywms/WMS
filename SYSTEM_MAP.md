@@ -764,6 +764,7 @@ const QR_PARSERS = {
 - OFF BS box: Must start with `RTF` (e.g., RTF-001, RTF-A05)
 
 **Usage in Flows**:
+- core.js:normalizeBoxCode() canonicalizes scan whitespace and Unicode dash variants before box detection; the strict box pattern remains the validity gate
 - core.js:parseQRCode() tries each parser in order
 - First match wins (fallback always matches)
 - Result includes parser metadata for logging

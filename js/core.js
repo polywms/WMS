@@ -17,7 +17,7 @@
  * 
  * Main Functions:
  * - toggleMobileNavigation() â€” Collapse or expand mobile navigation without changing the selected tab
- * - processScan(code) — Route scan per currentTab dan menolak SIMPAN non-SPAREPART BAIK
+ * - processScan(code)/normalizeBoxCode() — Normalize box QR dan route scan per tab
  * - isSparepartBaik(item)/populateFilters() — Terapkan filter awal dan izin lokasi hanya untuk SPAREPART BAIK
  * - switchTab(id) — Enforce User-only Cari and stop SIMPAN modes safely when leaving
  * - toggleMultipleScanMode()/toggleBoxToBoxMode()/updateSimpanModeControls() — Mutually exclusive SIMPAN relocation modes
@@ -89,6 +89,17 @@ function parseQRCode(rawCode) {
         }
     }
     return null; // No match found
+}
+
+function normalizeBoxCode(rawCode) {
+    const normalized = String(rawCode || '')
+        .normalize('NFKC')
+        .replace(/[\u200B-\u200D\uFEFF]/g, '')
+        .replace(/[\u2010-\u2015\u2212\uFE58\uFE63\uFF0D]/g, '-')
+        .replace(/\s*-\s*/g, '-')
+        .trim()
+        .toUpperCase();
+    return BOX_CODE_PATTERN.test(normalized) ? normalized : null;
 }
 
 function isSparepartBaik(item) {
@@ -540,10 +551,11 @@ function processScan(code) {
         return;
     }
     if (!requireAdminAccess('melakukan scan atau mengubah data')) return;
-    let rawCode = code.trim().toUpperCase();
+    let rawCode = String(code || '').trim().toUpperCase();
     let parsedCode = rawCode.includes('|') ? rawCode.split('|')[0].trim() : rawCode;
-
-    const isBox = BOX_CODE_PATTERN.test(rawCode);
+    const normalizedBoxCode = normalizeBoxCode(parsedCode);
+    const isBox = Boolean(normalizedBoxCode);
+    if (isBox) parsedCode = normalizedBoxCode;
 
     // ==========================================
     // LOGIKA TAB PACKING / PENGIRIMAN (BARU)
@@ -783,7 +795,7 @@ if (currentTab === 'packing') {
     }
     
     if (currentTab === 'opname') {
-        handleOpnameScan(rawCode, isBox);
+        handleOpnameScan(isBox ? parsedCode : rawCode, isBox);
         return;
     }
     
