@@ -2,7 +2,7 @@
  * Tujuan: Endpoint Google Apps Script untuk otorisasi sesi Admin, sinkronisasi lokasi/hitungan opname, dan import SYS_QTY.
  * Caller: js/database.js melalui Google Sheets API.
  * Dependensi: SpreadsheetApp, ContentService, sheet DB_MASTER/LOG_SCAN.
- * Main Functions: doGet()/doPost() expose cloud-owned SYS_QTY, normalize LOCATIONS as box membership and positive OPNAME_COUNTS as physical counts, handle stock import, and enforce revision conflicts.
+ * Main Functions: doGet()/doPost() expose cloud-owned SYS_QTY, validate new box destinations including buffer-stock codes, normalize LOCATIONS and OPNAME_COUNTS, handle stock import, and enforce revision conflicts.
  * Side Effects: Membaca/menulis Google Sheets dan mengirim respons HTTP.
  */
 
@@ -777,7 +777,7 @@ function validateLocationDestinations(sheet, incomingItems) {
       : byKey.get(key);
     const existingLocations = existing ? (JSON.parse(existing[6] || "{}")) : {};
     const existingKeys = new Set(Object.keys(existingLocations).map(box => String(box).trim().toUpperCase()));
-    const validBoxPattern = /^(?:[A-Z]-[A-Z][0-9]-[0-9]{2}|SPARE-[A-Z][0-9]-[0-9]{2})$/;
+    const validBoxPattern = /^(?:[A-Z]-[A-Z][0-9]-[0-9]{2}|SPARE-[A-Z][0-9]-[0-9]{2}|[A-Z0-9]+-[A-Z]-[A-Z][0-9]-[0-9]{2})$/;
     const invalidDestination = Object.keys(item.locations || {}).find(box => {
       const normalized = String(box).trim().toUpperCase();
       return !existingKeys.has(normalized) && !validBoxPattern.test(normalized);

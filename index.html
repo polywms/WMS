@@ -2,7 +2,7 @@
     Tujuan: Entry point UI untuk workflow WMS Magelang.
     Caller: Browser/PWA shell; event handlers diteruskan ke main.js dan core.js.
     Dependensi: css/style.css, Font Awesome, dan modul JavaScript di js/.
-    Main Functions: Menyediakan role gate Admin/User, navigasi mobile collapsible, Cari, SIMPAN/OPNAME dengan filter statistik tabel/rak dan aksi box, pilihan sinkronisasi terpisah, impor/ekspor, dan resolusi konflik data.
+    Main Functions: Menyediakan role gate Admin/User, navigasi mobile collapsible, Cari, SIMPAN/OPNAME dengan filter statistik, edit opname dengan mode keyboard dan salin nomor part, pilihan sinkronisasi, impor/ekspor, dan resolusi konflik data.
     Side Effects: Mengubah DOM, memicu scan, penyimpanan lokal, dan sinkronisasi cloud melalui handler.
 -->
 <!-- WMS Magelang - Entry point UI -->
@@ -584,7 +584,10 @@
                     <h3>Edit Data Part</h3>
                     <button class="icon-only" onclick="document.getElementById('editModal').style.display='none'" style="border:none; background:none; font-size:1.2rem;"><i class="fas fa-times"></i></button>
                 </div>
-                <h4 id="editPartTitle" style="color:var(--primary); margin:0; margin-bottom:10px;"></h4>
+                <div style="display:flex; align-items:center; gap:6px; margin-bottom:10px;">
+                    <h4 id="editPartTitle" style="color:var(--primary); margin:0; flex:1; overflow-wrap:anywhere;"></h4>
+                    <button type="button" class="icon-only" onclick="copyEditPartNo()" title="Salin nomor part" aria-label="Salin nomor part" style="width:30px; height:30px; flex:0 0 30px;"><i class="fas fa-copy" aria-hidden="true"></i></button>
+                </div>
                 
                 <div style="background:#f0fdf4; padding:10px; border-radius:6px; margin-bottom:12px; border:1px solid #86efac;">
                     <label style="font-size:0.8rem; font-weight:bold; color:#166534; display:block; margin-bottom:6px;"><i class="fas fa-calendar"></i> Tanggal Opname Terakhir:</label>

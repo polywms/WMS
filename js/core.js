@@ -33,6 +33,7 @@
  * - setOpnameFilter()/openRakModal() — Filter the Opname list by count status and populated rack/column/level
  * - getOpnameTotalCount(item) — Sum physical counts across the item's assigned boxes
  * - saveManualEdit() — Edit the active box's physical count without changing locations
+ * - openEditModal()/copyEditPartNo() — Edit a part and copy its part number; Opname opens keyboard mode
  * - removeOpnamePartFromActiveBox() — Remove a part from only the active OPNAME box
  * - updateActivePartPanel(item) — Display part detail (location-only view)
  * - selectPartSimpan(item) — Select part dari list
@@ -151,17 +152,20 @@ function handleInputKeyDown(e) {
     }
 }
 
-function toggleKeyboardMode() {
+function toggleKeyboardMode(focusInput = true) {
     const chk = document.getElementById('chkManualType');
     const input = document.getElementById('mainInput');
+    const icon = document.getElementById('kbdIcon');
     if(chk.checked) {
         input.setAttribute('inputmode', 'text');
         input.placeholder = "Ketik Manual...";
+        if (icon) Object.assign(icon.style, { background: 'var(--active-color)', color: 'white', borderColor: 'var(--active-color)' });
     } else {
         input.setAttribute('inputmode', 'none');
         input.placeholder = "Scan Part / Box...";
+        if (icon) Object.assign(icon.style, { background: 'white', color: 'var(--secondary)', borderColor: '#cbd5e1' });
     }
-    input.focus();
+    if (focusInput) input.focus();
 }
 
 function toggleMultiMode() {
@@ -1987,6 +1991,11 @@ function jumpToItem(partNo) {
 function openEditModal(id) {
     if (!requireAdminAccess('mengedit data part')) return;
     editId = id; const item = localItems.find(i=>i.id===id); if(!item) return; document.getElementById('editModal').style.display='flex'; document.getElementById('editPartTitle').innerText = item.partNo;
+    if (currentTab === 'opname') {
+        const keyboardMode = document.getElementById('chkManualType');
+        keyboardMode.checked = true;
+        toggleKeyboardMode(false);
+    }
     
     // Auto-set lastOpnameDate ONLY if from OPNAME tab
     const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
@@ -2038,6 +2047,39 @@ function openEditModal(id) {
         removeButton.innerHTML = '<i class="fas fa-trash-alt" aria-hidden="true"></i> Hapus dari Box Aktif';
         removeButton.addEventListener('click', () => removeOpnamePartFromActiveBox(item.id, activeBox));
         deleteContainer.appendChild(removeButton);
+    }
+}
+
+async function copyEditPartNo() {
+    const item = localItems.find(candidate => candidate.id === editId);
+    if (!item?.partNo) return;
+    let copied = false;
+    try {
+        if (navigator.clipboard?.writeText) {
+            await navigator.clipboard.writeText(String(item.partNo));
+            copied = true;
+        }
+    } catch (error) {
+        console.warn('Clipboard API gagal, mencoba fallback:', error);
+    }
+    if (!copied) {
+        const input = document.createElement('textarea');
+        input.value = String(item.partNo);
+        input.setAttribute('readonly', '');
+        input.style.position = 'fixed';
+        input.style.opacity = '0';
+        document.body.appendChild(input);
+        input.select();
+        try {
+            copied = document.execCommand('copy');
+        } finally {
+            input.remove();
+        }
+    }
+    if (copied) showToast(`Nomor part ${item.partNo} disalin.`);
+    else {
+        feedback('error');
+        showToast('Gagal menyalin nomor part.');
     }
 }
 

@@ -75,6 +75,8 @@ User opens sync dialog → Upload to server [database.js] — POST queued record
 ```
 Scan box → handleOpnameScan() → setOpnameBoxFilter()
   ↓
+Box QR `PREFIX-X-XY-YY` (contoh `BUFFER-E-A1-01`) dikenali sebagai box opname
+  ↓
 Batasi daftar dan scan part ke `LOC_TYPE` SPAREPART BAIK
   ↓
 handleOpnameRender() — Show parts registered in active box; badge X is the sum of positive `opnameCounts` across assigned boxes and Y is `SYS_QTY`
@@ -758,6 +760,7 @@ const QR_PARSERS = {
 **Box Pattern Detection** (`BOX_CODE_PATTERN` in config.js):
 - Legacy box: `/^[A-Z][0-9]{0,2}-[0-9]{2,3}$/` (e.g., A-01, A2-01, K-999)
 - New box: `/^[A-Z]-[A-Z][0-9]-[0-9]{2}$/` (e.g., A-A3-01)
+- Buffer stock: `/^[A-Z0-9]+-[A-Z]-[A-Z][0-9]-[0-9]{2}$/` (e.g., BUFFER-E-A1-01); supported by client and server validation
 - OFF BS box: Must start with `RTF` (e.g., RTF-001, RTF-A05)
 
 **Usage in Flows**:
