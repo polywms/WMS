@@ -79,14 +79,14 @@ Box QR (contoh `BUFFER-E-A1-01`) or rack-level QR `B-B1` / alias `B-B-1` is reco
   ↓
 Batasi daftar dan scan part ke `LOC_TYPE` SPAREPART BAIK
   ↓
-handleOpnameRender() — Show all registered parts at the active location; rack scans render a unique-part count and collapsible child-box lists
+handleOpnameRender() — Show all registered parts at the active location; rack scans render a unique-part count and alphabetically sorted child-box groups with per-group difference/uncounted summaries; only one group can be open at a time
   ↓
 Scan part QR → handleOpnameScan() — Reject parts not registered directly or in a child box of the active rack
   ↓
 Each box/rack remains membership-only in `locations`; the active box or rack aggregate is stored in `item.opnameCounts[target]`
   (a missing count is uncounted and displays as `-/SYS_QTY`)
   ↓
-Each scan reads saved target count, adds 1, and persists immediately; rack counts aggregate any prior child-box counts and replace those child counts after the first rack-level scan
+Each scan reads saved target count, adds 1, and persists immediately; badge count sums physical counts across locations while an uncounted location contributes no physical count; rack counts aggregate any prior child-box counts and replace those child counts after the first rack-level scan
   ↓
 The browser serializes scan writes; a failed write leaves the old X unchanged and reports an error
   ↓
@@ -372,10 +372,10 @@ WMS/
 - `confirmBoxToBoxYesToAll()` — Gabungkan semua part saat ini dan aktifkan auto-approval sampai mode dimatikan
 - `updateBoxToBoxIndicator()` — Render box sumber/tujuan dengan status validasi tujuan
 - `checkSimpanConflict(item, newBox)` — Prompt move/split decision
-- `handleOpnameRender()` / `setOpnameFilter()` — Filter Opname by final comparison/count status; rack scans group registered parts under collapsible box lists
+- `handleOpnameRender()` / `setOpnameFilter()` — Filter Opname by final comparison/count status; rack scans show naturally sorted box groups with per-group difference/uncounted totals, and only one group opens at a time
 - `openRakModal()` / `renderRakSummary()` — List populated racks and summarize OK, selisih, belum, and counted pcs by location
 - `getOpnameBufferQty(itemId, item)` — Read the active box/rack aggregate, including prior child-box counts before rack-level counting starts
-- `getOpnameTotalCount(item)` — Sum persisted counts; rack aggregate replaces child-box counts
+- `getOpnameTotalCount(item)` — Sum persisted physical counts across locations without double-counting rack aggregates; the active-box badge still includes counts from other boxes
 - `saveManualEdit()` — Edit the active box/rack physical Opname count without changing locations
 - `removeOpnamePartFromActiveBox()` — Remove a part and its count from only the active OPNAME box through the local upload queue
 - `resetCurrentBoxOpname()` — Remove saved count keys for active box/rack without changing membership

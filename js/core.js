@@ -25,7 +25,7 @@
  * - updateBoxToBoxIndicator() — Render box asal/tujuan; pertahankan pasangan valid sampai scan box berikutnya
  * - getBoxToBoxItems() — Temukan part sumber berdasarkan kode box yang dinormalisasi
  * - confirmBoxToBoxYesToAll() — Setujui semua part dan lewati konfirmasi hingga mode B2B dimatikan
- * - handleOpnameScan()/handleOpnameRender() — OPNAME per box/rak, collapsible rack listing, and comparison after all locations are counted
+ * - handleOpnameScan()/handleOpnameRender() — OPNAME per box/rak, single-open rack groups, and comparison after all locations are counted
  * - handleOpnameScan() — Reject part scans that do not belong to the active box
  * - getOpnameBufferQty(itemId, item) — Read the latest saved cumulative count for the active box
  * - resetCurrentBoxOpname()/clearCurrentBoxOpnameContents() — Reset counts or remove active-box membership
@@ -1441,13 +1441,16 @@ function getOpnameBufferQty(itemId, item = null) {
     return 0;
 }
 
-function getOpnameTotalCount(item, targetOverride = null) {
-    const activeTarget = targetOverride || activeBoxFilter;
+function getOpnameTotalCount(item) {
     const counts = item?.opnameCounts || {};
-    const rackHasAggregate = isWmsOpnameRackCode(activeTarget)
-        && Object.prototype.hasOwnProperty.call(counts, activeTarget);
     return Object.entries(counts).reduce((total, [box, count]) => {
-        if (rackHasAggregate && String(box).toUpperCase().startsWith(`${activeTarget.toUpperCase()}-`)) return total;
+        const normalizedBox = String(box).toUpperCase();
+        const coveredByRackAggregate = Object.keys(counts).some(rack => (
+            isWmsOpnameRackCode(rack)
+            && Object.prototype.hasOwnProperty.call(counts, rack)
+            && normalizedBox.startsWith(`${String(rack).toUpperCase()}-`)
+        ));
+        if (coveredByRackAggregate) return total;
         const numericCount = Number(count);
         return Number.isInteger(numericCount) && numericCount > 0 ? total + numericCount : total;
     }, 0);
@@ -1693,15 +1696,18 @@ function getOpnameLocationBoxKeys(item) {
 }
 
 function getOpnameDisplayCount(item) {
-    if (activeBoxFilter && opnameTargetMatchesItem(activeBoxFilter, item)) {
-        return getOpnameBufferQty(item.id, item);
-    }
+    if (activeBoxFilter) return getOpnameTotalCount(item);
     if (!hasOpnameLocationFilter()) return getOpnameTotalCount(item);
-    return getOpnameLocationBoxKeys(item).reduce((total, box) => {
-        const count = box === activeBoxFilter
-            ? getOpnameBufferQty(item.id, item)
-            : Number(item.opnameCounts?.[box]) || 0;
-        return total + Math.max(0, count);
+    const filteredLocations = new Set(getOpnameLocationBoxKeys(item));
+    return Object.entries(item?.opnameCounts || {}).reduce((total, [target, count]) => {
+        const coveredLocations = target === activeBoxFilter
+            ? [target]
+            : isWmsOpnameRackCode(target)
+                ? Array.from(filteredLocations).filter(location => String(location).toUpperCase().startsWith(`${target.toUpperCase()}-`))
+                : [target];
+        if (!coveredLocations.some(location => filteredLocations.has(location))) return total;
+        const numericCount = Number(count);
+        return total + (Number.isInteger(numericCount) && numericCount > 0 ? numericCount : 0);
     }, 0);
 }
 
@@ -1833,13 +1839,25 @@ function handleOpnameRender(reset = true) {
             });
         });
         let groupIndex = 0;
-        groups.forEach((items, location) => {
+        const sortedGroups = Array.from(groups.entries()).sort(([left], [right]) => (
+            left.localeCompare(right, undefined, { numeric: true, sensitivity: 'base' })
+        ));
+        sortedGroups.forEach(([location, items]) => {
             const details = document.createElement('details');
             details.className = 'opname-rack-group';
+            details.addEventListener('toggle', () => {
+                if (!details.open) return;
+                container.querySelectorAll('.opname-rack-group[open]').forEach(openGroup => {
+                    if (openGroup !== details) openGroup.open = false;
+                });
+            });
             const summaryEl = document.createElement('summary');
+            const comparisons = Array.from(items.values(), getOpnameComparison);
+            const differences = comparisons.filter(comparison => comparison === 'diff').length;
+            const uncounted = comparisons.filter(comparison => comparison === 'pending').length;
             summaryEl.textContent = location === activeBoxFilter
-                ? `Lokasi langsung ${location} • ${items.size} part`
-                : `${location} • ${items.size} part`;
+                ? `Lokasi langsung ${location} | ${items.size} part | ${differences} selisih | ${uncounted} belum`
+                : `${location} | ${items.size} part | ${differences} selisih | ${uncounted} belum`;
             details.appendChild(summaryEl);
             items.forEach(item => {
                 details.appendChild(createOpnameItemCard(item, `${groupIndex++}`, pendingIds));
@@ -2802,7 +2820,7 @@ async function addToOpnameBuffer(item, confirmedOverTarget = false) {
     }
     const currentQty = getOpnameBufferQty(item.id, item);
     const nextQty = currentQty + 1;
-    const nextTotalQty = getOpnameTotalCount(item, box) + 1;
+    const nextTotalQty = getOpnameTotalCount(item) + 1;
     const targetQty = getOpnameTargetQty(item);
 
     if (nextTotalQty > targetQty && !confirmedOverTarget) {
