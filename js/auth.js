@@ -2,12 +2,13 @@
  * Tujuan: Mengatur sesi Admin/User, tampilan sesuai role, refresh baca User, dan request API terotorisasi.
  * Caller: main.js, core.js, database.js, excel.js, dan event handler role di index.html.
  * Dependensi: config.js (API_URL), Apps Script role endpoint, dan localStorage.
- * Main Functions: authenticateAdmin(), chooseUserRole(), initializeRoleSession(), applyRoleUi() keeps the session exit icon-only, endRoleSession(), requireAdminAccess(), postWmsAction().
+ * Main Functions: authenticateAdmin(), chooseUserRole(), initializeRoleSession(), applyRoleUi() hides disabled navigation tabs and keeps the session exit icon-only, endRoleSession(), requireAdminAccess(), postWmsAction().
  * Side Effects: Membaca/menulis sesi lokal dan mengirim request autentikasi/API.
  */
 
 const ADMIN_SESSION_KEY = 'wms_admin_session';
 const USER_ROLE_KEY = 'wms_selected_role';
+const TEMPORARILY_HIDDEN_TABS = new Set(['offbs', 'packing']);
 let currentRole = null;
 let adminSession = null;
 
@@ -80,7 +81,9 @@ function applyRoleUi() {
     document.body.classList.toggle('role-admin', currentRole === 'admin');
 
     document.querySelectorAll('.bottom-nav .nav-item').forEach(button => {
-        button.hidden = !currentRole || (isUser && button.dataset.tab !== 'data');
+        button.hidden = !currentRole
+            || TEMPORARILY_HIDDEN_TABS.has(button.dataset.tab)
+            || (isUser && button.dataset.tab !== 'data');
     });
     const dataTabButton = document.querySelector('.bottom-nav .nav-item[data-tab="data"] span');
     if (dataTabButton) dataTabButton.textContent = isUser ? 'CARI' : 'DATA';

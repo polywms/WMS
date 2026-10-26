@@ -79,14 +79,14 @@ Box QR (contoh `BUFFER-E-A1-01`) or rack-level QR `B-B1` / alias `B-B-1` is reco
   ↓
 Batasi daftar dan scan part ke `LOC_TYPE` SPAREPART BAIK
   ↓
-handleOpnameRender() — Show all registered parts at the active location; rack scans render a unique-part count and alphabetically sorted child-box groups with per-group difference/uncounted summaries; only one group can be open at a time
+handleOpnameRender() — Show all registered parts at the active location; rack scans render sorted child-box groups with three-line item/status/physical-count summaries; only one group can be open at a time
   ↓
 Scan part QR → handleOpnameScan() — Reject parts not registered directly or in a child box of the active rack
   ↓
 Each box/rack remains membership-only in `locations`; the active box or rack aggregate is stored in `item.opnameCounts[target]`
   (a missing count is uncounted and displays as `-/SYS_QTY`)
   ↓
-Each scan reads saved target count, adds 1, and persists immediately; badge count sums physical counts across locations while an uncounted location contributes no physical count; rack counts aggregate any prior child-box counts and replace those child counts after the first rack-level scan
+Each scan reads saved target count, adds 1, and persists immediately; badge count sums physical counts across locations and uses gray for uncounted, green for exact match, and light red for a partial/different total; rack counts aggregate any prior child-box counts and replace those child counts after the first rack-level scan
   ↓
 The browser serializes scan writes; a failed write leaves the old X unchanged and reports an error
   ↓
@@ -510,6 +510,7 @@ WMS/
 4. **SETTING** — Application settings
 5. **OFF BS** — Temporarily disabled
 6. **PACKING** — Temporarily disabled
+- On mobile bottom navigation, OFF BS and PACKING stay hidden; SIMPAN, OPNAME, and DATA receive more width than SETTING.
 
 **Key Modals**:
 - Camera Scanner (Html5QrcodeScanner)

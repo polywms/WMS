@@ -662,6 +662,7 @@
             .qty-diff { background: linear-gradient(135deg, #fecaca, #f87171); color: #7f1d1d; }
             .qty-zero { background: linear-gradient(135deg, #f3f4f6, #e5e7eb); color: #64748b; }
             .qty-uncounted { background: var(--bg); color: var(--text-secondary); border:1.5px dashed var(--border); }
+            .qty-partial { background: #fee2e2; color: #991b1b; }
             .qty-pending { background: #fef9c3; color: #854d0e; border: 1px solid #facc15; margin-left: 4px; }
             .opname-box-panel {
                 background: #f0fdf4;
@@ -1085,6 +1086,10 @@
             background: var(--bg);
             color: var(--text-secondary); 
             border: 1.5px dashed var(--border);
+            }
+            .qty-partial {
+            background: #fee2e2;
+            color: #991b1b;
             }
 
             /* Location badge enhancement */
@@ -1757,6 +1762,10 @@
             background: var(--bg-secondary);
             border-color: var(--border);
             color: var(--text-secondary);
+            }
+            body.dark-mode .qty-partial {
+            background: rgba(239, 68, 68, 0.18);
+            color: #fca5a5;
             }
             body.dark-mode .qty-pending {
             background: rgba(250, 204, 21, 0.2);
@@ -2673,8 +2682,44 @@
             .opname-rack-group > summary {
                 padding: 10px 12px;
                 color: var(--text);
-                font-weight: 700;
+                font-weight: 400;
                 cursor: pointer;
+            }
+
+            .opname-rack-group-title,
+            .opname-rack-group-status,
+            .opname-rack-group-physical {
+                display: block;
+            }
+
+            .opname-rack-group-title {
+                font-weight: 700;
+            }
+
+            .opname-rack-group-status {
+                font-weight: 400;
+            }
+
+            .opname-rack-group-physical {
+                margin-top: 2px;
+                font-size: 0.75rem;
+                font-weight: 400;
+            }
+
+            .opname-rack-physical-current {
+                color: #15803d;
+            }
+
+            .opname-rack-physical-other {
+                color: #111827;
+            }
+
+            body.dark-mode .opname-rack-physical-current {
+                color: #4ade80;
+            }
+
+            body.dark-mode .opname-rack-physical-other {
+                color: var(--text);
             }
 
             .opname-rack-group[open] > summary {
@@ -2854,6 +2899,16 @@
                 .bottom-nav .nav-item {
                     min-height: 50px;
                     font-size: 0.64rem;
+                }
+
+                .bottom-nav .nav-item[data-tab="simpan"],
+                .bottom-nav .nav-item[data-tab="opname"],
+                .bottom-nav .nav-item[data-tab="data"] {
+                    flex-grow: 1.25;
+                }
+
+                .bottom-nav .nav-item[data-tab="settings"] {
+                    flex-grow: 0.75;
                 }
 
                 .bottom-nav .nav-item i {

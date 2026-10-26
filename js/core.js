@@ -25,7 +25,7 @@
  * - updateBoxToBoxIndicator() — Render box asal/tujuan; pertahankan pasangan valid sampai scan box berikutnya
  * - getBoxToBoxItems() — Temukan part sumber berdasarkan kode box yang dinormalisasi
  * - confirmBoxToBoxYesToAll() — Setujui semua part dan lewati konfirmasi hingga mode B2B dimatikan
- * - handleOpnameScan()/handleOpnameRender() — OPNAME per box/rak, single-open rack groups, and comparison after all locations are counted
+ * - handleOpnameScan()/handleOpnameRender() — OPNAME per box/rak, grouped physical summaries, and comparison after all locations are counted
  * - handleOpnameScan() — Reject part scans that do not belong to the active box
  * - getOpnameBufferQty(itemId, item) — Read the latest saved cumulative count for the active box
  * - resetCurrentBoxOpname()/clearCurrentBoxOpnameContents() — Reset counts or remove active-box membership
@@ -1456,6 +1456,21 @@ function getOpnameTotalCount(item) {
     }, 0);
 }
 
+function getOpnamePhysicalCountsByLocation(item) {
+    const counts = item?.opnameCounts || {};
+    return Object.entries(counts).reduce((totals, [location, value]) => {
+        const normalizedLocation = String(location).toUpperCase();
+        const coveredByRackAggregate = Object.keys(counts).some(rack => (
+            isWmsOpnameRackCode(rack)
+            && normalizedLocation.startsWith(`${String(rack).toUpperCase()}-`)
+        ));
+        const numericCount = Number(value);
+        if (coveredByRackAggregate || !Number.isInteger(numericCount) || numericCount <= 0) return totals;
+        totals.set(location, (totals.get(location) || 0) + numericCount);
+        return totals;
+    }, new Map());
+}
+
 function opnameTargetMatchesItem(target, item) {
     const normalizedTarget = String(target || '').trim().toUpperCase();
     return Boolean(normalizedTarget) && Object.keys(item?.locations || {}).some(location => {
@@ -1853,11 +1868,47 @@ function handleOpnameRender(reset = true) {
             });
             const summaryEl = document.createElement('summary');
             const comparisons = Array.from(items.values(), getOpnameComparison);
+            const matches = comparisons.filter(comparison => comparison === 'match').length;
             const differences = comparisons.filter(comparison => comparison === 'diff').length;
             const uncounted = comparisons.filter(comparison => comparison === 'pending').length;
-            summaryEl.textContent = location === activeBoxFilter
-                ? `Lokasi langsung ${location} | ${items.size} part | ${differences} selisih | ${uncounted} belum`
-                : `${location} | ${items.size} part | ${differences} selisih | ${uncounted} belum`;
+            const titleLine = document.createElement('span');
+            titleLine.className = 'opname-rack-group-title';
+            titleLine.textContent = location === activeBoxFilter
+                ? `Lokasi langsung ${location} | ${items.size} item`
+                : `${location} | ${items.size} item`;
+            const statusLine = document.createElement('span');
+            statusLine.className = 'opname-rack-group-status';
+            statusLine.textContent = `${matches} OK | ${differences} Selisih | ${uncounted} Belum`;
+            const physicalLine = document.createElement('span');
+            physicalLine.className = 'opname-rack-group-physical';
+            const physicalLabel = document.createElement('span');
+            physicalLabel.textContent = 'Fisik: ';
+            physicalLine.appendChild(physicalLabel);
+            const physicalCounts = new Map();
+            items.forEach(item => {
+                getOpnamePhysicalCountsByLocation(item).forEach((count, physicalLocation) => {
+                    physicalCounts.set(physicalLocation, (physicalCounts.get(physicalLocation) || 0) + count);
+                });
+            });
+            const sortedPhysicalCounts = Array.from(physicalCounts.entries()).sort(([left], [right]) => (
+                left.localeCompare(right, undefined, { numeric: true, sensitivity: 'base' })
+            ));
+            if (sortedPhysicalCounts.length === 0) {
+                const emptyPhysical = document.createElement('span');
+                emptyPhysical.textContent = '-';
+                physicalLine.appendChild(emptyPhysical);
+            } else {
+                sortedPhysicalCounts.forEach(([physicalLocation, count], index) => {
+                    if (index > 0) physicalLine.append(' | ');
+                    const locationCount = document.createElement('span');
+                    locationCount.className = physicalLocation === location
+                        ? 'opname-rack-physical-current'
+                        : 'opname-rack-physical-other';
+                    locationCount.textContent = `Lokasi ${physicalLocation} ${count}`;
+                    physicalLine.appendChild(locationCount);
+                });
+            }
+            summaryEl.append(titleLine, statusLine, physicalLine);
             details.appendChild(summaryEl);
             items.forEach(item => {
                 details.appendChild(createOpnameItemCard(item, `${groupIndex++}`, pendingIds));
@@ -1874,9 +1925,9 @@ function handleOpnameRender(reset = true) {
 
 function createOpnameItemCard(item, index, pendingIds) {
     const counted = getOpnameDisplayCount(item);
-    const comparison = getOpnameComparison(item);
-    const badgeClass = comparison === 'match' ? 'qty-match' : comparison === 'diff' ? 'qty-diff' : 'qty-uncounted';
-    const targetDisplay = String(getOpnameTargetQty(item));
+    const targetQty = getOpnameTargetQty(item);
+    const badgeClass = counted === 0 ? 'qty-uncounted' : counted === targetQty ? 'qty-match' : 'qty-partial';
+    const targetDisplay = String(targetQty);
     const pending = pendingIds.has(String(item.id));
     const card = document.createElement('div');
     card.className = `item-card ${lastOpnameScanId === item.id ? 'selected' : ''}`;
