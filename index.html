@@ -2,7 +2,7 @@
     Tujuan: Entry point UI untuk workflow WMS Magelang.
     Caller: Browser/PWA shell; event handlers diteruskan ke main.js dan core.js.
     Dependensi: css/style.css, Font Awesome, dan modul JavaScript di js/.
-    Main Functions: Menyediakan role gate Admin/User, navigasi mobile collapsible, Cari, SIMPAN/OPNAME dengan filter statistik, edit opname dengan mode keyboard dan salin nomor part, pilihan sinkronisasi, impor/ekspor, dan resolusi konflik data.
+    Main Functions: Menyediakan role gate Admin/User, navigasi mobile collapsible, Cari, SIMPAN/OPNAME per box/rak dengan daftar rak collapsible dan penyelesaian lokasi, edit opname dengan mode keyboard dan salin nomor part, pilihan sinkronisasi, impor/ekspor, dan resolusi konflik data.
     Side Effects: Mengubah DOM, memicu scan, penyimpanan lokal, dan sinkronisasi cloud melalui handler.
 -->
 <!-- WMS Magelang - Entry point UI -->
@@ -261,8 +261,8 @@
             <div id="tab-opname" class="tab-content">
                 <div id="opnameIdleHint" class="info-mode-panel" style="display:block;">
                     <i class="fas fa-box-open" style="font-size:2rem; color:#16a34a; margin-bottom:10px;"></i>
-                    <h3 style="margin:0 0 6px 0;">Scan box dulu</h3>
-                    <p style="color:var(--secondary); font-size:0.9rem; margin:0;">Scan box → scan part. Tiap scan tersimpan di perangkat; upload ke cloud tetap manual.</p>
+                    <h3 style="margin:0 0 6px 0;">Scan box atau tingkat rak dulu</h3>
+                    <p style="color:var(--secondary); font-size:0.9rem; margin:0;">Scan lokasi → scan part. Tiap scan tersimpan di perangkat; upload ke cloud tetap manual.</p>
                 </div>
                 <div id="activeBoxPanel" class="status-panel opname-box-panel" style="display:none;">
                     <div class="opname-box-identity">
@@ -290,8 +290,9 @@
                             </tbody>
                         </table>
                         <div class="opname-box-actions">
-                            <button type="button" class="btn-sm btn-outline" onclick="resetCurrentBoxOpname()" title="Ulangi hitungan box aktif" aria-label="Ulangi hitungan box aktif"><i class="fas fa-undo" aria-hidden="true"></i></button>
-                            <button type="button" class="btn-sm btn-danger" onclick="clearCurrentBoxOpnameContents()" title="Hapus semua part dari box aktif" aria-label="Hapus semua part dari box aktif"><i class="fas fa-trash-can" aria-hidden="true"></i></button>
+                            <button type="button" class="btn-sm btn-outline" onclick="resetCurrentBoxOpname()" title="Ulangi hitungan lokasi aktif" aria-label="Ulangi hitungan lokasi aktif"><i class="fas fa-undo" aria-hidden="true"></i></button>
+                            <button type="button" class="btn-sm btn-success" id="opnameCompletionButton" onclick="toggleActiveOpnameCompletion()" title="Tutup lokasi dan tetapkan part yang belum discan sebagai 0"><i class="fas fa-check" aria-hidden="true"></i> Selesaikan lokasi</button>
+                            <button type="button" class="btn-sm btn-danger" id="clearCurrentBoxOpnameButton" onclick="clearCurrentBoxOpnameContents()" title="Hapus semua part dari box aktif" aria-label="Hapus semua part dari box aktif"><i class="fas fa-trash-can" aria-hidden="true"></i></button>
                         </div>
                     </div>
                 </div>
@@ -301,7 +302,7 @@
                         <button class="btn-sm btn-outline" onclick="clearOpnameBuffer()" title="Bersihkan daftar scan terbaru, hitungan tetap tersimpan">Bersihkan</button>
                     </div>
                     <div id="opnameBufferTagsContainer" class="opname-buffer-tags"></div>
-                    <div class="opname-buffer-hint"><i class="fas fa-check"></i> Tiap scan tersimpan di perangkat; X berikutnya melanjutkan jumlah ini</div>
+                    <div class="opname-buffer-hint"><i class="fas fa-check"></i> Tiap scan tersimpan di perangkat; hitungan lokasi aktif berlanjut dari hasil sebelumnya</div>
                 </div>
                 <div id="opnameInfoPanel" class="info-mode-panel">
                     <i class="fas fa-search" style="font-size:2rem; color:#f97316; margin-bottom:10px;"></i>
@@ -311,7 +312,7 @@
                         <small>Lokasi saat ini:</small>
                         <div id="infoLocList" style="font-weight:bold;">-</div>
                     </div>
-                    <div style="color:#c2410c; font-weight:bold;"><i class="fas fa-arrow-right"></i> SCAN BOX UNTUK MULAI HITUNG</div>
+                    <div style="color:#c2410c; font-weight:bold;"><i class="fas fa-arrow-right"></i> SCAN BOX / TINGKAT UNTUK MULAI HITUNG</div>
                 </div>
                 <div class="opname-list-tools">
                     <button type="button" class="btn-sm btn-outline" onclick="openRakModal()"><i class="fas fa-chart-pie" aria-hidden="true"></i> Filter Rak / Kolom / Tingkat</button>

@@ -2,7 +2,7 @@
  * Tujuan: Import, export, backup, dan restore data WMS melalui file Excel/JSON.
  * Caller: Tombol data/settings di index.html.
  * Dependensi: SheetJS, database.js (IndexedDB/sync), dan UI utilities.
- * Main Functions: handleImport() refreshes stock qty, preserves pending edits/revisions, and reconciles server IDs; exportData() exports comma-separated locations and total Opname counts; backupJson() exports data; restoreJson() and import harga.
+ * Main Functions: handleImport() refreshes stock qty, preserves pending edits/revisions, and reconciles server IDs; exportData() exports comma-separated locations and total Opname counts; backupJson() includes locations, counts, and completion markers; restoreJson() restores harga only.
  * Side Effects: Membaca file, menulis IndexedDB/cloud dan waktu upload ke localStorage, mengunduh file, dan reload aplikasi.
  */
 
@@ -249,7 +249,7 @@ function exportData() {
             'Qty Sistem': item.sysQty || 0,
             'Lokasi': locations.join(', '),
             'Qty Hitung': locations.length
-                ? locations.reduce((total, location) => total + (Number(item.opnameCounts?.[location]) || 0), 0)
+                ? Object.values(item.opnameCounts || {}).reduce((total, count) => total + (Number(count) || 0), 0)
                 : '',
             'Harga': item.harga || 0
         });
@@ -263,7 +263,7 @@ function exportData() {
             'Part Number': item.partNo,
             'Lokasi Ditemukan': locations.join(', '),
             'Qty Ditemukan': locations.length
-                ? locations.reduce((total, location) => total + (Number(item.opnameCounts?.[location]) || 0), 0)
+                ? Object.values(item.opnameCounts || {}).reduce((total, count) => total + (Number(count) || 0), 0)
                 : '',
             'Harga': item.harga || 0,
             'Tanggal Ditemukan': item.lastOpnameDate || '-'
@@ -373,7 +373,7 @@ function exportLabelReport() {
 function backupJson() {
     if (!requireAdminAccess('membuat backup lokasi')) return;
     showLoading("<i class='fas fa-save'></i> Backup JSON", "Mempersiapkan file...");
-    const b = new Blob([JSON.stringify(localItems.map(i => ({ partNo: i.partNo, locations: i.locations, opnameCounts: i.opnameCounts || {}, harga: i.harga || 0 })))], {type:'application/json'});
+    const b = new Blob([JSON.stringify(localItems.map(i => ({ partNo: i.partNo, locations: i.locations, opnameCounts: i.opnameCounts || {}, opnameCompleted: i.opnameCompleted || {}, harga: i.harga || 0 })))], {type:'application/json'});
     const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = `Mapping_Lokasi_${new Date().toISOString().slice(0,10)}.json`; a.click();
     setTimeout(hideLoading, 500);
 }

@@ -9,10 +9,10 @@
  * Global State Variables (persisted ke localStorage):
  * - simpanMode: 'single' | 'multiple' — Toggle SINGLE vs MULTIPLE scan mode di SIMPAN tab
  * - multiScanBuffer: Array<{item, scannedTime}> — Buffer SIMPAN dipersist ke localStorage agar tidak hilang saat reload
- * - opnameBuffer/opnameBufferBox/opnameBufferCommitted — Hitungan fisik per box dan status simpan sesi
+ * - opnameBuffer/opnameBufferBox/opnameBufferCommitted — Hitungan fisik per box/rak dan status simpan sesi
  * - currentTab: String — Active tab ID (simpan, opname, data, off-bs, packing)
  * - filteredItems: Array<Item> — Filtered items list untuk render
- * - locations are box membership maps; physical quantities belong in opnameCounts
+ * - locations store box/rack membership; opnameCounts and opnameCompleted store physical counts and completed-target markers
  * - boxToBoxYesToAll: Boolean — Persetujuan otomatis box-to-box hingga mode dimatikan
  * - Sync: IndexedDB outbox and server revisions; manual batch upload, no automatic retry timer
  * - Item identity and legacy-box classification shared by import, scan, and sync paths
@@ -20,7 +20,7 @@
  * QR Parser Config:
  * - QR_PARSERS: Object dengan pattern & extract function per format
  * - Supported formats: standard (baru), sclMGL (lama), scl2025 (legacy), simple (fallback)
- * - Box codes: legacy, standard new, SPARE, and PREFIX-X-XY-YY buffer stock formats
+ * - Box codes: legacy, standard new, SPARE, and PREFIX-X-XY-YY buffer stock; rack-level targets are recognized separately in SIMPAN/OPNAME
  * - BUFFER_STOCK_BOX_PATTERN identifies buffer-stock locations for destructive-action warnings
  * - Priority: standard → sclMGL → scl2025 → simple (first match wins)
  * 

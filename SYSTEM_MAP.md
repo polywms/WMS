@@ -58,7 +58,7 @@ filteredItems.find() — Match part; pastikan LOC_TYPE = SPAREPART BAIK
   ↓
 selectPartSimpan(item) [core.js] — Select active part
   ↓
-User Scan Box / Input Location
+User Scan Box or rack-level location / Input Location
   ↓
 checkSimpanConflict() [core.js] — Validate move/split
   ↓
@@ -73,52 +73,52 @@ User opens sync dialog → Upload to server [database.js] — POST queued record
 
 ### Flow 2: Opname (Inventory Check)
 ```
-Scan box → handleOpnameScan() → setOpnameBoxFilter()
+Scan box or rack level → handleOpnameScan() → setOpnameBoxFilter()
   ↓
-Box QR `PREFIX-X-XY-YY` (contoh `BUFFER-E-A1-01`) dikenali sebagai box opname
+Box QR (contoh `BUFFER-E-A1-01`) or rack-level QR `B-B1` is recognized in OPNAME; rack scan includes direct rack locations and child boxes such as `B-B1-01`
   ↓
 Batasi daftar dan scan part ke `LOC_TYPE` SPAREPART BAIK
   ↓
-handleOpnameRender() — Show parts registered in active box; badge X is the sum of positive `opnameCounts` across assigned boxes and Y is `SYS_QTY`
+handleOpnameRender() — Show all registered parts at the active location; rack scans render a unique-part count and collapsible child-box lists
   ↓
-Scan part QR → handleOpnameScan() — Reject parts not registered in the active box
+Scan part QR → handleOpnameScan() — Reject parts not registered directly or in a child box of the active rack
   ↓
-Each box is membership-only in `locations`; its physical count is stored separately in `item.opnameCounts[box]`
-  (a missing count key means 0; zero counts are removed from the map)
+Each box/rack remains membership-only in `locations`; the active box or rack aggregate is stored in `item.opnameCounts[target]`
+  (a missing count means 0; zero counts are represented by a completed-target marker)
   ↓
-Each scan reads saved X, adds 1, and persists immediately; scanning never resets prior X
+Each scan reads saved target count, adds 1, and persists immediately; rack counts aggregate any prior child-box counts and replace those child counts after the first rack-level scan
   ↓
 The browser serializes scan writes; a failed write leaves the old X unchanged and reports an error
   ↓
-addToOpnameBuffer() — Increment the active box count; if aggregate count across assigned boxes exceeds `SYS_QTY`, ask for confirmation
+addToOpnameBuffer() — Increment the active box/rack count; if the aggregate across counted locations exceeds `SYS_QTY`, ask for confirmation
   ↓
 Confirmed scan beyond Y also persists X+1 immediately
   ↓
 Buffer controls decrement X by one or reset that part to 0; each correction persists immediately
   ↓
-Persist recent scan list in localStorage; IndexedDB `opnameCounts` is authoritative; badge uses aggregate count while filters/statistics stay scoped to active box
+Persist recent scan list in localStorage; IndexedDB `opnameCounts` and `opnameCompleted` are authoritative; comparison against `SYS_QTY` is deferred until all registered locations for the part are completed
   ↓
-Clickable opname stats → filter the active-box list by OK, selisih, belum, or counted quantity; rack modal filters populated locations by rack/column/level and applies a selected status to the list
+Selesaikan lokasi → confirm unscanned parts as 0; completion state and counts enter the manual cloud-sync outbox
   ↓
-Changing boxes clears only the recent-scan display; every box's saved counts remain unchanged
+Completed locations can be reopened (aggregate count resets); scanning within a completed rack/box is blocked until reopened
   ↓
-Manual count edits in `edit-opname-count-input` update only the active box's `opnameCounts`; entering 0 removes that count key
+Clickable opname stats → filter by OK, selisih, belum, or counted quantity; rack modal continues to filter populated locations by rack/column/level
   ↓
-Remove part from active box in the edit modal confirms the target box, warns if it is a buffer box or the part's last location, then deletes only that box's location/count through the local upload queue
+Changing locations through SIMPAN invalidates per-part completion markers; OPNAME never changes location membership
   ↓
-Reset current box → remove its saved count keys; preserve location membership. Hapus Semua Isi Box Aktif confirms the affected part count, warns if a part will lose its last location, then removes that box membership/count through the local upload queue
+Reset current location → clear its counts/completion markers while preserving membership; destructive part removal remains available only for a specific box
   ↓
-Each scan/correction → saveDBBatch() for that part → IndexedDB + persistent upload queue (no automatic cloud request)
+Each scan/correction/completion → saveDBBatch() → IndexedDB + persistent upload queue (no automatic cloud request)
   ↓
-After switching boxes and selecting a previously saved box, X is restored from its saved opnameCounts value
+Cloud schema stores `OPNAME_COUNTS` and `OPNAME_COMPLETED`; rack target keys are valid only when the part belongs to that rack directly or through a child box
 ```
 
 ### Simplified Sync Rules (current)
-- Upload perubahan lokal hanya menulis `LOCATIONS` dan `OPNAME_COUNTS`; identity dan revision hanya untuk pencocokan serta konflik.
+- Upload perubahan lokal hanya menulis `LOCATIONS`, `OPNAME_COUNTS`, dan `OPNAME_COMPLETED`; identity dan revision hanya untuk pencocokan serta konflik.
 - Upload normal tidak menulis `SYS_QTY` atau metadata master. Import stock adalah alur yang mengubah `SYS_QTY` di cloud.
 - Download selalu menerapkan `SYS_QTY` cloud ke lokal, termasuk pada record ber-outbox, dan memperbarui snapshot antrean tanpa mengubah revision.
-- `LOCATIONS` menyimpan membership box saja; `OPNAME_COUNTS` menyimpan count fisik positif per box, dan count 0 tidak disimpan.
-- Hitungan OPNAME tetap lokal; badge part memakai jumlah count seluruh box dibanding `SYS_QTY` cloud.
+- `LOCATIONS` menyimpan membership box/tingkat; `OPNAME_COUNTS` menyimpan hitungan positif per target; `OPNAME_COMPLETED` menandai target yang sudah ditutup dan mengonfirmasi hitungan 0 jika tidak ada scan.
+- Status perbandingan OPNAME terhadap `SYS_QTY` cloud baru final setelah seluruh lokasi item ditutup; upload hasil tetap manual.
 
 ### Flow 3: Off BS (Off-Balance-Sheet)
 ```
@@ -193,7 +193,7 @@ Scan Part 1, 2, 3...
   ↓
 addToOpnameBuffer(item) → session count +1; every scan persists the session in localStorage
   ↓
-Reset current box → clears per-box count keys while preserving box membership; clear active-box contents removes both membership and count through the local upload queue
+Reset current box/rack → clears target count/completion keys while preserving membership; clear contents remains box-only removes both membership and count through the local upload queue
   ↓
 Each saveDBBatch() writes item + outbox entry in one IndexedDB transaction
   ↓
@@ -215,7 +215,7 @@ Upload master queue in batches without removing entries before server acknowledg
 BATCH LOOP: slice syncQueue into 100-item chunks
   ↓
 FOR EACH BATCH:
-  POST JSON { action: "sync", data: [{ identity, LOCATIONS, OPNAME_COUNTS, revision }], logs: [...] }
+  POST JSON { action: "sync", data: [{ identity, LOCATIONS, OPNAME_COUNTS, OPNAME_COMPLETED, revision }], logs: [...] }
   ↓
   to: https://script.google.com/macros/.../exec (Google Sheets)
   ↓
@@ -376,14 +376,15 @@ WMS/
 - `confirmBoxToBoxYesToAll()` — Gabungkan semua part saat ini dan aktifkan auto-approval sampai mode dimatikan
 - `updateBoxToBoxIndicator()` — Render box sumber/tujuan dengan status validasi tujuan
 - `checkSimpanConflict(item, newBox)` — Prompt move/split decision
-- `handleOpnameRender()` / `setOpnameFilter()` — Filter the Opname list by active-box status or populated rack/column/level
+- `handleOpnameRender()` / `setOpnameFilter()` — Filter Opname by final comparison/count status; rack scans group registered parts under collapsible box lists
+- `toggleActiveOpnameCompletion()` — Confirm missing parts as zero, persist location completion, or reopen/reset the completed target
 - `openRakModal()` / `renderRakSummary()` — List populated racks and summarize OK, selisih, belum, and counted pcs by location
-- `getOpnameBufferQty(itemId, item)` — Read latest saved cumulative count for the active box
-- `getOpnameTotalCount(item)` — Sum physical counts only for boxes assigned in `locations`
-- `saveManualEdit()` — Edit only the active box's physical Opname count
+- `getOpnameBufferQty(itemId, item)` — Read the active box/rack aggregate, including prior child-box counts before rack-level counting starts
+- `getOpnameTotalCount(item)` — Sum persisted counts; rack completion replaces child counts with one rack aggregate
+- `saveManualEdit()` — Edit the active box/rack physical Opname count without changing locations
 - `removeOpnamePartFromActiveBox()` — Remove a part and its count from only the active OPNAME box through the local upload queue
-- `resetCurrentBoxOpname()` — Remove saved count keys for the active box without changing membership
-- `clearCurrentBoxOpnameContents()` — Remove active-box membership and counts through one local upload batch
+- `resetCurrentBoxOpname()` — Remove saved count/completion keys for active box/rack without changing membership
+- `clearCurrentBoxOpnameContents()` — Remove active specific-box membership and counts through one local upload batch
 - `confirmOpnameOverScan()` — Confirm aggregate physical count that exceeds `SYS_QTY`
 - `decrementOpnameBuffer()` / `removeFromOpnameBuffer()` — Reduce one or all counted units for a part
 - `renderDataList(reset)` — Display all items dengan search/filter
@@ -460,13 +461,14 @@ WMS/
 - `handleAdminLogin()` / `validateAdminSession()` / `revokeAdminSession()` — Kelola token sesi Admin
 - `ensureDbMasterLocationProtection(sheet)` — Protect kolom G (lokasi fisik) dari edit langsung editor spreadsheet; akun eksekusi Apps Script dapat menulis lewat aplikasi (pemilik spreadsheet tetap mengikuti hak istimewa Google)
 - `ensureMasterRevisionColumn()` / `getMasterRevisionConflicts()` — Maintain per-row revisions and reject stale snapshots before writes
+- `normalizeOpnameCompletedMap()` / `mergeDataFast()` — Validate and sync `OPNAME_COMPLETED` in DB_MASTER column M
 - `mergeDataFast(sheet, incomingItems, revisionColumnIndex)` — Apply queued Admin scans and return acknowledged revisions
 - `mergeStockQuantities(sheet, incomingItems, revisionColumnIndex)` — Lock update; increment revisions and return canonical ID/revision mappings
 
 **Peran**: Backend server logic; data persist ke Google Sheets; deduplication  
 **Caller**: database.js (manual `downloadFromServer()` and `processSyncQueue()`)
 **Sheets Used**:
-- `DB_MASTER` — Master item data (id, partNo, desc, locType, techName, sysQty, locations membership JSON, labelIssues JSON, opnameCounts physical counts JSON in column J, `REVISION` column appended to existing headers)
+- `DB_MASTER` — Master item data (id, partNo, desc, locType, techName, sysQty, locations membership JSON in column G, labelIssues JSON, opnameCounts JSON in column J, `REVISION` in column L, and `OPNAME_COMPLETED` JSON in column M)
 - `LOG_SCAN` — Audit log (partNo, action, detail, timestamp)
 - `TEMP_OFF_BS` — Off-balance-sheet staging (time, box, partNo, qty, docNo, qr, updated_at timestamp)
 - `WMS_USER_ROLE` — Protected, hidden Admin password hash + salt (never plaintext)
@@ -508,7 +510,7 @@ WMS/
 ### [index.html](index.html) — UI Structure
 **Navigation Tabs** (OFF BS and PACKING temporarily hidden and guarded):
 1. **SIMPAN** — Penyimpanan (single-scan or multi-scan buffer mode)
-2. **OPNAME** — Inventory check per box (cashier buffer mode)
+2. **OPNAME** — Inventory check per box or rack level; rack view groups child boxes and defers comparison until all item locations are closed
 3. **DATA** — Search & view all items
 4. **SETTING** — Application settings
 5. **OFF BS** — Temporarily disabled
@@ -596,13 +598,17 @@ Item {
   locType: string,             // "UMUM", "TEKNISI", "OFF BS", "SPAREPART BAIK"
   techName: string,            // Nama teknisi (jika TEKNISI location)
   sysQty: number,              // Target qty dari master
-  locations: {                 // Membership lokasi; bukan kuantitas
+  locations: {                 // Membership box/tingkat; bukan kuantitas
     "A-01": true,
-    "B-10": true
+    "B-B1": true,              // Part yang langsung berada di tingkat rak
+    "B-B1-01": true            // Box turunan tingkat B-B1
   },
-  opnameCounts: {              // Hasil hitung fisik positif per box; key bernilai 0 dihapus
+  opnameCounts: {              // Hasil hitung fisik positif per target box/rak; key bernilai 0 dihapus
     "A-01": 5,
     "B-10": 3
+  },
+  opnameCompleted: {           // Target lokasi selesai; missing count at a completed target means confirmed 0
+    "B-B1": true
   },
   labelIssues: {               // Label quality issues
     DAMAGED: number,

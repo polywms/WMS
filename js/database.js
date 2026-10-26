@@ -2,7 +2,7 @@
  * Tujuan: Persistensi IndexedDB, sinkronisasi Admin, dan refresh baca otomatis untuk User.
  * Caller: main.js, core.js, dan handler kontrol sinkronisasi di index.html.
  * Dependensi: auth.js (Admin-authorized writes), config.js (db, antrean, sesi), IndexedDB, API_URL.
- * Main Functions: initDB() migrates the IndexedDB outbox and location/count schema; saveDB()/saveDBBatch() atomically store records and queue; sync uploads local locations/opname counts only, with per-record or batch Cloud/Local conflict resolution.
+ * Main Functions: initDB() migrates the IndexedDB outbox and location/count schema; saveDB()/saveDBBatch() atomically store records and queue; sync uploads locations, Opname counts, and completed-location status, with per-record or batch Cloud/Local conflict resolution.
  * Side Effects: IndexedDB item/outbox read/write, sync-log localStorage, background User GET, and user-triggered Admin POST/GET requests.
  */
 // js/database.js
@@ -316,16 +316,38 @@ function normalizeWmsLocationMap(locations) {
     return normalized;
 }
 
+function isWmsOpnameRackCode(location) {
+    return /^(?:[A-Z]-[A-Z][0-9]|SPARE-[A-Z][0-9])$/i.test(String(location || '').trim());
+}
+
+function isWmsOpnameLocationTarget(target, locations) {
+    const normalizedTarget = String(target || '').trim().toUpperCase();
+    if (Object.prototype.hasOwnProperty.call(locations || {}, normalizedTarget)) return true;
+    return isWmsOpnameRackCode(normalizedTarget)
+        && Object.keys(locations || {}).some(location => String(location).trim().toUpperCase().startsWith(`${normalizedTarget}-`));
+}
+
 function normalizeWmsOpnameCountMap(counts, locations = null) {
     const merged = {};
     Object.entries(counts || {}).forEach(([box, value]) => {
         const cleanBox = String(box || '').trim();
         const count = Number(value);
         if (!cleanBox || typeof value === 'boolean' || !Number.isInteger(count) || count <= 0) return;
-        if (locations && !Object.prototype.hasOwnProperty.call(locations, cleanBox)) return;
+        if (locations && !isWmsOpnameLocationTarget(cleanBox, locations)) return;
         merged[cleanBox] = (Number(merged[cleanBox]) || 0) + count;
     });
     return merged;
+}
+
+function normalizeWmsOpnameCompletedMap(completed, locations = null) {
+    const normalized = {};
+    Object.entries(completed || {}).forEach(([target, value]) => {
+        const cleanTarget = String(target || '').trim().toUpperCase();
+        if (value !== true || !cleanTarget) return;
+        if (locations && !isWmsOpnameLocationTarget(cleanTarget, locations)) return;
+        normalized[cleanTarget] = true;
+    });
+    return normalized;
 }
 
 function normalizeWmsItemMaps(item) {
@@ -333,7 +355,8 @@ function normalizeWmsItemMaps(item) {
     return {
         ...item,
         locations,
-        opnameCounts: normalizeWmsOpnameCountMap(item?.opnameCounts, locations)
+        opnameCounts: normalizeWmsOpnameCountMap(item?.opnameCounts, locations),
+        opnameCompleted: normalizeWmsOpnameCompletedMap(item?.opnameCompleted, locations)
     };
 }
 
@@ -355,6 +378,16 @@ function mergeWmsOpnameCountMaps(...maps) {
     return merged;
 }
 
+function mergeWmsOpnameCompletedMaps(...maps) {
+    const merged = {};
+    maps.filter(Boolean).forEach(source => {
+        Object.entries(source).forEach(([target, completed]) => {
+            if (completed === true) merged[String(target).trim().toUpperCase()] = true;
+        });
+    });
+    return merged;
+}
+
 function dedupeLocalItemsByIdentity(items) {
     const merged = new Map();
     const rows = Array.isArray(items) ? items : [];
@@ -367,7 +400,8 @@ function dedupeLocalItemsByIdentity(items) {
             merged.set(key, {
                 ...item,
                 locations: normalizeWmsLocationMap(item.locations),
-                opnameCounts: normalizeWmsOpnameCountMap(item.opnameCounts, normalizeWmsLocationMap(item.locations))
+                opnameCounts: normalizeWmsOpnameCountMap(item.opnameCounts, normalizeWmsLocationMap(item.locations)),
+                opnameCompleted: normalizeWmsOpnameCompletedMap(item.opnameCompleted, normalizeWmsLocationMap(item.locations))
             });
             return;
         }
@@ -382,6 +416,7 @@ function dedupeLocalItemsByIdentity(items) {
             techName: existing.techName || item.techName,
             locations: mergeWmsLocationMaps(existing.locations || {}, item.locations || {}),
             opnameCounts: mergeWmsOpnameCountMaps(existing.opnameCounts || {}, item.opnameCounts || {}),
+            opnameCompleted: mergeWmsOpnameCompletedMaps(existing.opnameCompleted || {}, item.opnameCompleted || {}),
             updated_at: Math.max(Number(existing.updated_at) || 0, Number(item.updated_at) || 0),
             revision: Math.max(Number(existing.revision) || 0, Number(item.revision) || 0)
         };
@@ -422,7 +457,8 @@ function dedupeSyncQueueByIdentity(queue) {
             updated_at: Math.max(Number(existing.updated_at) || 0, Number(item.updated_at) || 0),
             revision: Math.max(Number(existing.revision) || 0, Number(item.revision) || 0),
             locations: mergeWmsLocationMaps(existing.locations || {}, item.locations || {}),
-            opnameCounts: mergeWmsOpnameCountMaps(existing.opnameCounts || {}, item.opnameCounts || {})
+            opnameCounts: mergeWmsOpnameCountMaps(existing.opnameCounts || {}, item.opnameCounts || {}),
+            opnameCompleted: mergeWmsOpnameCompletedMaps(existing.opnameCompleted || {}, item.opnameCompleted || {})
         };
         merged.set(key, normalizeWmsItemMaps(candidate));
     });
@@ -439,6 +475,7 @@ function toCloudSyncPayload(item) {
         techName: item.techName || '',
         locations: normalized.locations,
         opnameCounts: normalized.opnameCounts,
+        opnameCompleted: normalized.opnameCompleted,
         revision: Number(item.revision) || 0,
     };
 }
@@ -606,6 +643,7 @@ async function downloadFromServer(options = {}) {
                         sysQty: getCloudSysQty(cloudItem, localItem),
                         locations: localItem.locations || cloudItem.locations || {},
                         opnameCounts: localItem.opnameCounts || cloudItem.opnameCounts || {},
+                        opnameCompleted: localItem.opnameCompleted || cloudItem.opnameCompleted || {},
                         updated_at: Math.max(localUpdatedAt, cloudUpdatedAt)
                     };
                     return { cloudItem, merged: mergedLocal, locationConflict: false };
@@ -620,6 +658,7 @@ async function downloadFromServer(options = {}) {
                     sysQty: getCloudSysQty(cloudItem, localItem),
                     locations: localItem.locations || cloudItem.locations || {},
                     opnameCounts: localItem.opnameCounts || cloudItem.opnameCounts || {},
+                    opnameCompleted: cloudItem.opnameCompleted || localItem.opnameCompleted || {},
                     updated_at: Math.max(localUpdatedAt, cloudUpdatedAt)
                 };
                 return { cloudItem, localItem, merged, locationConflict };

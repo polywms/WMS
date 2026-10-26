@@ -3,7 +3,7 @@
              * Tujuan: Menyediakan sistem visual responsif untuk workflow WMS.
              * Caller: index.html dan seluruh komponen UI berbasis class.
              * Dependensi: Variabel tema, Font Awesome, dan CSS layout native.
-             * Main Functions: Responsive application layout, compact header, distinct sync actions, collapsible mobile navigation, consistent controls, opname stats, and rack filters.
+             * Main Functions: Responsive application layout, compact header, distinct sync actions, collapsible mobile navigation and rack lists, opname stats, and rack filters.
              * Side Effects: Mengubah tampilan dan spacing tanpa mengubah state aplikasi.
              */
             :root {
@@ -2651,6 +2651,38 @@
             .opname-box-panel .opname-box-identity > i,
             .opname-stat.active {
                 color: var(--primary);
+            }
+
+            .opname-rack-summary {
+                padding: 8px 10px;
+                margin-bottom: 8px;
+                border-radius: 8px;
+                background: var(--bg-secondary);
+                color: var(--text-secondary);
+                font-size: 0.82rem;
+                font-weight: 700;
+            }
+
+            .opname-rack-group {
+                margin-bottom: 8px;
+                border: 1px solid var(--border);
+                border-radius: 8px;
+                background: var(--card);
+            }
+
+            .opname-rack-group > summary {
+                padding: 10px 12px;
+                color: var(--text);
+                font-weight: 700;
+                cursor: pointer;
+            }
+
+            .opname-rack-group[open] > summary {
+                border-bottom: 1px solid var(--border);
+            }
+
+            .opname-rack-group > .item-card {
+                border-radius: 0;
             }
 
             .opname-stats th,

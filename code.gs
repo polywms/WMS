@@ -2,7 +2,7 @@
  * Tujuan: Endpoint Google Apps Script untuk otorisasi sesi Admin, sinkronisasi lokasi/hitungan opname, dan import SYS_QTY.
  * Caller: js/database.js melalui Google Sheets API.
  * Dependensi: SpreadsheetApp, ContentService, sheet DB_MASTER/LOG_SCAN.
- * Main Functions: doGet()/doPost() expose cloud-owned SYS_QTY, validate new box destinations including buffer-stock codes, normalize LOCATIONS and OPNAME_COUNTS, handle stock import, and enforce revision conflicts.
+ * Main Functions: doGet()/doPost() expose cloud-owned SYS_QTY, validate new box destinations including buffer-stock codes, normalize LOCATIONS, OPNAME_COUNTS, and OPNAME_COMPLETED, handle stock import, and enforce revision conflicts.
  * Side Effects: Membaca/menulis Google Sheets dan mengirim respons HTTP.
  */
 
@@ -30,10 +30,29 @@ function normalizeOpnameCountMap(counts, locations) {
     const cleanBox = String(box || "").trim();
     const count = Number(value);
     if (!cleanBox || typeof value === "boolean" || !Number.isInteger(count) || count <= 0) return;
-    if (!Object.prototype.hasOwnProperty.call(locations || {}, cleanBox)) return;
+    if (!isOpnameLocationTarget(cleanBox, locations)) return;
     normalized[cleanBox] = count;
   });
   return normalized;
+}
+
+function normalizeOpnameCompletedMap(completed, locations) {
+  const normalized = {};
+  Object.entries(completed || {}).forEach(([target, value]) => {
+    const cleanTarget = String(target || "").trim().toUpperCase();
+    if (value !== true || !cleanTarget || !isOpnameLocationTarget(cleanTarget, locations)) return;
+    normalized[cleanTarget] = true;
+  });
+  return normalized;
+}
+
+function isOpnameLocationTarget(target, locations) {
+  const normalizedTarget = String(target || "").trim().toUpperCase();
+  if (Object.keys(locations || {}).some(location => String(location).trim().toUpperCase() === normalizedTarget)) return true;
+  const isRack = /^(?:[A-Z]-[A-Z][0-9]|SPARE-[A-Z][0-9])$/.test(normalizedTarget);
+  return isRack && Object.keys(locations || {}).some(location =>
+    String(location).trim().toUpperCase().startsWith(normalizedTarget + "-")
+  );
 }
 
 function doGet(e) {
@@ -73,6 +92,7 @@ function doGet(e) {
     const qtyIndex = header.indexOf('SYS_QTY');
     const updatedIndex = header.indexOf('UPDATED_AT');
     const opnameIndex = header.indexOf('OPNAME_COUNTS');
+    const opnameCompletedIndex = header.indexOf('OPNAME_COMPLETED');
     const revisionIndex = header.indexOf('REVISION');
 
     let locations = {};
@@ -85,6 +105,9 @@ function doGet(e) {
     let opnameCounts = {};
     try { opnameCounts = JSON.parse(row[opnameIndex >= 0 ? opnameIndex : 9] || '{}') || {}; } catch (error) {}
     opnameCounts = normalizeOpnameCountMap(opnameCounts, locations);
+    let opnameCompleted = {};
+    try { opnameCompleted = JSON.parse(row[opnameCompletedIndex >= 0 ? opnameCompletedIndex : 12] || '{}') || {}; } catch (error) {}
+    opnameCompleted = normalizeOpnameCompletedMap(opnameCompleted, locations);
 
     items.push({
       id: Number(row[0]),
@@ -96,6 +119,7 @@ function doGet(e) {
       locations: locations,
       labelIssues: labelIssues,
       opnameCounts: opnameCounts,
+      opnameCompleted: opnameCompleted,
       revision: revisionIndex >= 0 ? (Number(row[revisionIndex]) || 0) : 0,
       updated_at: row[updatedIndex >= 0 ? updatedIndex : 8] instanceof Date
         ? row[updatedIndex >= 0 ? updatedIndex : 8].getTime()
@@ -664,7 +688,7 @@ function doPost(e) {
 function ensureMasterColumnLayout(sheet) {
   const headers = [
     'ID', 'PART_NO', 'DESC', 'LOC_TYPE', 'TECH_NAME', 'SYS_QTY',
-    'LOCATIONS', 'LABEL_ISSUES', 'UPDATED_AT', 'OPNAME_COUNTS', 'HARGA', 'REVISION'
+    'LOCATIONS', 'LABEL_ISSUES', 'UPDATED_AT', 'OPNAME_COUNTS', 'HARGA', 'REVISION', 'OPNAME_COMPLETED'
   ];
   const data = sheet.getDataRange().getValues();
   if (data.length === 0) {
@@ -703,9 +727,14 @@ function masterRowToItem(row, revisionColumnIndex) {
   let locations = {};
   let labelIssues = {};
   let opnameCounts = {};
+  let opnameCompleted = {};
   try { locations = JSON.parse(row[6]) || {}; } catch (error) {}
   try { labelIssues = JSON.parse(row[7]) || {}; } catch (error) {}
   try { opnameCounts = JSON.parse(row[9]) || {}; } catch (error) {}
+  try { opnameCompleted = JSON.parse(row[12]) || {}; } catch (error) {}
+  locations = normalizeLocationMembershipMap(locations);
+  opnameCounts = normalizeOpnameCountMap(opnameCounts, locations);
+  opnameCompleted = normalizeOpnameCompletedMap(opnameCompleted, locations);
   return {
     id: Number(row[0]),
     partNo: row[1],
@@ -716,6 +745,7 @@ function masterRowToItem(row, revisionColumnIndex) {
     locations: locations,
     labelIssues: labelIssues,
     opnameCounts: opnameCounts,
+    opnameCompleted: opnameCompleted,
     revision: Number(row[revisionColumnIndex]) || 0,
     updated_at: row[8] instanceof Date ? row[8].getTime() : (Number(row[8]) || Date.parse(row[8]) || 0)
   };
@@ -778,9 +808,10 @@ function validateLocationDestinations(sheet, incomingItems) {
     const existingLocations = existing ? (JSON.parse(existing[6] || "{}")) : {};
     const existingKeys = new Set(Object.keys(existingLocations).map(box => String(box).trim().toUpperCase()));
     const validBoxPattern = /^(?:[A-Z]-[A-Z][0-9]-[0-9]{2}|SPARE-[A-Z][0-9]-[0-9]{2}|[A-Z0-9]+-[A-Z]-[A-Z][0-9]-[0-9]{2})$/;
+    const validRackPattern = /^(?:[A-Z]-[A-Z][0-9]|SPARE-[A-Z][0-9])$/;
     const invalidDestination = Object.keys(item.locations || {}).find(box => {
       const normalized = String(box).trim().toUpperCase();
-      return !existingKeys.has(normalized) && !validBoxPattern.test(normalized);
+      return !existingKeys.has(normalized) && !validBoxPattern.test(normalized) && !validRackPattern.test(normalized);
     });
     if (invalidDestination) {
       throw new Error(`Lokasi tujuan ${invalidDestination} tidak valid atau merupakan format legacy.`);
@@ -938,9 +969,10 @@ function mergeStockQuantities(sheet, incomingItems, revisionColumnIndex) {
 function mergeDataFast(sheet, incomingItems, revisionColumnIndex) {
   const data = sheet.getDataRange().getValues();
   if (data.length === 0) data.push([]);
-  const columnCount = Math.max(data[0].length, 10, revisionColumnIndex + 1);
+  const columnCount = Math.max(data[0].length, 13, revisionColumnIndex + 1);
   while (data[0].length < columnCount) data[0].push("");
   if (!data[0][9]) data[0][9] = "OPNAME_COUNTS";
+  if (!data[0][12]) data[0][12] = "OPNAME_COMPLETED";
   data[0][revisionColumnIndex] = "REVISION";
   for (let i = 1; i < data.length; i++) {
     while (data[i].length < columnCount) data[i].push("");
@@ -955,6 +987,7 @@ function mergeDataFast(sheet, incomingItems, revisionColumnIndex) {
   const revisionMappings = [];
   const locationUpdates = new Map();
   const opnameUpdates = new Map();
+  const opnameCompletedUpdates = new Map();
   const timestampUpdates = new Map();
   const revisionUpdates = new Map();
   const newRows = [];
@@ -969,24 +1002,35 @@ function mergeDataFast(sheet, incomingItems, revisionColumnIndex) {
     }
     const hasLocations = Object.prototype.hasOwnProperty.call(item, "locations");
     const hasOpnameCounts = Object.prototype.hasOwnProperty.call(item, "opnameCounts");
+    const hasOpnameCompleted = Object.prototype.hasOwnProperty.call(item, "opnameCompleted");
     if (hasLocations && (!item.locations || typeof item.locations !== "object" || Array.isArray(item.locations))) {
       throw new Error(`LOCATIONS tidak valid untuk part ${item.partNo}.`);
     }
     if (hasOpnameCounts && (!item.opnameCounts || typeof item.opnameCounts !== "object" || Array.isArray(item.opnameCounts))) {
       throw new Error(`OPNAME_COUNTS tidak valid untuk part ${item.partNo}.`);
     }
+    if (hasOpnameCompleted && (!item.opnameCompleted || typeof item.opnameCompleted !== "object" || Array.isArray(item.opnameCompleted))) {
+      throw new Error(`OPNAME_COMPLETED tidak valid untuk part ${item.partNo}.`);
+    }
     let existingLocations = {};
     let existingOpnameCounts = {};
+    let existingOpnameCompleted = {};
     try { existingLocations = JSON.parse(existingRow ? existingRow[6] || '{}' : '{}') || {}; } catch (error) {}
     try { existingOpnameCounts = JSON.parse(existingRow ? existingRow[9] || '{}' : '{}') || {}; } catch (error) {}
+    try { existingOpnameCompleted = JSON.parse(existingRow ? existingRow[12] || '{}' : '{}') || {}; } catch (error) {}
     const normalizedLocations = normalizeLocationMembershipMap(hasLocations ? item.locations : existingLocations);
     const normalizedOpnameCounts = normalizeOpnameCountMap(
       hasOpnameCounts ? item.opnameCounts : existingOpnameCounts,
       normalizedLocations
     );
+    const normalizedOpnameCompleted = normalizeOpnameCompletedMap(
+      hasOpnameCompleted ? item.opnameCompleted : existingOpnameCompleted,
+      normalizedLocations
+    );
     const keptLocations = JSON.stringify(normalizedLocations);
     const keptLabelIssues = existingRow ? existingRow[7] || '{}' : '{}';
     const keptOpnameCounts = JSON.stringify(normalizedOpnameCounts);
+    const keptOpnameCompleted = JSON.stringify(normalizedOpnameCompleted);
     const rowData = [
       existingRow ? existingRow[0] : item.id,
       item.partNo,
@@ -1004,10 +1048,12 @@ function mergeDataFast(sheet, incomingItems, revisionColumnIndex) {
     }
     const revision = (existingRow ? Number(existingRow[revisionColumnIndex]) || 0 : 0) + 1;
     rowData[revisionColumnIndex] = revision;
+    rowData[12] = keptOpnameCompleted;
     if (existingRow) {
       const sheetRow = rowIndex + 1;
       locationUpdates.set(sheetRow, keptLocations);
       opnameUpdates.set(sheetRow, keptOpnameCounts);
+      opnameCompletedUpdates.set(sheetRow, keptOpnameCompleted);
       timestampUpdates.set(sheetRow, now);
       revisionUpdates.set(sheetRow, revision);
       revisionMappings.push({ clientId: item.id, id: existingRow[0], revision, updated_at: now.getTime() });
@@ -1036,6 +1082,7 @@ function mergeDataFast(sheet, incomingItems, revisionColumnIndex) {
 
   writeColumnUpdates(7, locationUpdates);
   writeColumnUpdates(10, opnameUpdates);
+  writeColumnUpdates(13, opnameCompletedUpdates);
   writeColumnUpdates(9, timestampUpdates);
   writeColumnUpdates(revisionColumnIndex + 1, revisionUpdates);
   if (newRows.length > 0) {

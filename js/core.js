@@ -25,7 +25,8 @@
  * - updateBoxToBoxIndicator() — Render box asal/tujuan; pertahankan pasangan valid sampai scan box berikutnya
  * - getBoxToBoxItems() — Temukan part sumber berdasarkan kode box yang dinormalisasi
  * - confirmBoxToBoxYesToAll() — Setujui semua part dan lewati konfirmasi hingga mode B2B dimatikan
- * - handleOpnameScan()/handleOpnameRender() — OPNAME SPAREPART BAIK dengan hitungan per box dan total counted/SYS_QTY
+ * - handleOpnameScan()/handleOpnameRender() — OPNAME per box/rak, collapsible rack listing, and deferred total-vs-SYS_QTY comparison
+ * - toggleActiveOpnameCompletion() — Persist completed locations; unscanned parts become confirmed zeroes
  * - handleOpnameScan() — Reject part scans that do not belong to the active box
  * - getOpnameBufferQty(itemId, item) — Read the latest saved cumulative count for the active box
  * - resetCurrentBoxOpname()/clearCurrentBoxOpnameContents() — Reset counts or remove active-box membership
@@ -400,7 +401,7 @@ function showBoxToBoxSelectionModal(sourceBox, targetBox) {
 
 function applyBoxToBoxSelection(sourceBox, targetBox, selectedItems, isYesToAll = false) {
     if (!requireAdminAccess('memindahkan lokasi')) return;
-    if (!BOX_CODE_PATTERN.test(targetBox)) {
+    if (!BOX_CODE_PATTERN.test(targetBox) && !isWmsOpnameRackCode(targetBox)) {
         feedback('error');
         showToast(`Format lokasi tujuan ${targetBox} tidak valid.`);
         return;
@@ -436,6 +437,7 @@ function applyBoxToBoxSelection(sourceBox, targetBox, selectedItems, isYesToAll 
             if (movedCount > 0) item.opnameCounts[destinationKey] = movedCount;
             else delete item.opnameCounts[destinationKey];
         }
+        item.opnameCompleted = {};
         item.lastBox = targetBox;
 
         if (JSON.stringify(item.locations) !== JSON.stringify(oldLocations)) {
@@ -556,7 +558,8 @@ function processScan(code) {
     if (!requireAdminAccess('melakukan scan atau mengubah data')) return;
     let rawCode = String(code || '').trim().toUpperCase();
     let parsedCode = rawCode.includes('|') ? rawCode.split('|')[0].trim() : rawCode;
-    const normalizedBoxCode = normalizeBoxCode(parsedCode);
+    const normalizedBoxCode = normalizeBoxCode(parsedCode)
+        || (['simpan', 'opname'].includes(currentTab) && isWmsOpnameRackCode(parsedCode) ? parsedCode.toUpperCase() : null);
     const isBox = Boolean(normalizedBoxCode);
     if (isBox) parsedCode = normalizedBoxCode;
 
@@ -756,6 +759,7 @@ if (currentTab === 'packing') {
             // Case 1: Part belum pernah tersimpan → Direct save
             if (existingLocations.length === 0) {
                 activeItem.locations[boxCode] = true;
+                activeItem.opnameCompleted = {};
                 activeItem.lastBox = boxCode;
                 saveDB(activeItem);
                 addHistoryLog(activeItem.partNo, boxCode);
@@ -1159,9 +1163,9 @@ async function processMultiScan(boxCode) {
         return;
     }
 
-    if (!BOX_CODE_PATTERN.test(boxCode)) {
+    if (!BOX_CODE_PATTERN.test(boxCode) && !isWmsOpnameRackCode(boxCode)) {
         feedback('error');
-        showToast('Format box tidak valid (misal: A2-01 atau A-A3-01)');
+        showToast('Format box/tingkat tidak valid (misal: A2-01, A-A3-01, atau B-B1)');
         return;
     }
     if (isLegacyBoxCode(boxCode)) {
@@ -1292,6 +1296,7 @@ function executeSimpanAction(action) {
         oldLocs.forEach(loc => delete item.locations[loc]);
         // Add new location
         item.locations[newBox] = true;
+        item.opnameCounts = {};
         
         showToast(`✓ ${item.partNo} dipindah ke ${newBox}`);
     } else if (action === 'split') {
@@ -1302,6 +1307,7 @@ function executeSimpanAction(action) {
         
         showToast(`✓ ${item.partNo} disimpan di ${newBox} (+ lokasi lama)`);
     }
+    item.opnameCompleted = {};
     
     // Save and record
     item.lastBox = newBox;
@@ -1409,7 +1415,7 @@ function createNewItem(code) {
 
 function getOpnameBufferQty(itemId, item = null) {
     const sourceItem = item || localItems.find(candidate => candidate.id === itemId);
-    if (!sourceItem || !activeBoxFilter || !Object.prototype.hasOwnProperty.call(sourceItem.locations || {}, activeBoxFilter)) return 0;
+    if (!sourceItem || !activeBoxFilter || !opnameTargetMatchesItem(activeBoxFilter, sourceItem)) return 0;
     const buf = Array.isArray(opnameBuffer)
         ? opnameBuffer.find(entry => entry.item && entry.item.id === itemId)
         : null;
@@ -1417,16 +1423,82 @@ function getOpnameBufferQty(itemId, item = null) {
     if (sourceItem?.opnameCounts && Object.prototype.hasOwnProperty.call(sourceItem.opnameCounts, activeBoxFilter)) {
         return Number(sourceItem.opnameCounts[activeBoxFilter]) || 0;
     }
+    if (isWmsOpnameRackCode(activeBoxFilter)) {
+        return Object.entries(sourceItem.opnameCounts || {}).reduce((total, [location, count]) => (
+            String(location).toUpperCase().startsWith(`${activeBoxFilter.toUpperCase()}-`)
+                ? total + (Number(count) || 0)
+                : total
+        ), 0);
+    }
     return 0;
 }
 
-function getOpnameTotalCount(item) {
-    const locations = item?.locations || {};
-    return Object.entries(item?.opnameCounts || {}).reduce((total, [box, count]) => {
-        if (!Object.prototype.hasOwnProperty.call(locations, box)) return total;
+function getOpnameTotalCount(item, targetOverride = null) {
+    const activeTarget = targetOverride || activeBoxFilter;
+    const counts = item?.opnameCounts || {};
+    const rackHasAggregate = isWmsOpnameRackCode(activeTarget)
+        && Object.prototype.hasOwnProperty.call(counts, activeTarget);
+    return Object.entries(counts).reduce((total, [box, count]) => {
+        if (rackHasAggregate && String(box).toUpperCase().startsWith(`${activeTarget.toUpperCase()}-`)) return total;
         const numericCount = Number(count);
         return Number.isInteger(numericCount) && numericCount > 0 ? total + numericCount : total;
     }, 0);
+}
+
+function opnameTargetMatchesItem(target, item) {
+    const normalizedTarget = String(target || '').trim().toUpperCase();
+    return Boolean(normalizedTarget) && Object.keys(item?.locations || {}).some(location => {
+        const normalizedLocation = String(location).trim().toUpperCase();
+        return normalizedLocation === normalizedTarget
+            || (isWmsOpnameRackCode(normalizedTarget) && normalizedLocation.startsWith(`${normalizedTarget}-`));
+    });
+}
+
+function getOpnameTargetLocations(item, target) {
+    const normalizedTarget = String(target || '').trim().toUpperCase();
+    return Object.keys(item?.locations || {}).filter(location => {
+        const normalizedLocation = String(location).trim().toUpperCase();
+        return normalizedLocation === normalizedTarget
+            || (isWmsOpnameRackCode(normalizedTarget) && normalizedLocation.startsWith(`${normalizedTarget}-`));
+    });
+}
+
+function getOpnameCompletedAncestor(item, location) {
+    const normalizedLocation = String(location || '').trim().toUpperCase();
+    return Object.keys(item?.opnameCompleted || {}).find(target => item.opnameCompleted[target] === true
+        && (String(target).toUpperCase() === normalizedLocation
+            || (isWmsOpnameRackCode(target) && normalizedLocation.startsWith(`${String(target).toUpperCase()}-`))));
+}
+
+function getOpnameTargetCompletionConflict(item, target) {
+    const normalizedTarget = String(target || '').trim().toUpperCase();
+    if (!isWmsOpnameRackCode(normalizedTarget)) {
+        const rackCountTarget = Object.keys(item?.opnameCounts || {}).find(location =>
+            isWmsOpnameRackCode(location)
+                && normalizedTarget.startsWith(`${String(location).toUpperCase()}-`)
+                && Number(item.opnameCounts[location]) > 0
+        );
+        if (rackCountTarget) return rackCountTarget;
+    }
+    return Object.keys(item?.opnameCompleted || {}).find(completed => {
+        const normalizedCompleted = String(completed).toUpperCase();
+        return item.opnameCompleted[completed] === true
+            && (normalizedCompleted === normalizedTarget
+                || (isWmsOpnameRackCode(normalizedCompleted) && normalizedTarget.startsWith(`${normalizedCompleted}-`))
+                || (isWmsOpnameRackCode(normalizedTarget)
+                    && normalizedCompleted.startsWith(`${normalizedTarget}-`)
+                    && opnameTargetMatchesItem(normalizedCompleted, item)));
+    });
+}
+
+function isOpnameItemFullyCounted(item) {
+    const locations = Object.keys(item?.locations || {});
+    return locations.length > 0 && locations.every(location => getOpnameCompletedAncestor(item, location));
+}
+
+function getOpnameComparison(item) {
+    if (!isOpnameItemFullyCounted(item)) return 'pending';
+    return getOpnameTotalCount(item) === getOpnameTargetQty(item) ? 'match' : 'diff';
 }
 
 function getOpnameTargetQty(item) {
@@ -1437,6 +1509,9 @@ function getLocationSplitSummaryForBox(item, box = activeBoxFilter) {
     const boxes = Object.keys(item?.locations || {});
     if (boxes.length === 0) return 'Belum ada lokasi';
     const counts = item?.opnameCounts || {};
+    if (isWmsOpnameRackCode(box) && opnameTargetMatchesItem(box, item)) {
+        return `Hitungan ${box}: ${Number(counts[box]) || 0} pcs • Lokasi: ${boxes.join(', ')}`;
+    }
     return `Hitungan fisik: ${boxes.map(location => `${location}: ${Number(counts[location]) || 0}${location === box ? ' (aktif)' : ''}`).join(' | ')}`;
 }
 
@@ -1472,7 +1547,7 @@ async function restoreOpnameSession() {
     opnameBuffer = (saved.counts || []).reduce((restored, count) => {
         const item = localItems.find(candidate => candidate.id === count.itemId);
         if (!isSparepartBaik(item)
-            || !Object.prototype.hasOwnProperty.call(item.locations || {}, saved.box)
+            || !opnameTargetMatchesItem(saved.box, item)
             || !(Number(count.qty) > 0)) return restored;
         const savedCount = Number(item.opnameCounts?.[saved.box]);
         const hasSavedCount = Object.prototype.hasOwnProperty.call(item.opnameCounts || {}, saved.box);
@@ -1546,6 +1621,7 @@ async function processOpnameScan(rawCode, isBox) {
 
     if (isBox) {
         const box = rawCode.toUpperCase();
+        const rack = isWmsOpnameRackCode(box);
         if (opnameBufferBox !== box) {
             opnameBuffer = [];
             opnameBufferCommitted = true;
@@ -1556,13 +1632,14 @@ async function processOpnameScan(rawCode, isBox) {
         setOpnameBoxFilter(box);
         renderOpnameBuffer();
         feedback('scan');
-        showToast(`Box ${box} aktif. Scan QR part, setiap scan dihitung 1.`);
+        const itemCount = getOpnameBoxItems().length;
+        showToast(`${rack ? 'Tingkat' : 'Box'} ${box} aktif: ${itemCount} nomor part terdaftar. Scan part untuk menghitung.`);
         return;
     }
 
     if (!activeBoxFilter) {
         feedback('error');
-        showToast('Scan box terlebih dahulu.');
+        showToast('Scan box atau tingkat rak terlebih dahulu.');
         return;
     }
 
@@ -1570,14 +1647,20 @@ async function processOpnameScan(rawCode, isBox) {
     const partNo = (parsed ? parsed.partNo : rawCode).trim().toUpperCase();
     const partMatches = localItems.filter(candidate => String(candidate.partNo || '').toUpperCase() === partNo);
     const matchingItems = partMatches.filter(isSparepartBaik);
-    const item = matchingItems.find(candidate => Object.prototype.hasOwnProperty.call(candidate.locations || {}, activeBoxFilter));
+    const item = matchingItems.find(candidate => opnameTargetMatchesItem(activeBoxFilter, candidate));
     if (!item) {
         feedback('error');
         showToast(partMatches.length && matchingItems.length === 0
             ? `Part ${partNo} bukan LOC_TYPE SPAREPART BAIK; OPNAME ditolak.`
             : matchingItems.length
-                ? `Part ${partNo} tidak terdaftar di box ${activeBoxFilter}.`
+                ? `Part ${partNo} tidak terdaftar di lokasi ${activeBoxFilter} atau box turunannya.`
                 : `Part ${partNo} tidak ada di daftar stok.`);
+        return;
+    }
+    const completedTarget = getOpnameTargetCompletionConflict(item, activeBoxFilter);
+    if (completedTarget) {
+        feedback('warning');
+        showToast(`Lokasi ${completedTarget} sudah ditutup. Buka ulang lokasi tersebut sebelum mengubah hitungan.`);
         return;
     }
 
@@ -1617,6 +1700,9 @@ function getOpnameLocationBoxKeys(item) {
 }
 
 function getOpnameDisplayCount(item) {
+    if (activeBoxFilter && opnameTargetMatchesItem(activeBoxFilter, item)) {
+        return getOpnameBufferQty(item.id, item);
+    }
     if (!hasOpnameLocationFilter()) return getOpnameTotalCount(item);
     return getOpnameLocationBoxKeys(item).reduce((total, box) => {
         const count = box === activeBoxFilter
@@ -1627,7 +1713,7 @@ function getOpnameDisplayCount(item) {
 }
 
 function getOpnameFilterCount(item) {
-    return hasOpnameLocationFilter() ? getOpnameDisplayCount(item) : getOpnameBufferQty(item.id, item);
+    return getOpnameDisplayCount(item);
 }
 
 function getOpnameBoxItems() {
@@ -1636,9 +1722,9 @@ function getOpnameBoxItems() {
     const seen = new Set();
     const dataset = localItems.filter(item => {
         if (!isSparepartBaik(item)) return false;
-        const matchesLocation = hasOpnameLocationFilter()
+        const matchesLocation = box && opnameTargetMatchesItem(box, item) || (hasOpnameLocationFilter()
             ? getOpnameLocationBoxKeys(item).length > 0
-            : Object.prototype.hasOwnProperty.call(item.locations || {}, box);
+            : false);
         if (!matchesLocation) return false;
         if (seen.has(item.id)) return false;
         seen.add(item.id);
@@ -1646,9 +1732,9 @@ function getOpnameBoxItems() {
     });
     if (Array.isArray(opnameBuffer)) {
         opnameBuffer.forEach(b => {
-            const matchesLocation = b.item && (hasOpnameLocationFilter()
+            const matchesLocation = b.item && (box && opnameTargetMatchesItem(box, b.item) || (hasOpnameLocationFilter()
                 ? getOpnameLocationBoxKeys(b.item).length > 0
-                : Object.prototype.hasOwnProperty.call(b.item.locations || {}, box));
+                : false));
             if (b.item && isSparepartBaik(b.item) && matchesLocation && !seen.has(b.item.id)) {
                 seen.add(b.item.id);
                 dataset.push(b.item);
@@ -1661,10 +1747,10 @@ function getOpnameBoxItems() {
 function filterOpnameDataset(dataset) {
     return dataset.filter(i => {
         const counted = getOpnameFilterCount(i);
-        const target = getOpnameTargetQty(i);
-        if (opnameFilter === 'match') return counted > 0 && counted === target;
-        if (opnameFilter === 'diff') return counted > 0 && counted !== target;
-        if (opnameFilter === 'zero') return counted === 0;
+        const comparison = getOpnameComparison(i);
+        if (opnameFilter === 'match') return comparison === 'match';
+        if (opnameFilter === 'diff') return comparison === 'diff';
+        if (opnameFilter === 'zero') return counted === 0 || comparison === 'pending';
         if (opnameFilter === 'counted') return counted > 0;
         return true;
     });
@@ -1685,11 +1771,11 @@ function updateOpnameStats() {
     let match = 0, diff = 0, zero = 0, pcs = 0;
     getOpnameBoxItems().forEach(i => {
         const counted = getOpnameFilterCount(i);
-        const target = getOpnameTargetQty(i);
         pcs += counted;
-        if (counted === 0) zero++;
-        else if (counted === target) match++;
-        else diff++;
+        const comparison = getOpnameComparison(i);
+        if (comparison === 'match') match++;
+        else if (comparison === 'diff') diff++;
+        else zero++;
     });
     matchEl.textContent = String(match);
     document.getElementById('opnameStatDiff').textContent = String(diff);
@@ -1717,7 +1803,7 @@ function handleOpnameRender(reset = true) {
     const container = document.getElementById('opnameList');
     if (!container) return;
     if (reset) renderLimit = 50;
-    container.innerHTML = '';
+    container.replaceChildren();
 
     if (!activeBoxFilter && !hasOpnameLocationFilter()) {
         updateOpnameStats();
@@ -1737,30 +1823,180 @@ function handleOpnameRender(reset = true) {
 
     const show = dataset.slice(0, renderLimit);
     const pendingIds = new Set(syncQueue.map(item => String(item.id)));
-    let html = '';
-    show.forEach(i => {
-        const counted = getOpnameDisplayCount(i);
-        const target = getOpnameTargetQty(i);
-        const splitText = getLocationSplitSummaryForBox(i, activeBoxFilter);
-        let badgeClass = 'qty-uncounted';
-        const qtyDisplay = `${counted}/${target}`;
-        if (counted > 0) badgeClass = counted === target ? 'qty-match' : 'qty-diff';
-        const pendingBadge = pendingIds.has(String(i.id)) ? `<span class="qty-badge qty-pending opname-pending" title="Perubahan lokal menunggu upload ke cloud" aria-label="Perubahan lokal menunggu upload ke cloud"><i class="fas fa-cloud-arrow-up"></i></span>` : '';
-        html += `
-        <div class="item-card ${(lastOpnameScanId === i.id) ? 'selected' : ''}" id="opname-row-${i.id}">
-            <div style="flex:1" onclick="openEditModal(${i.id})">
-                <span class="part-code" style="font-size:0.95rem; font-weight:bold;">${i.partNo}</span>
-                <span class="part-desc" style="font-size:0.75rem; color:#64748b;">${i.desc || ''}</span>
-                <div style="font-size:0.72rem; color:#334155; margin-top:4px; font-weight:600;">${splitText}</div>
-            </div>
-            <div style="display:flex; gap:4px; align-items:center; margin-left:6px;">
-                ${pendingBadge}
-                <div class="qty-badge ${badgeClass}">${qtyDisplay}</div>
-            </div>
-        </div>`;
-    });
-    container.innerHTML = html;
+    if (isWmsOpnameRackCode(activeBoxFilter)) {
+        const uniquePartCount = new Set(dataset.map(item => String(item.partNo || '').toUpperCase())).size;
+        const locations = new Set(dataset.flatMap(item => getOpnameTargetLocations(item, activeBoxFilter)));
+        const summary = document.createElement('div');
+        summary.className = 'opname-rack-summary';
+        summary.textContent = `${uniquePartCount} nomor part • ${Array.from(locations).filter(location => location !== activeBoxFilter).length} box`;
+        container.appendChild(summary);
+
+        const groups = new Map();
+        show.forEach(item => {
+            const itemLocations = getOpnameTargetLocations(item, activeBoxFilter);
+            (itemLocations.length ? itemLocations : [activeBoxFilter]).forEach(location => {
+                if (!groups.has(location)) groups.set(location, new Map());
+                groups.get(location).set(item.id, item);
+            });
+        });
+        let groupIndex = 0;
+        groups.forEach((items, location) => {
+            const details = document.createElement('details');
+            details.className = 'opname-rack-group';
+            const summaryEl = document.createElement('summary');
+            summaryEl.textContent = location === activeBoxFilter
+                ? `Lokasi langsung ${location} • ${items.size} part`
+                : `${location} • ${items.size} part`;
+            details.appendChild(summaryEl);
+            items.forEach(item => {
+                details.appendChild(createOpnameItemCard(item, `${groupIndex++}`, pendingIds));
+            });
+            container.appendChild(details);
+        });
+        document.getElementById('opnameLoading').style.display = (renderLimit < dataset.length) ? 'block' : 'none';
+        return;
+    }
+
+    show.forEach((item, index) => container.appendChild(createOpnameItemCard(item, String(index), pendingIds)));
     document.getElementById('opnameLoading').style.display = (renderLimit < dataset.length) ? 'block' : 'none';
+}
+
+function createOpnameItemCard(item, index, pendingIds) {
+    const counted = getOpnameDisplayCount(item);
+    const comparison = getOpnameComparison(item);
+    const badgeClass = comparison === 'match' ? 'qty-match' : comparison === 'diff' ? 'qty-diff' : 'qty-uncounted';
+    const targetDisplay = comparison === 'pending' ? 'menunggu' : String(getOpnameTargetQty(item));
+    const pending = pendingIds.has(String(item.id));
+    const card = document.createElement('div');
+    card.className = `item-card ${lastOpnameScanId === item.id ? 'selected' : ''}`;
+    card.id = `opname-row-${item.id}-${index}`;
+    const info = document.createElement('div');
+    info.style.flex = '1';
+    info.addEventListener('click', () => openEditModal(item.id));
+    const part = document.createElement('span');
+    part.className = 'part-code';
+    part.style.cssText = 'font-size:0.95rem; font-weight:bold;';
+    part.textContent = item.partNo || '';
+    const desc = document.createElement('span');
+    desc.className = 'part-desc';
+    desc.style.cssText = 'font-size:0.75rem; color:#64748b;';
+    desc.textContent = item.desc || '';
+    const split = document.createElement('div');
+    split.style.cssText = 'font-size:0.72rem; color:#334155; margin-top:4px; font-weight:600;';
+    split.textContent = getLocationSplitSummaryForBox(item, activeBoxFilter);
+    info.append(part, desc, split);
+    const badges = document.createElement('div');
+    badges.style.cssText = 'display:flex; gap:4px; align-items:center; margin-left:6px;';
+    if (pending) {
+        const pendingBadge = document.createElement('span');
+        pendingBadge.className = 'qty-badge qty-pending opname-pending';
+        pendingBadge.title = 'Perubahan lokal menunggu upload ke cloud';
+        pendingBadge.setAttribute('aria-label', pendingBadge.title);
+        pendingBadge.innerHTML = '<i class="fas fa-cloud-arrow-up" aria-hidden="true"></i>';
+        badges.appendChild(pendingBadge);
+    }
+    const quantity = document.createElement('div');
+    quantity.className = `qty-badge ${badgeClass}`;
+    quantity.textContent = `${counted}/${targetDisplay}`;
+    badges.appendChild(quantity);
+    card.append(info, badges);
+    return card;
+}
+
+function updateOpnameCompletionButton() {
+    const button = document.getElementById('opnameCompletionButton');
+    if (!button) return;
+    const target = activeBoxFilter;
+    const items = getOpnameBoxItems();
+    const hasTargetCompletion = items.some(item => item.opnameCompleted?.[target] === true);
+    const clearContentsButton = document.getElementById('clearCurrentBoxOpnameButton');
+    if (clearContentsButton) clearContentsButton.hidden = isWmsOpnameRackCode(target);
+    const hasConflictingCompletion = items.some(item => {
+        const conflict = getOpnameTargetCompletionConflict(item, target);
+        return conflict && conflict !== target;
+    });
+    button.disabled = !target || items.length === 0 || (hasConflictingCompletion && !hasTargetCompletion);
+    button.innerHTML = hasTargetCompletion
+        ? '<i class="fas fa-rotate-left" aria-hidden="true"></i> Buka ulang lokasi'
+        : '<i class="fas fa-check" aria-hidden="true"></i> Selesaikan lokasi';
+    button.title = hasTargetCompletion ? 'Buka ulang dan hitung kembali lokasi ini' : 'Tutup lokasi dan tetapkan part yang belum discan sebagai 0';
+}
+
+async function toggleActiveOpnameCompletion() {
+    if (!requireAdminAccess('menyelesaikan Opname lokasi')) return;
+    const target = activeBoxFilter;
+    const items = getOpnameBoxItems();
+    if (!target || items.length === 0) {
+        showToast('Scan lokasi yang memiliki part terdaftar terlebih dahulu.');
+        return;
+    }
+    if (opnameCommitInProgress) {
+        showToast('Penyimpanan OPNAME sedang berlangsung. Tunggu hingga selesai.');
+        return;
+    }
+    const hasTargetCompletion = items.some(item => item.opnameCompleted?.[target] === true);
+    const conflictingTarget = items.map(item => getOpnameTargetCompletionConflict(item, target))
+        .find(completedTarget => completedTarget && completedTarget !== target);
+    if (conflictingTarget && !hasTargetCompletion) {
+        showToast(`Lokasi ${conflictingTarget} sudah ditutup. Buka ulang lokasi tersebut terlebih dahulu.`);
+        return;
+    }
+    const uncounted = items.filter(item => getOpnameBufferQty(item.id, item) === 0).length;
+    const promptText = hasTargetCompletion
+        ? `Buka ulang ${target}? Hitungan agregat lokasi ini akan direset agar dapat dihitung kembali.`
+        : `Selesaikan ${target}? ${uncounted} part yang belum discan akan ditetapkan sebagai 0. Hitungan agregat part di lokasi ini menjadi final.`;
+    if (!confirm(promptText)) return;
+
+    const changedItems = items.map(item => {
+        const opnameCounts = { ...(item.opnameCounts || {}) };
+        const opnameCompleted = { ...(item.opnameCompleted || {}) };
+        if (hasTargetCompletion) {
+            delete opnameCompleted[target];
+            delete opnameCounts[target];
+        } else {
+            const targetCount = getOpnameBufferQty(item.id, item);
+            if (isWmsOpnameRackCode(target)) {
+                Object.keys(opnameCounts).forEach(location => {
+                    if (String(location).toUpperCase().startsWith(`${target.toUpperCase()}-`)) delete opnameCounts[location];
+                });
+                Object.keys(opnameCompleted).forEach(location => {
+                    if (String(location).toUpperCase().startsWith(`${target.toUpperCase()}-`)) delete opnameCompleted[location];
+                });
+            }
+            opnameCompleted[target] = true;
+            if (targetCount > 0) opnameCounts[target] = targetCount;
+            else delete opnameCounts[target];
+        }
+        return { ...item, opnameCounts, opnameCompleted };
+    });
+
+    opnameCommitInProgress = true;
+    try {
+        const savedItems = await saveDBBatch(changedItems, 'OPNAME', `${hasTargetCompletion ? 'Buka ulang' : 'Selesaikan'} lokasi ${target}`);
+        savedItems.forEach(savedItem => {
+            const index = localItems.findIndex(item => item.id === savedItem.id);
+            if (index >= 0) localItems[index] = savedItem;
+            const filteredIndex = filteredItems.findIndex(item => item.id === savedItem.id);
+            if (filteredIndex >= 0) filteredItems[filteredIndex] = savedItem;
+        });
+    } catch (error) {
+        console.error(`Gagal ${hasTargetCompletion ? 'membuka ulang' : 'menyelesaikan'} lokasi ${target}:`, error);
+        feedback('error');
+        showToast(`Perubahan status lokasi ${target} gagal disimpan.`);
+        return;
+    } finally {
+        opnameCommitInProgress = false;
+    }
+    opnameBuffer = [];
+    opnameBufferCommitted = true;
+    opnameBufferStarted = !hasTargetCompletion;
+    opnameBufferBox = target;
+    persistOpnameSession();
+    renderOpnameBuffer();
+    handleOpnameRender(true);
+    updateOpnameCompletionButton();
+    feedback('success');
+    showToast(hasTargetCompletion ? `Opname ${target} dibuka ulang.` : `Opname ${target} selesai. Status part dibandingkan setelah seluruh lokasinya selesai.`);
 }
 
 function setOpnameBoxFilter(box) { 
@@ -1770,8 +2006,9 @@ function setOpnameBoxFilter(box) {
     }
     activeBoxFilter = box; 
     opnameBufferBox = box;
+    const itemCount = getOpnameBoxItems().length;
     const nameEl = document.getElementById('activeBoxName');
-    if (nameEl) nameEl.innerText = box;
+    if (nameEl) nameEl.innerText = `${box} • ${itemCount} nomor part`;
     const hiddenName = document.getElementById('opnameBoxName');
     if (hiddenName) hiddenName.innerText = box;
     const idle = document.getElementById('opnameIdleHint');
@@ -1780,6 +2017,7 @@ function setOpnameBoxFilter(box) {
     document.getElementById('opnameInfoPanel').style.display = 'none'; 
     document.getElementById('opnameList').style.display = 'flex'; 
     handleOpnameRender(true); 
+    updateOpnameCompletionButton();
 }
 function clearOpnameBoxFilter() { 
     activeBoxFilter = null;
@@ -1831,8 +2069,9 @@ async function clearOpname() {
                 return;
             }
             const changedItems = localItems
-                .filter(item => isSparepartBaik(item) && Object.keys(item.opnameCounts || {}).length > 0)
-                .map(item => ({ ...item, opnameCounts: {} }));
+                .filter(item => isSparepartBaik(item)
+                    && (Object.keys(item.opnameCounts || {}).length > 0 || Object.keys(item.opnameCompleted || {}).length > 0))
+                .map(item => ({ ...item, opnameCounts: {}, opnameCompleted: {} }));
             opnameCommitInProgress = true;
             try {
                 const savedItems = await saveDBBatch(changedItems, 'OPNAME', 'Reset semua hitungan: 0');
@@ -1857,6 +2096,7 @@ async function clearOpname() {
             persistOpnameSession();
             renderOpnameBuffer();
             handleOpnameRender();
+            updateOpnameCompletionButton();
             feedback('success');
             showToast(`Selesai: hitungan ${changedItems.length} part direset; data box tetap.`);
         } else { alert('Batal mereset.'); }
@@ -1870,15 +2110,29 @@ async function resetCurrentBoxOpname() {
         showToast('Penyimpanan box sedang berlangsung. Tunggu hingga selesai.');
         return;
     }
-    if (confirm(`PERINGATAN: ULANG PERHITUNGAN BOX: ${activeBoxFilter}?`)) {
+    if (confirm(`PERINGATAN: ULANG PERHITUNGAN LOKASI: ${activeBoxFilter}?`)) {
         const box = activeBoxFilter;
         const changedItems = [];
         localItems.forEach(item => {
-            if (!isSparepartBaik(item) || !Object.prototype.hasOwnProperty.call(item.locations || {}, box)) return;
-            if (!Object.prototype.hasOwnProperty.call(item.opnameCounts || {}, box)) return;
+            if (!isSparepartBaik(item) || !opnameTargetMatchesItem(box, item)) return;
+            const hasTargetData = Object.keys(item.opnameCounts || {}).some(location => location === box
+                || (isWmsOpnameRackCode(box) && String(location).toUpperCase().startsWith(`${box.toUpperCase()}-`)))
+                || Object.keys(item.opnameCompleted || {}).some(location => location === box
+                    || (isWmsOpnameRackCode(box) && String(location).toUpperCase().startsWith(`${box.toUpperCase()}-`)));
+            if (!hasTargetData) return;
             const opnameCounts = { ...(item.opnameCounts || {}) };
+            const opnameCompleted = { ...(item.opnameCompleted || {}) };
             delete opnameCounts[box];
-            changedItems.push({ ...item, opnameCounts });
+            delete opnameCompleted[box];
+            if (isWmsOpnameRackCode(box)) {
+                Object.keys(opnameCounts).forEach(location => {
+                    if (String(location).toUpperCase().startsWith(`${box.toUpperCase()}-`)) delete opnameCounts[location];
+                });
+                Object.keys(opnameCompleted).forEach(location => {
+                    if (String(location).toUpperCase().startsWith(`${box.toUpperCase()}-`)) delete opnameCompleted[location];
+                });
+            }
+            changedItems.push({ ...item, opnameCounts, opnameCompleted });
         });
         opnameCommitInProgress = true;
         try {
@@ -1904,8 +2158,9 @@ async function resetCurrentBoxOpname() {
         persistOpnameSession();
         renderOpnameBuffer();
         feedback('success');
-        showToast(`<i class="fas fa-check-circle"></i> Hitungan box ${box} direset ke 0`);
+        showToast(`<i class="fas fa-check-circle"></i> Hitungan ${box} direset ke 0`);
         handleOpnameRender();
+        updateOpnameCompletionButton();
     }
 }
 
@@ -1922,14 +2177,20 @@ async function clearCurrentBoxOpnameContents() {
         return;
     }
     const box = activeBoxFilter;
+    if (isWmsOpnameRackCode(box)) {
+        showToast('Isi part hanya dapat dihapus per box; scan box yang spesifik terlebih dahulu.');
+        return;
+    }
     const changedItems = localItems
         .filter(item => isSparepartBaik(item) && Object.prototype.hasOwnProperty.call(item.locations || {}, box))
         .map(item => {
             const locations = { ...(item.locations || {}) };
             const opnameCounts = { ...(item.opnameCounts || {}) };
+            const opnameCompleted = { ...(item.opnameCompleted || {}) };
             delete locations[box];
             delete opnameCounts[box];
-            return { ...item, locations, opnameCounts };
+            delete opnameCompleted[box];
+            return { ...item, locations, opnameCounts, opnameCompleted };
         });
     if (changedItems.length === 0) {
         showToast(`Box ${box} sudah kosong.`);
@@ -1970,6 +2231,7 @@ async function clearCurrentBoxOpnameContents() {
     persistOpnameSession();
     renderOpnameBuffer();
     handleOpnameRender();
+    updateOpnameCompletionButton();
     feedback('success');
     showToast(`Isi box ${box} dihapus dari perangkat dan masuk antrean upload.`);
 }
@@ -2046,7 +2308,7 @@ function openEditModal(id) {
     const list = document.getElementById('editLocsList');
     list.replaceChildren();
     const activeOpnameBox = currentTab === 'opname' ? activeBoxFilter : null;
-    if (activeOpnameBox && Object.prototype.hasOwnProperty.call(item.locations || {}, activeOpnameBox)) {
+    if (activeOpnameBox && opnameTargetMatchesItem(activeOpnameBox, item)) {
         const row = document.createElement('label');
         row.style.cssText = 'display:flex; justify-content:space-between; margin-bottom:8px; align-items:center;';
         const label = document.createElement('b');
@@ -2075,7 +2337,8 @@ function openEditModal(id) {
     const deleteContainer = document.getElementById('editDeleteBtnContainer');
     deleteContainer.innerHTML = item.desc === 'PART BARU' ? `<button class="btn btn-danger" style="margin-top:15px;" onclick="deletePartBaru(${item.id})"><i class="fas fa-trash-alt"></i> Hapus Part Ini Permanen</button>` : '';
     const activeBox = activeBoxFilter;
-    if (currentTab === 'opname' && activeBox && Object.prototype.hasOwnProperty.call(item.locations || {}, activeBox)) {
+    if (currentTab === 'opname' && activeBox && !isWmsOpnameRackCode(activeBox)
+        && Object.prototype.hasOwnProperty.call(item.locations || {}, activeBox)) {
         const removeButton = document.createElement('button');
         removeButton.type = 'button';
         removeButton.className = 'btn btn-danger';
@@ -2155,6 +2418,7 @@ async function removeOpnamePartFromActiveBox(id, box) {
     };
     delete updatedItem.locations[box];
     delete updatedItem.opnameCounts[box];
+    delete updatedItem.opnameCompleted[box];
     opnameCommitInProgress = true;
     try {
         const [savedItem] = await saveDBBatch([updatedItem], 'LOCATION', `Hapus part dari box ${box}`);
@@ -2211,11 +2475,15 @@ async function saveManualEdit() {
         showToast('Qty lokasi dan OPNAME hanya dapat diubah untuk LOC_TYPE SPAREPART BAIK.');
         return;
     }
+    if (getOpnameTargetCompletionConflict(item, activeBoxFilter)) {
+        showToast('Buka ulang lokasi yang sudah ditutup sebelum mengubah hitungan.');
+        return;
+    }
     const input = document.querySelector('.edit-opname-count-input');
     const box = input?.dataset.box;
     const value = input?.value.trim() || '';
     const qty = Number(value);
-    if (!input || box !== activeBoxFilter || !Object.prototype.hasOwnProperty.call(item.locations || {}, box)) {
+    if (!input || box !== activeBoxFilter || !opnameTargetMatchesItem(box, item)) {
         feedback('error');
         showToast('Box aktif tidak lagi sesuai. Buka ulang edit part dari box aktif.');
         return;
@@ -2227,10 +2495,17 @@ async function saveManualEdit() {
     }
     const updatedItem = {
         ...item,
-        opnameCounts: { ...(item.opnameCounts || {}) }
+        opnameCounts: { ...(item.opnameCounts || {}) },
+        opnameCompleted: { ...(item.opnameCompleted || {}) }
     };
+    if (isWmsOpnameRackCode(box)) {
+        Object.keys(updatedItem.opnameCounts).forEach(location => {
+            if (String(location).toUpperCase().startsWith(`${box.toUpperCase()}-`)) delete updatedItem.opnameCounts[location];
+        });
+    }
     if (qty === 0) delete updatedItem.opnameCounts[box];
     else updatedItem.opnameCounts[box] = qty;
+    delete updatedItem.opnameCompleted[box];
 
     const opnameDate = document.getElementById('editLastOpnameDate').value || new Date().toISOString().split('T')[0];
     updatedItem.lastOpnameDate = opnameDate;
@@ -2264,6 +2539,7 @@ async function saveManualEdit() {
     document.getElementById('editModal').style.display='none'; 
     renderOpnameBuffer();
     handleOpnameRender(); 
+    updateOpnameCompletionButton();
     renderDataList(false); 
     document.getElementById('mainInput').focus(); 
 }
@@ -2302,8 +2578,8 @@ function getOpnameLocationEntries() {
 }
 
 function getOpnameLocationStatus(entry) {
-    if (entry.count === 0) return 'zero';
-    return entry.count === getOpnameTargetQty(entry.item) ? 'match' : 'diff';
+    if (!isOpnameItemFullyCounted(entry.item)) return 'pending';
+    return getOpnameTotalCount(entry.item) === getOpnameTargetQty(entry.item) ? 'match' : 'diff';
 }
 
 function populateOpnameLocationSelect(select, values, placeholder, selectedValue) {
@@ -2622,12 +2898,15 @@ async function addToOpnameBuffer(item, confirmedOverTarget = false) {
         return false;
     }
     const box = activeBoxFilter;
-    if (!box || opnameBufferBox !== box) return false;
-    const currentQty = Object.prototype.hasOwnProperty.call(item.opnameCounts || {}, box)
-        ? Number(item.opnameCounts[box]) || 0
-        : 0;
+    if (!box || opnameBufferBox !== box || !opnameTargetMatchesItem(box, item)) return false;
+    if (getOpnameTargetCompletionConflict(item, box)) {
+        feedback('warning');
+        showToast(`Lokasi ${box} sudah ditutup atau dicatat pada level lain. Buka ulang sebelum menghitung.`);
+        return false;
+    }
+    const currentQty = getOpnameBufferQty(item.id, item);
     const nextQty = currentQty + 1;
-    const nextTotalQty = getOpnameTotalCount(item) + 1;
+    const nextTotalQty = getOpnameTotalCount(item, box) + 1;
     const targetQty = getOpnameTargetQty(item);
 
     if (nextTotalQty > targetQty && !confirmedOverTarget) {
@@ -2641,9 +2920,15 @@ async function addToOpnameBuffer(item, confirmedOverTarget = false) {
 
     const updatedItem = {
         ...item,
-        opnameCounts: { ...(item.opnameCounts || {}), [box]: nextQty },
+        opnameCounts: { ...(item.opnameCounts || {}) },
         lastOpnameDate: new Date().toISOString().split('T')[0]
     };
+    if (isWmsOpnameRackCode(box)) {
+        Object.keys(updatedItem.opnameCounts).forEach(location => {
+            if (String(location).toUpperCase().startsWith(`${box.toUpperCase()}-`)) delete updatedItem.opnameCounts[location];
+        });
+    }
+    updatedItem.opnameCounts[box] = nextQty;
     opnameCommitInProgress = true;
     try {
         const [savedItem] = await saveDBBatch([updatedItem], 'OPNAME', `Scan ${box}: ${nextQty}`);
@@ -2724,8 +3009,18 @@ async function persistOpnameBufferQuantity(entry, nextQty) {
         showToast('Hitungan tidak valid atau box sudah berubah.');
         return false;
     }
+    if (getOpnameTargetCompletionConflict(entry.item, box)) {
+        feedback('warning');
+        showToast('Buka ulang lokasi yang sudah ditutup sebelum mengoreksi hitungan.');
+        return false;
+    }
 
     const opnameCounts = { ...(entry.item.opnameCounts || {}) };
+    if (isWmsOpnameRackCode(box)) {
+        Object.keys(opnameCounts).forEach(location => {
+            if (String(location).toUpperCase().startsWith(`${box.toUpperCase()}-`)) delete opnameCounts[location];
+        });
+    }
     if (nextQty === 0) delete opnameCounts[box];
     else opnameCounts[box] = nextQty;
     const updatedItem = { ...entry.item, opnameCounts };
@@ -2992,6 +3287,8 @@ function handleMove(partId, newBox) {
     
     // Set new location
     item.locations[newBox] = true;
+    item.opnameCounts = {};
+    item.opnameCompleted = {};
     item.lastBox = newBox;
     
     // Remove from buffer (moved to database)
@@ -3028,6 +3325,7 @@ function handleSplit(partId, newBox) {
     
     // Add new location (split lokasi)
     item.locations[newBox] = true;
+    item.opnameCompleted = {};
     
     // Keep old locations intact, update lastBox to new box
     item.lastBox = newBox;
@@ -3092,6 +3390,8 @@ function forceSaveAllConflicts() {
         // Clear old locations and set target box
         item.locations = {};
         item.locations[targetBufferBox] = true;
+        item.opnameCounts = {};
+        item.opnameCompleted = {};
         item.lastBox = targetBufferBox;
         
         // Save to database
