@@ -2,7 +2,7 @@
     Tujuan: Entry point UI untuk workflow WMS Magelang.
     Caller: Browser/PWA shell; event handlers diteruskan ke main.js dan core.js.
     Dependensi: css/style.css, Font Awesome, dan modul JavaScript di js/.
-    Main Functions: Menyediakan role gate Admin/User, navigasi mobile collapsible, Cari, SIMPAN/OPNAME per box/rak dengan daftar rak collapsible dan penyelesaian lokasi, edit opname dengan mode keyboard dan salin nomor part, pilihan sinkronisasi, impor/ekspor, dan resolusi konflik data.
+    Main Functions: Menyediakan role gate Admin/User, navigasi mobile collapsible, Cari, SIMPAN/OPNAME per box/rak dengan daftar rak collapsible, edit opname dengan mode keyboard dan salin nomor part, pilihan sinkronisasi, impor/ekspor, dan resolusi konflik data.
     Side Effects: Mengubah DOM, memicu scan, penyimpanan lokal, dan sinkronisasi cloud melalui handler.
 -->
 <!-- WMS Magelang - Entry point UI -->
@@ -291,7 +291,6 @@
                         </table>
                         <div class="opname-box-actions">
                             <button type="button" class="btn-sm btn-outline" onclick="resetCurrentBoxOpname()" title="Ulangi hitungan lokasi aktif" aria-label="Ulangi hitungan lokasi aktif"><i class="fas fa-undo" aria-hidden="true"></i></button>
-                            <button type="button" class="btn-sm btn-success" id="opnameCompletionButton" onclick="toggleActiveOpnameCompletion()" title="Tutup lokasi dan tetapkan part yang belum discan sebagai 0"><i class="fas fa-check" aria-hidden="true"></i> Selesaikan lokasi</button>
                             <button type="button" class="btn-sm btn-danger" id="clearCurrentBoxOpnameButton" onclick="clearCurrentBoxOpnameContents()" title="Hapus semua part dari box aktif" aria-label="Hapus semua part dari box aktif"><i class="fas fa-trash-can" aria-hidden="true"></i></button>
                         </div>
                     </div>

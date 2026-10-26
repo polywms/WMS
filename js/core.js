@@ -25,8 +25,7 @@
  * - updateBoxToBoxIndicator() — Render box asal/tujuan; pertahankan pasangan valid sampai scan box berikutnya
  * - getBoxToBoxItems() — Temukan part sumber berdasarkan kode box yang dinormalisasi
  * - confirmBoxToBoxYesToAll() — Setujui semua part dan lewati konfirmasi hingga mode B2B dimatikan
- * - handleOpnameScan()/handleOpnameRender() — OPNAME per box/rak, collapsible rack listing, and deferred total-vs-SYS_QTY comparison
- * - toggleActiveOpnameCompletion() — Persist completed locations; unscanned parts become confirmed zeroes
+ * - handleOpnameScan()/handleOpnameRender() — OPNAME per box/rak, collapsible rack listing, and comparison after all locations are counted
  * - handleOpnameScan() — Reject part scans that do not belong to the active box
  * - getOpnameBufferQty(itemId, item) — Read the latest saved cumulative count for the active box
  * - resetCurrentBoxOpname()/clearCurrentBoxOpnameContents() — Reset counts or remove active-box membership
@@ -559,7 +558,9 @@ function processScan(code) {
     let rawCode = String(code || '').trim().toUpperCase();
     let parsedCode = rawCode.includes('|') ? rawCode.split('|')[0].trim() : rawCode;
     const normalizedBoxCode = normalizeBoxCode(parsedCode)
-        || (['simpan', 'opname'].includes(currentTab) && isWmsOpnameRackCode(parsedCode) ? parsedCode.toUpperCase() : null);
+        || (currentTab === 'opname'
+            ? normalizeWmsOpnameRackCode(parsedCode)
+            : currentTab === 'simpan' && isWmsOpnameRackCode(parsedCode) ? parsedCode.toUpperCase() : null);
     const isBox = Boolean(normalizedBoxCode);
     if (isBox) parsedCode = normalizedBoxCode;
 
@@ -1413,6 +1414,13 @@ function createNewItem(code) {
     localItems.push(item); filteredItems.push(item); return item;
 }
 
+function normalizeWmsOpnameRackCode(location) {
+    const normalized = String(location || '').trim().toUpperCase();
+    const alias = normalized.match(/^([A-Z])-([A-Z])-(\d)$/);
+    if (alias) return `${alias[1]}-${alias[2]}${alias[3]}`;
+    return isWmsOpnameRackCode(normalized) ? normalized : null;
+}
+
 function getOpnameBufferQty(itemId, item = null) {
     const sourceItem = item || localItems.find(candidate => candidate.id === itemId);
     if (!sourceItem || !activeBoxFilter || !opnameTargetMatchesItem(activeBoxFilter, sourceItem)) return 0;
@@ -1463,37 +1471,29 @@ function getOpnameTargetLocations(item, target) {
     });
 }
 
-function getOpnameCompletedAncestor(item, location) {
-    const normalizedLocation = String(location || '').trim().toUpperCase();
-    return Object.keys(item?.opnameCompleted || {}).find(target => item.opnameCompleted[target] === true
-        && (String(target).toUpperCase() === normalizedLocation
-            || (isWmsOpnameRackCode(target) && normalizedLocation.startsWith(`${String(target).toUpperCase()}-`))));
-}
-
-function getOpnameTargetCompletionConflict(item, target) {
+function getOpnameRackCountConflict(item, target) {
     const normalizedTarget = String(target || '').trim().toUpperCase();
     if (!isWmsOpnameRackCode(normalizedTarget)) {
-        const rackCountTarget = Object.keys(item?.opnameCounts || {}).find(location =>
+        return Object.keys(item?.opnameCounts || {}).find(location =>
             isWmsOpnameRackCode(location)
                 && normalizedTarget.startsWith(`${String(location).toUpperCase()}-`)
                 && Number(item.opnameCounts[location]) > 0
         );
-        if (rackCountTarget) return rackCountTarget;
     }
-    return Object.keys(item?.opnameCompleted || {}).find(completed => {
-        const normalizedCompleted = String(completed).toUpperCase();
-        return item.opnameCompleted[completed] === true
-            && (normalizedCompleted === normalizedTarget
-                || (isWmsOpnameRackCode(normalizedCompleted) && normalizedTarget.startsWith(`${normalizedCompleted}-`))
-                || (isWmsOpnameRackCode(normalizedTarget)
-                    && normalizedCompleted.startsWith(`${normalizedTarget}-`)
-                    && opnameTargetMatchesItem(normalizedCompleted, item)));
-    });
+    return null;
 }
 
 function isOpnameItemFullyCounted(item) {
     const locations = Object.keys(item?.locations || {});
-    return locations.length > 0 && locations.every(location => getOpnameCompletedAncestor(item, location));
+    const countedLocations = Object.keys(item?.opnameCounts || {});
+    return locations.length > 0 && locations.every(location => {
+        const normalizedLocation = String(location).toUpperCase();
+        return countedLocations.some(target => {
+            const normalizedTarget = String(target).toUpperCase();
+            return normalizedTarget === normalizedLocation
+                || (isWmsOpnameRackCode(normalizedTarget) && normalizedLocation.startsWith(`${normalizedTarget}-`));
+        });
+    });
 }
 
 function getOpnameComparison(item) {
@@ -1620,7 +1620,7 @@ async function processOpnameScan(rawCode, isBox) {
     }
 
     if (isBox) {
-        const box = rawCode.toUpperCase();
+        const box = normalizeWmsOpnameRackCode(rawCode) || rawCode.toUpperCase();
         const rack = isWmsOpnameRackCode(box);
         if (opnameBufferBox !== box) {
             opnameBuffer = [];
@@ -1657,13 +1657,6 @@ async function processOpnameScan(rawCode, isBox) {
                 : `Part ${partNo} tidak ada di daftar stok.`);
         return;
     }
-    const completedTarget = getOpnameTargetCompletionConflict(item, activeBoxFilter);
-    if (completedTarget) {
-        feedback('warning');
-        showToast(`Lokasi ${completedTarget} sudah ditutup. Buka ulang lokasi tersebut sebelum mengubah hitungan.`);
-        return;
-    }
-
     opnameBufferBox = activeBoxFilter;
     await addToOpnameBuffer(item);
 }
@@ -1865,7 +1858,7 @@ function createOpnameItemCard(item, index, pendingIds) {
     const counted = getOpnameDisplayCount(item);
     const comparison = getOpnameComparison(item);
     const badgeClass = comparison === 'match' ? 'qty-match' : comparison === 'diff' ? 'qty-diff' : 'qty-uncounted';
-    const targetDisplay = comparison === 'pending' ? 'menunggu' : String(getOpnameTargetQty(item));
+    const targetDisplay = String(getOpnameTargetQty(item));
     const pending = pendingIds.has(String(item.id));
     const card = document.createElement('div');
     card.className = `item-card ${lastOpnameScanId === item.id ? 'selected' : ''}`;
@@ -1897,127 +1890,32 @@ function createOpnameItemCard(item, index, pendingIds) {
     }
     const quantity = document.createElement('div');
     quantity.className = `qty-badge ${badgeClass}`;
-    quantity.textContent = `${counted}/${targetDisplay}`;
+    quantity.textContent = `${counted > 0 ? counted : '-'}/${targetDisplay}`;
     badges.appendChild(quantity);
     card.append(info, badges);
     return card;
 }
 
-function updateOpnameCompletionButton() {
-    const button = document.getElementById('opnameCompletionButton');
-    if (!button) return;
-    const target = activeBoxFilter;
-    const items = getOpnameBoxItems();
-    const hasTargetCompletion = items.some(item => item.opnameCompleted?.[target] === true);
-    const clearContentsButton = document.getElementById('clearCurrentBoxOpnameButton');
-    if (clearContentsButton) clearContentsButton.hidden = isWmsOpnameRackCode(target);
-    const hasConflictingCompletion = items.some(item => {
-        const conflict = getOpnameTargetCompletionConflict(item, target);
-        return conflict && conflict !== target;
-    });
-    button.disabled = !target || items.length === 0 || (hasConflictingCompletion && !hasTargetCompletion);
-    button.innerHTML = hasTargetCompletion
-        ? '<i class="fas fa-rotate-left" aria-hidden="true"></i> Buka ulang lokasi'
-        : '<i class="fas fa-check" aria-hidden="true"></i> Selesaikan lokasi';
-    button.title = hasTargetCompletion ? 'Buka ulang dan hitung kembali lokasi ini' : 'Tutup lokasi dan tetapkan part yang belum discan sebagai 0';
-}
-
-async function toggleActiveOpnameCompletion() {
-    if (!requireAdminAccess('menyelesaikan Opname lokasi')) return;
-    const target = activeBoxFilter;
-    const items = getOpnameBoxItems();
-    if (!target || items.length === 0) {
-        showToast('Scan lokasi yang memiliki part terdaftar terlebih dahulu.');
-        return;
-    }
-    if (opnameCommitInProgress) {
-        showToast('Penyimpanan OPNAME sedang berlangsung. Tunggu hingga selesai.');
-        return;
-    }
-    const hasTargetCompletion = items.some(item => item.opnameCompleted?.[target] === true);
-    const conflictingTarget = items.map(item => getOpnameTargetCompletionConflict(item, target))
-        .find(completedTarget => completedTarget && completedTarget !== target);
-    if (conflictingTarget && !hasTargetCompletion) {
-        showToast(`Lokasi ${conflictingTarget} sudah ditutup. Buka ulang lokasi tersebut terlebih dahulu.`);
-        return;
-    }
-    const uncounted = items.filter(item => getOpnameBufferQty(item.id, item) === 0).length;
-    const promptText = hasTargetCompletion
-        ? `Buka ulang ${target}? Hitungan agregat lokasi ini akan direset agar dapat dihitung kembali.`
-        : `Selesaikan ${target}? ${uncounted} part yang belum discan akan ditetapkan sebagai 0. Hitungan agregat part di lokasi ini menjadi final.`;
-    if (!confirm(promptText)) return;
-
-    const changedItems = items.map(item => {
-        const opnameCounts = { ...(item.opnameCounts || {}) };
-        const opnameCompleted = { ...(item.opnameCompleted || {}) };
-        if (hasTargetCompletion) {
-            delete opnameCompleted[target];
-            delete opnameCounts[target];
-        } else {
-            const targetCount = getOpnameBufferQty(item.id, item);
-            if (isWmsOpnameRackCode(target)) {
-                Object.keys(opnameCounts).forEach(location => {
-                    if (String(location).toUpperCase().startsWith(`${target.toUpperCase()}-`)) delete opnameCounts[location];
-                });
-                Object.keys(opnameCompleted).forEach(location => {
-                    if (String(location).toUpperCase().startsWith(`${target.toUpperCase()}-`)) delete opnameCompleted[location];
-                });
-            }
-            opnameCompleted[target] = true;
-            if (targetCount > 0) opnameCounts[target] = targetCount;
-            else delete opnameCounts[target];
-        }
-        return { ...item, opnameCounts, opnameCompleted };
-    });
-
-    opnameCommitInProgress = true;
-    try {
-        const savedItems = await saveDBBatch(changedItems, 'OPNAME', `${hasTargetCompletion ? 'Buka ulang' : 'Selesaikan'} lokasi ${target}`);
-        savedItems.forEach(savedItem => {
-            const index = localItems.findIndex(item => item.id === savedItem.id);
-            if (index >= 0) localItems[index] = savedItem;
-            const filteredIndex = filteredItems.findIndex(item => item.id === savedItem.id);
-            if (filteredIndex >= 0) filteredItems[filteredIndex] = savedItem;
-        });
-    } catch (error) {
-        console.error(`Gagal ${hasTargetCompletion ? 'membuka ulang' : 'menyelesaikan'} lokasi ${target}:`, error);
-        feedback('error');
-        showToast(`Perubahan status lokasi ${target} gagal disimpan.`);
-        return;
-    } finally {
-        opnameCommitInProgress = false;
-    }
-    opnameBuffer = [];
-    opnameBufferCommitted = true;
-    opnameBufferStarted = !hasTargetCompletion;
-    opnameBufferBox = target;
-    persistOpnameSession();
-    renderOpnameBuffer();
-    handleOpnameRender(true);
-    updateOpnameCompletionButton();
-    feedback('success');
-    showToast(hasTargetCompletion ? `Opname ${target} dibuka ulang.` : `Opname ${target} selesai. Status part dibandingkan setelah seluruh lokasinya selesai.`);
-}
-
 function setOpnameBoxFilter(box) { 
+    box = normalizeWmsOpnameRackCode(box) || box;
     if (activeBoxFilter !== box) {
         opnameLocationFilter = { rack: '', column: '', level: '' };
         opnameFilter = 'all';
     }
     activeBoxFilter = box; 
     opnameBufferBox = box;
-    const itemCount = getOpnameBoxItems().length;
     const nameEl = document.getElementById('activeBoxName');
-    if (nameEl) nameEl.innerText = `${box} • ${itemCount} nomor part`;
+    if (nameEl) nameEl.innerText = box;
     const hiddenName = document.getElementById('opnameBoxName');
     if (hiddenName) hiddenName.innerText = box;
     const idle = document.getElementById('opnameIdleHint');
     if (idle) idle.style.display = 'none';
+    const clearContentsButton = document.getElementById('clearCurrentBoxOpnameButton');
+    if (clearContentsButton) clearContentsButton.hidden = isWmsOpnameRackCode(box);
     document.getElementById('activeBoxPanel').style.display = 'grid'; 
     document.getElementById('opnameInfoPanel').style.display = 'none'; 
     document.getElementById('opnameList').style.display = 'flex'; 
     handleOpnameRender(true); 
-    updateOpnameCompletionButton();
 }
 function clearOpnameBoxFilter() { 
     activeBoxFilter = null;
@@ -2096,7 +1994,6 @@ async function clearOpname() {
             persistOpnameSession();
             renderOpnameBuffer();
             handleOpnameRender();
-            updateOpnameCompletionButton();
             feedback('success');
             showToast(`Selesai: hitungan ${changedItems.length} part direset; data box tetap.`);
         } else { alert('Batal mereset.'); }
@@ -2160,7 +2057,6 @@ async function resetCurrentBoxOpname() {
         feedback('success');
         showToast(`<i class="fas fa-check-circle"></i> Hitungan ${box} direset ke 0`);
         handleOpnameRender();
-        updateOpnameCompletionButton();
     }
 }
 
@@ -2231,7 +2127,6 @@ async function clearCurrentBoxOpnameContents() {
     persistOpnameSession();
     renderOpnameBuffer();
     handleOpnameRender();
-    updateOpnameCompletionButton();
     feedback('success');
     showToast(`Isi box ${box} dihapus dari perangkat dan masuk antrean upload.`);
 }
@@ -2475,8 +2370,9 @@ async function saveManualEdit() {
         showToast('Qty lokasi dan OPNAME hanya dapat diubah untuk LOC_TYPE SPAREPART BAIK.');
         return;
     }
-    if (getOpnameTargetCompletionConflict(item, activeBoxFilter)) {
-        showToast('Buka ulang lokasi yang sudah ditutup sebelum mengubah hitungan.');
+    const rackCountConflict = getOpnameRackCountConflict(item, activeBoxFilter);
+    if (rackCountConflict) {
+        showToast(`Hitungan tingkat rak ${rackCountConflict} sudah ada. Reset hitungan tingkat tersebut sebelum mengubah box ini.`);
         return;
     }
     const input = document.querySelector('.edit-opname-count-input');
@@ -2539,7 +2435,6 @@ async function saveManualEdit() {
     document.getElementById('editModal').style.display='none'; 
     renderOpnameBuffer();
     handleOpnameRender(); 
-    updateOpnameCompletionButton();
     renderDataList(false); 
     document.getElementById('mainInput').focus(); 
 }
@@ -2899,9 +2794,10 @@ async function addToOpnameBuffer(item, confirmedOverTarget = false) {
     }
     const box = activeBoxFilter;
     if (!box || opnameBufferBox !== box || !opnameTargetMatchesItem(box, item)) return false;
-    if (getOpnameTargetCompletionConflict(item, box)) {
+    const rackCountConflict = getOpnameRackCountConflict(item, box);
+    if (rackCountConflict) {
         feedback('warning');
-        showToast(`Lokasi ${box} sudah ditutup atau dicatat pada level lain. Buka ulang sebelum menghitung.`);
+        showToast(`Hitungan tingkat rak ${rackCountConflict} sudah ada. Reset hitungan tingkat tersebut sebelum menghitung box ini.`);
         return false;
     }
     const currentQty = getOpnameBufferQty(item.id, item);
@@ -3009,9 +2905,10 @@ async function persistOpnameBufferQuantity(entry, nextQty) {
         showToast('Hitungan tidak valid atau box sudah berubah.');
         return false;
     }
-    if (getOpnameTargetCompletionConflict(entry.item, box)) {
+    const rackCountConflict = getOpnameRackCountConflict(entry.item, box);
+    if (rackCountConflict) {
         feedback('warning');
-        showToast('Buka ulang lokasi yang sudah ditutup sebelum mengoreksi hitungan.');
+        showToast(`Hitungan tingkat rak ${rackCountConflict} sudah ada. Reset hitungan tingkat tersebut sebelum mengoreksi box ini.`);
         return false;
     }
 

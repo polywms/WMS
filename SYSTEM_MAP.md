@@ -75,7 +75,7 @@ User opens sync dialog → Upload to server [database.js] — POST queued record
 ```
 Scan box or rack level → handleOpnameScan() → setOpnameBoxFilter()
   ↓
-Box QR (contoh `BUFFER-E-A1-01`) or rack-level QR `B-B1` is recognized in OPNAME; rack scan includes direct rack locations and child boxes such as `B-B1-01`
+Box QR (contoh `BUFFER-E-A1-01`) or rack-level QR `B-B1` / alias `B-B-1` is recognized in OPNAME; the alias is normalized to `B-B1`; rack scan includes direct rack locations and child boxes such as `B-B1-01`
   ↓
 Batasi daftar dan scan part ke `LOC_TYPE` SPAREPART BAIK
   ↓
@@ -84,7 +84,7 @@ handleOpnameRender() — Show all registered parts at the active location; rack 
 Scan part QR → handleOpnameScan() — Reject parts not registered directly or in a child box of the active rack
   ↓
 Each box/rack remains membership-only in `locations`; the active box or rack aggregate is stored in `item.opnameCounts[target]`
-  (a missing count means 0; zero counts are represented by a completed-target marker)
+  (a missing count is uncounted and displays as `-/SYS_QTY`)
   ↓
 Each scan reads saved target count, adds 1, and persists immediately; rack counts aggregate any prior child-box counts and replace those child counts after the first rack-level scan
   ↓
@@ -96,29 +96,25 @@ Confirmed scan beyond Y also persists X+1 immediately
   ↓
 Buffer controls decrement X by one or reset that part to 0; each correction persists immediately
   ↓
-Persist recent scan list in localStorage; IndexedDB `opnameCounts` and `opnameCompleted` are authoritative; comparison against `SYS_QTY` is deferred until all registered locations for the part are completed
-  ↓
-Selesaikan lokasi → confirm unscanned parts as 0; completion state and counts enter the manual cloud-sync outbox
-  ↓
-Completed locations can be reopened (aggregate count resets); scanning within a completed rack/box is blocked until reopened
+Persist recent scan list in localStorage; IndexedDB `opnameCounts` is authoritative; comparison against `SYS_QTY` is deferred until every registered location has a saved count (or is covered by a rack aggregate)
   ↓
 Clickable opname stats → filter by OK, selisih, belum, or counted quantity; rack modal continues to filter populated locations by rack/column/level
   ↓
-Changing locations through SIMPAN invalidates per-part completion markers; OPNAME never changes location membership
+Changing locations through SIMPAN invalidates affected per-part counts; OPNAME never changes location membership
   ↓
-Reset current location → clear its counts/completion markers while preserving membership; destructive part removal remains available only for a specific box
+Reset current location → clear its counts while preserving membership; destructive part removal remains available only for a specific box
   ↓
-Each scan/correction/completion → saveDBBatch() → IndexedDB + persistent upload queue (no automatic cloud request)
+Each scan/correction → saveDBBatch() → IndexedDB + persistent upload queue (no automatic cloud request)
   ↓
-Cloud schema stores `OPNAME_COUNTS` and `OPNAME_COMPLETED`; rack target keys are valid only when the part belongs to that rack directly or through a child box
+Cloud schema stores `OPNAME_COUNTS`; legacy `OPNAME_COMPLETED` values remain accepted for compatibility but do not affect current Opname status
 ```
 
 ### Simplified Sync Rules (current)
-- Upload perubahan lokal hanya menulis `LOCATIONS`, `OPNAME_COUNTS`, dan `OPNAME_COMPLETED`; identity dan revision hanya untuk pencocokan serta konflik.
+- Upload perubahan lokal menulis `LOCATIONS` dan `OPNAME_COUNTS`; legacy `OPNAME_COMPLETED` is retained for compatibility; identity and revision are used only for matching and conflict detection.
 - Upload normal tidak menulis `SYS_QTY` atau metadata master. Import stock adalah alur yang mengubah `SYS_QTY` di cloud.
 - Download selalu menerapkan `SYS_QTY` cloud ke lokal, termasuk pada record ber-outbox, dan memperbarui snapshot antrean tanpa mengubah revision.
-- `LOCATIONS` menyimpan membership box/tingkat; `OPNAME_COUNTS` menyimpan hitungan positif per target; `OPNAME_COMPLETED` menandai target yang sudah ditutup dan mengonfirmasi hitungan 0 jika tidak ada scan.
-- Status perbandingan OPNAME terhadap `SYS_QTY` cloud baru final setelah seluruh lokasi item ditutup; upload hasil tetap manual.
+- `LOCATIONS` menyimpan membership box/tingkat; `OPNAME_COUNTS` menyimpan hitungan positif per target. Part yang belum dihitung ditampilkan `-/SYS_QTY`, bukan dianggap nol.
+- Status perbandingan OPNAME terhadap `SYS_QTY` cloud final setelah setiap lokasi item memiliki hitungan atau tercakup hitungan rak; upload hasil tetap manual.
 
 ### Flow 3: Off BS (Off-Balance-Sheet)
 ```
@@ -193,7 +189,7 @@ Scan Part 1, 2, 3...
   ↓
 addToOpnameBuffer(item) → session count +1; every scan persists the session in localStorage
   ↓
-Reset current box/rack → clears target count/completion keys while preserving membership; clear contents remains box-only removes both membership and count through the local upload queue
+Reset current box/rack → clears target count keys while preserving membership; clear contents remains box-only removes both membership and count through the local upload queue
   ↓
 Each saveDBBatch() writes item + outbox entry in one IndexedDB transaction
   ↓
@@ -377,13 +373,12 @@ WMS/
 - `updateBoxToBoxIndicator()` — Render box sumber/tujuan dengan status validasi tujuan
 - `checkSimpanConflict(item, newBox)` — Prompt move/split decision
 - `handleOpnameRender()` / `setOpnameFilter()` — Filter Opname by final comparison/count status; rack scans group registered parts under collapsible box lists
-- `toggleActiveOpnameCompletion()` — Confirm missing parts as zero, persist location completion, or reopen/reset the completed target
 - `openRakModal()` / `renderRakSummary()` — List populated racks and summarize OK, selisih, belum, and counted pcs by location
 - `getOpnameBufferQty(itemId, item)` — Read the active box/rack aggregate, including prior child-box counts before rack-level counting starts
-- `getOpnameTotalCount(item)` — Sum persisted counts; rack completion replaces child counts with one rack aggregate
+- `getOpnameTotalCount(item)` — Sum persisted counts; rack aggregate replaces child-box counts
 - `saveManualEdit()` — Edit the active box/rack physical Opname count without changing locations
 - `removeOpnamePartFromActiveBox()` — Remove a part and its count from only the active OPNAME box through the local upload queue
-- `resetCurrentBoxOpname()` — Remove saved count/completion keys for active box/rack without changing membership
+- `resetCurrentBoxOpname()` — Remove saved count keys for active box/rack without changing membership
 - `clearCurrentBoxOpnameContents()` — Remove active specific-box membership and counts through one local upload batch
 - `confirmOpnameOverScan()` — Confirm aggregate physical count that exceeds `SYS_QTY`
 - `decrementOpnameBuffer()` / `removeFromOpnameBuffer()` — Reduce one or all counted units for a part
@@ -607,7 +602,7 @@ Item {
     "A-01": 5,
     "B-10": 3
   },
-  opnameCompleted: {           // Target lokasi selesai; missing count at a completed target means confirmed 0
+  opnameCompleted: {           // Legacy cloud completion markers; ignored by current Opname status
     "B-B1": true
   },
   labelIssues: {               // Label quality issues
