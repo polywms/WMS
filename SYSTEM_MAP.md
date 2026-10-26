@@ -416,7 +416,7 @@ WMS/
 ### [excel.js](js/excel.js)
 **Fungsi Publik Utama**:
 - `handleImport(input)` — Read Excel dan consolidate per identitas; record lama hanya memperbarui qty dan mempertahankan lokasi, record baru tanpa lokasi; setelah upload bulk terotorisasi, rekonsiliasi ID lokal dengan server
-- `exportData()` — Admin-only export box membership and per-box physical counts to XLSX
+- `exportData()` — Admin-only XLSX export with locations from `DB_MASTER.LOCATIONS` as comma-separated addresses and summed Opname counts per part
 - `exportOffBsData()` — Export offBsSession ke XLSX
 - `downloadNewParts()` — Download "PART BARU" list
 - `backupJson()` — Backup localItems + offBsSession ke JSON file

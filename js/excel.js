@@ -2,7 +2,7 @@
  * Tujuan: Import, export, backup, dan restore data WMS melalui file Excel/JSON.
  * Caller: Tombol data/settings di index.html.
  * Dependensi: SheetJS, database.js (IndexedDB/sync), dan UI utilities.
- * Main Functions: handleImport() refreshes stock qty, preserves pending edits/revisions, and reconciles server IDs; exportData()/backupJson() export location membership and per-box Opname counts; restoreJson() and import harga.
+ * Main Functions: handleImport() refreshes stock qty, preserves pending edits/revisions, and reconciles server IDs; exportData() exports comma-separated locations and total Opname counts; backupJson() exports data; restoreJson() and import harga.
  * Side Effects: Membaca file, menulis IndexedDB/cloud dan waktu upload ke localStorage, mengunduh file, dan reload aplikasi.
  */
 
@@ -237,70 +237,42 @@ function exportData() {
     if (!requireAdminAccess('mengekspor data')) return;
     showLoading("<i class='fas fa-arrow-up'></i> Export Data", "Mempersiapkan file...");
     
-    // ===== FLATTENED FORMAT: Satu baris per lokasi =====
-    const flattenedData = [];
+    const masterData = [];
     
     localItems.filter(i => i.desc !== 'PART BARU').forEach(item => {
-        const hasLocations = item.locations && Object.keys(item.locations).length > 0;
-        
-        if (hasLocations) {
-            // Jika ada lokasi, buat satu baris per lokasi
-            Object.keys(item.locations).forEach(lokasi => {
-                flattenedData.push({
-                    'Part Number': item.partNo,
-                    'Deskripsi': item.desc || '',
-                    'Kategori Lokasi': item.locType || '',
-                    'Nama Teknisi': item.techName || '',
-                    'Qty Sistem': item.sysQty || 0,
-                    'Lokasi': lokasi,
-                    'Qty Hitung': Number(item.opnameCounts?.[lokasi]) || 0,
-                    'Harga': item.harga || 0
-                });
-            });
-        } else {
-            // Jika tidak ada lokasi, tampilkan 1 baris dengan lokasi & qty kosong
-            flattenedData.push({
-                'Part Number': item.partNo,
-                'Deskripsi': item.desc || '',
-                'Kategori Lokasi': item.locType || '',
-                'Nama Teknisi': item.techName || '',
-                'Qty Sistem': item.sysQty || 0,
-                'Lokasi': '',
-                'Qty Hitung': '',
-                'Harga': item.harga || 0
-            });
-        }
+        const locations = Object.keys(item.locations || {});
+        masterData.push({
+            'Part Number': item.partNo,
+            'Deskripsi': item.desc || '',
+            'Kategori Lokasi': item.locType || '',
+            'Nama Teknisi': item.techName || '',
+            'Qty Sistem': item.sysQty || 0,
+            'Lokasi': locations.join(', '),
+            'Qty Hitung': locations.length
+                ? locations.reduce((total, location) => total + (Number(item.opnameCounts?.[location]) || 0), 0)
+                : '',
+            'Harga': item.harga || 0
+        });
     });
     
-    // ===== Part Temuan (Baru) - Format Flattened =====
+    // ===== Part Temuan (Baru) =====
     const dataBaru = [];
     localItems.filter(i => i.desc === 'PART BARU').forEach(item => {
-        const hasLocations = item.locations && Object.keys(item.locations).length > 0;
-        
-        if (hasLocations) {
-            Object.keys(item.locations).forEach(lokasi => {
-                dataBaru.push({
-                    'Part Number': item.partNo,
-                    'Lokasi Ditemukan': lokasi,
-                    'Qty Ditemukan': Number(item.opnameCounts?.[lokasi]) || 0,
-                    'Harga': item.harga || 0,
-                    'Tanggal Ditemukan': item.lastOpnameDate || '-'
-                });
-            });
-        } else {
-            dataBaru.push({
-                'Part Number': item.partNo,
-                'Lokasi Ditemukan': '',
-                'Qty Ditemukan': '',
-                'Harga': item.harga || 0,
-                'Tanggal Ditemukan': item.lastOpnameDate || '-'
-            });
-        }
+        const locations = Object.keys(item.locations || {});
+        dataBaru.push({
+            'Part Number': item.partNo,
+            'Lokasi Ditemukan': locations.join(', '),
+            'Qty Ditemukan': locations.length
+                ? locations.reduce((total, location) => total + (Number(item.opnameCounts?.[location]) || 0), 0)
+                : '',
+            'Harga': item.harga || 0,
+            'Tanggal Ditemukan': item.lastOpnameDate || '-'
+        });
     });
     
     // ===== Generate Excel File =====
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(flattenedData), "Data Master");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(masterData), "Data Master");
     if (dataBaru.length > 0) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(dataBaru), "Part Temuan (Baru)");
     XLSX.writeFile(wb, "WMS_Result.xlsx");
     hideLoading();
