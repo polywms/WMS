@@ -5,7 +5,7 @@
  * Main Functions: Versioned app-shell/CDN precache, cache cleanup, dan network-first fetch.
  * Side Effects: Menulis/menghapus Cache Storage dan mengambil aset jaringan.
  */
-const RELEASE_VERSION = new URL(self.location.href).searchParams.get('v') || '1.5.23';
+const RELEASE_VERSION = new URL(self.location.href).searchParams.get('v') || '1.5.24';
 const CACHE_NAME = `wms-cache-${RELEASE_VERSION}`;
 const urlsToCache = [
   './',

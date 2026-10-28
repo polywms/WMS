@@ -31,7 +31,8 @@
  * - resetCurrentBoxOpname()/clearCurrentBoxOpnameContents() — Reset counts or remove active-box membership
  * - confirmOpnameOverScan()/decrementOpnameBuffer() — Confirm over-target scans and correct counted quantity
  * - addToOpnameBuffer() — Persist every cumulative scan immediately to the active box
- * - setOpnameFilter()/openRakModal() — Filter the Opname list by count status and populated rack/column/level
+ * - setOpnameFilter()/openRakModal() — Dashboard heatmap, uncounted parts, empty boxes, and populated rack/column/level filters
+ * - loadBoxRegistry()/saveBoxRegistryDraft()/deleteBoxRegistry() — Manage shared box registry and open selected location in Opname
  * - getOpnameTotalCount(item) — Sum physical counts across the item's assigned boxes
  * - saveManualEdit() — Edit the active box's physical count without changing locations
  * - openEditModal()/copyEditPartNo() — Edit a part and copy its part number; Opname opens keyboard mode
@@ -55,6 +56,7 @@
  * - localStorage read (currentTab)
  * - IndexedDB writes via saveDB()/saveDBBatch() (SIMPAN locations, per-scan OPNAME counts)
  * - Google Sheets upload is started explicitly from the sync dialog in database.js
+ * - Authenticated Google Sheets requests read/write the shared BOX_REGISTRY from the location dashboard
  * - Recent OPNAME scan list persisted in localStorage; authoritative per-box counts update IndexedDB immediately
  * 
  * Recent Changes (2026-05-23):
@@ -64,6 +66,10 @@
  * - SIMPLIFIED: processScan() SIMPAN branch - part→detail, box→save location
  * - MULTI-SCAN: Scan part ke buffer, scan box, lalu pilih Move/Split per konflik atau terapkan ke semua
  * - BOX TO BOX: Mode tetap aktif setelah tujuan dipindai; sumber direset untuk pasangan berikutnya dan Yes to all berlaku sampai mode dimatikan
+ * 
+ * Recent Changes (2026-10-28):
+ * - Dashboard lokasi heatmap/part belum opname/box kosong menggunakan BOX_REGISTRY yang disinkronkan bersama
+ * - Hapus mapping box memerlukan konfirmasi dan tidak mengubah part/lokasi di DB_MASTER
  * ========================================
  */
 
@@ -74,6 +80,9 @@ let opnameBufferStarted = false;
 let opnameCommitInProgress = false;
 let opnameScanQueue = Promise.resolve();
 let opnameLocationFilter = { rack: '', column: '', level: '' };
+let boxRegistry = [];
+let boxRegistryDraft = new Set();
+let rakUncountedLimit = 50;
 
 // ===== QR CODE PARSER =====
 function parseQRCode(rawCode) {
@@ -2761,17 +2770,203 @@ function applyOpnameLocationFilter(filter, rack, column, level) {
     handleOpnameRender(true);
 }
 
-function openRakModal() {
-    if (!requireAdminAccess('membuka laporan rak')) return;
-    const modal = document.getElementById('rakModal');
-    modal.style.display = 'flex';
-    const rackSelect = document.getElementById('rakSelect');
-    const columnSelect = document.getElementById('opnameColumnSelect');
-    const levelSelect = document.getElementById('opnameLevelSelect');
-    rackSelect.value = opnameLocationFilter.rack;
-    columnSelect.value = opnameLocationFilter.column;
-    levelSelect.value = opnameLocationFilter.level;
+async function openRakModal() {
+    if (!requireAdminAccess('membuka dashboard lokasi')) return;
+    document.getElementById('rakModal').style.display = 'flex';
+    boxRegistry = [];
+    document.getElementById('rakHeatmap').textContent = 'Memuat daftar box dari server...';
+    document.getElementById('rakSummaryList').textContent = 'Memuat ringkasan...';
+    try {
+        await loadBoxRegistry();
+        const rackSelect = document.getElementById('rakSelect');
+        const columnSelect = document.getElementById('opnameColumnSelect');
+        const levelSelect = document.getElementById('opnameLevelSelect');
+        rackSelect.value = opnameLocationFilter.rack;
+        columnSelect.value = opnameLocationFilter.column;
+        levelSelect.value = opnameLocationFilter.level;
+        renderRakDashboard();
+        renderBoxRegistryManager();
+    } catch (error) {
+        console.error('Gagal memuat daftar box:', error);
+        renderRakDashboard();
+        renderBoxRegistryManager();
+        document.getElementById('rakHeatmap').textContent = 'Daftar box gagal dimuat. Periksa koneksi dan sesi Admin, lalu coba buka kembali.';
+        document.getElementById('boxRegistryStatus').textContent = `Daftar box gagal dimuat: ${error.message}`;
+        showToast(`Daftar box gagal dimuat: ${error.message}`);
+    }
+}
+
+async function loadBoxRegistry() {
+    if (!navigator.onLine) throw new Error('Koneksi internet diperlukan untuk memuat daftar box bersama.');
+    const response = await postWmsAction({ action: 'get_box_registry' });
+    const result = await response.json();
+    if (!response.ok || result.status !== 'success' || !Array.isArray(result.data)) {
+        throw new Error(result.message || 'Respons server untuk daftar box tidak valid.');
+    }
+    boxRegistry = [...new Set(result.data.map(normalizeBoxCode).filter(Boolean))].sort();
+}
+
+function getRakLocationFilter() {
+    return {
+        rack: document.getElementById('rakSelect').value,
+        column: document.getElementById('opnameColumnSelect').value,
+        level: document.getElementById('opnameLevelSelect').value
+    };
+}
+
+function matchesRakLocationFilter(location, filter) {
+    return (!filter.rack || location.rack === filter.rack)
+        && (!filter.column || location.column === filter.column)
+        && (!filter.level || location.level === filter.level);
+}
+
+function getBoxRegistrySummary() {
+    const partIdsByBox = new Map(boxRegistry.map(box => [box, new Set()]));
+    localItems.forEach(item => {
+        if (!isSparepartBaik(item)) return;
+        Object.keys(item.locations || {}).forEach(rawBox => {
+            if (!item.locations[rawBox]) return;
+            const box = normalizeBoxCode(rawBox);
+            if (box && partIdsByBox.has(box)) partIdsByBox.get(box).add(item.id || item.partNo);
+        });
+    });
+    return boxRegistry.map(box => ({
+        box,
+        ...parseOpnameLocationBox(box),
+        partCount: partIdsByBox.get(box).size
+    }));
+}
+
+function setRakDashboardTab(tab) {
+    const tabs = ['heatmap', 'uncounted', 'empty', 'summary'];
+    if (!tabs.includes(tab)) return;
+    document.querySelectorAll('.rak-dashboard-tabs [role="tab"]').forEach((button, index) => {
+        const selected = tabs[index] === tab;
+        button.classList.toggle('active', selected);
+        button.setAttribute('aria-selected', String(selected));
+    });
+    tabs.forEach(name => {
+        document.getElementById(`rakPanel${name[0].toUpperCase()}${name.slice(1)}`).hidden = name !== tab;
+    });
+}
+
+function renderRakDashboard() {
+    rakUncountedLimit = 50;
     renderRakSummary();
+    renderRakHeatmap();
+    renderRakUncounted();
+    renderRakEmptyBoxes();
+}
+
+function renderRakHeatmap() {
+    const container = document.getElementById('rakHeatmap');
+    const filter = getRakLocationFilter();
+    const boxes = getBoxRegistrySummary().filter(box => matchesRakLocationFilter(box, filter));
+    container.replaceChildren();
+    if (boxes.length === 0) {
+        container.textContent = boxRegistry.length === 0
+            ? 'Belum ada box terdaftar. Buka Kelola daftar box untuk mendaftarkan box hasil scan.'
+            : 'Tidak ada box pada filter lokasi ini.';
+        return;
+    }
+    boxes.forEach(entry => {
+        const level = Math.min(entry.partCount, 5);
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = `rak-heatmap-box level-${level}`;
+        button.title = `${entry.box}: ${entry.partCount} jenis part`;
+        button.setAttribute('aria-label', `Buka OPNAME ${entry.box}, ${entry.partCount} jenis part`);
+        const name = document.createElement('strong');
+        name.textContent = entry.box;
+        const count = document.createElement('span');
+        count.textContent = entry.partCount === 1 ? '1 jenis part' : `${entry.partCount} jenis part`;
+        button.append(name, count);
+        button.addEventListener('click', () => openOpnameForBox(entry.box));
+        container.appendChild(button);
+    });
+}
+
+function renderRakUncounted() {
+    const container = document.getElementById('rakUncountedList');
+    const countLabel = document.getElementById('rakUncountedCount');
+    const moreButton = document.getElementById('rakUncountedMore');
+    const filter = getRakLocationFilter();
+    const items = localItems.filter(item => {
+        if (!isSparepartBaik(item) || isOpnameItemFullyCounted(item)) return false;
+        const locations = Object.keys(item.locations || {}).filter(box => item.locations[box]);
+        return locations.length === 0
+            ? !filter.rack && !filter.column && !filter.level
+            : locations.some(box => matchesRakLocationFilter(parseOpnameLocationBox(box), filter));
+    }).sort((left, right) => String(left.partNo).localeCompare(String(right.partNo)));
+    countLabel.textContent = `${items.length} part belum selesai diopname. Klik box untuk langsung membuka lokasi OPNAME.`;
+    container.replaceChildren();
+    items.slice(0, rakUncountedLimit).forEach(item => {
+        const row = document.createElement('div');
+        row.className = 'rak-dashboard-row';
+        const main = document.createElement('div');
+        main.className = 'rak-dashboard-row-main';
+        main.textContent = item.partNo || 'Part tanpa nomor';
+        const detail = document.createElement('small');
+        detail.textContent = `${getOpnameTotalCount(item)}/${getOpnameTargetQty(item)} pcs · ${item.desc || 'Tanpa deskripsi'}`;
+        main.appendChild(detail);
+        const actions = document.createElement('div');
+        actions.className = 'rak-dashboard-row-actions';
+        const locations = Object.keys(item.locations || {}).filter(box => item.locations[box]
+            && matchesRakLocationFilter(parseOpnameLocationBox(box), filter));
+        if (locations.length === 0) {
+            const unassigned = document.createElement('span');
+            unassigned.textContent = 'Belum punya box';
+            actions.appendChild(unassigned);
+        } else {
+            locations.forEach(box => {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.textContent = `Opname ${box}`;
+                button.addEventListener('click', () => openOpnameForBox(box));
+                actions.appendChild(button);
+            });
+        }
+        row.append(main, actions);
+        container.appendChild(row);
+    });
+    moreButton.hidden = items.length <= rakUncountedLimit;
+    moreButton.textContent = `Tampilkan ${Math.max(0, Math.min(50, items.length - rakUncountedLimit))} berikutnya`;
+}
+
+function showMoreUncountedParts() {
+    rakUncountedLimit += 50;
+    renderRakUncounted();
+}
+
+function renderRakEmptyBoxes() {
+    const container = document.getElementById('rakEmptyBoxList');
+    const filter = getRakLocationFilter();
+    const boxes = getBoxRegistrySummary().filter(entry => entry.partCount === 0 && matchesRakLocationFilter(entry, filter));
+    container.replaceChildren();
+    if (boxes.length === 0) {
+        container.textContent = 'Tidak ada box kosong pada filter lokasi ini.';
+        return;
+    }
+    boxes.forEach(entry => {
+        const row = document.createElement('div');
+        row.className = 'rak-dashboard-row';
+        const label = document.createElement('div');
+        label.className = 'rak-dashboard-row-main';
+        label.textContent = `${entry.box} · Kosong`;
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'btn-sm btn-outline';
+        button.textContent = 'Buka OPNAME';
+        button.addEventListener('click', () => openOpnameForBox(entry.box));
+        row.append(label, button);
+        container.appendChild(row);
+    });
+}
+
+function openOpnameForBox(box) {
+    if (!switchTab('opname')) return;
+    setOpnameBoxFilter(box);
+    document.getElementById('rakModal').style.display = 'none';
 }
 
 function renderRakSummary() {
@@ -2780,23 +2975,28 @@ function renderRakSummary() {
     const levelSelect = document.getElementById('opnameLevelSelect');
     const container = document.getElementById('rakSummaryList');
     const entries = getOpnameLocationEntries();
+    const knownBoxes = [...new Set([
+        ...entries.map(entry => entry.box),
+        ...boxRegistry
+    ])];
     const priorRack = rackSelect.value;
     const priorColumn = columnSelect.value;
     const priorLevel = levelSelect.value;
-    const racks = [...new Set(entries.map(entry => entry.rack).filter(Boolean))].sort();
+    const racks = [...new Set(knownBoxes.map(box => parseOpnameLocationBox(box).rack).filter(Boolean))].sort();
     populateOpnameLocationSelect(rackSelect, racks, 'Semua rak', priorRack || opnameLocationFilter.rack);
 
     const rack = rackSelect.value;
-    const rackEntries = entries.filter(entry => !rack || entry.rack === rack);
-    const columns = [...new Set(rackEntries.map(entry => entry.column).filter(Boolean))].sort();
+    const rackBoxes = knownBoxes.filter(box => !rack || parseOpnameLocationBox(box).rack === rack);
+    const columns = [...new Set(rackBoxes.map(box => parseOpnameLocationBox(box).column).filter(Boolean))].sort();
     populateOpnameLocationSelect(columnSelect, columns, 'Semua kolom', priorColumn || (rack === opnameLocationFilter.rack ? opnameLocationFilter.column : ''));
 
     const column = columnSelect.value;
-    const columnEntries = rackEntries.filter(entry => !column || entry.column === column);
-    const levels = [...new Set(columnEntries.map(entry => entry.level).filter(Boolean))].sort();
+    const columnBoxes = rackBoxes.filter(box => !column || parseOpnameLocationBox(box).column === column);
+    const levels = [...new Set(columnBoxes.map(box => parseOpnameLocationBox(box).level).filter(Boolean))].sort();
     populateOpnameLocationSelect(levelSelect, levels, 'Semua tingkat', priorLevel || (rack === opnameLocationFilter.rack && column === opnameLocationFilter.column ? opnameLocationFilter.level : ''));
 
     const level = levelSelect.value;
+    const columnEntries = entries.filter(entry => !column || entry.column === column);
     const selectedEntries = columnEntries.filter(entry => !level || entry.level === level);
     container.replaceChildren();
     if (entries.length === 0) {
@@ -2822,9 +3022,136 @@ function renderRakSummary() {
     selectedEntries.forEach(entry => {
         const row = document.createElement('div');
         row.className = `rak-summary-entry ${getOpnameLocationStatus(entry)}`;
-        row.textContent = `${entry.box} · ${entry.item.partNo} · ${entry.count}/${getOpnameTargetQty(entry.item)} pcs · ${getOpnameLocationStatus(entry) === 'match' ? 'OK' : getOpnameLocationStatus(entry) === 'zero' ? 'Belum' : 'Selisih'}`;
+        const status = getOpnameLocationStatus(entry);
+        const statusLabel = status === 'match' ? 'OK' : status === 'pending' ? 'Belum' : 'Selisih';
+        row.textContent = `${entry.box} · ${entry.item.partNo} · ${entry.count}/${getOpnameTargetQty(entry.item)} pcs · ${statusLabel}`;
         container.appendChild(row);
     });
+}
+
+function toggleBoxRegistryManager() {
+    const manager = document.getElementById('boxRegistryManager');
+    manager.hidden = !manager.hidden;
+    if (!manager.hidden) {
+        renderBoxRegistryManager();
+        document.getElementById('boxRegistryInput').focus();
+    }
+}
+
+function renderBoxRegistryManager() {
+    const draftList = document.getElementById('boxRegistryDraftList');
+    const registeredList = document.getElementById('boxRegistryList');
+    const saveButton = document.getElementById('saveBoxRegistryButton');
+    draftList.replaceChildren();
+    registeredList.replaceChildren();
+    [...boxRegistryDraft].sort().forEach(box => {
+        const row = document.createElement('div');
+        row.className = 'box-registry-row';
+        const label = document.createElement('span');
+        label.textContent = box;
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.textContent = 'Batal';
+        remove.addEventListener('click', () => {
+            boxRegistryDraft.delete(box);
+            renderBoxRegistryManager();
+        });
+        row.append(label, remove);
+        draftList.appendChild(row);
+    });
+    if (boxRegistryDraft.size === 0) draftList.textContent = 'Belum ada box baru.';
+    boxRegistry.forEach(box => {
+        const row = document.createElement('div');
+        row.className = 'box-registry-row';
+        const label = document.createElement('span');
+        label.textContent = box;
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.innerHTML = '<i class="fas fa-trash" aria-hidden="true"></i> Hapus';
+        remove.setAttribute('aria-label', `Hapus mapping ${box}`);
+        remove.addEventListener('click', () => deleteBoxRegistry(box));
+        row.append(label, remove);
+        registeredList.appendChild(row);
+    });
+    if (boxRegistry.length === 0) registeredList.textContent = 'Belum ada box terdaftar.';
+    saveButton.disabled = boxRegistryDraft.size === 0;
+}
+
+function addBoxRegistryDraft() {
+    const input = document.getElementById('boxRegistryInput');
+    const box = normalizeBoxCode(input.value);
+    if (!box) {
+        showToast('Kode tidak dikenali sebagai box yang valid.');
+        input.focus();
+        return;
+    }
+    if (boxRegistry.includes(box) || boxRegistryDraft.has(box)) {
+        showToast(`${box} sudah ada di daftar.`);
+        input.value = '';
+        input.focus();
+        return;
+    }
+    boxRegistryDraft.add(box);
+    input.value = '';
+    document.getElementById('boxRegistryStatus').textContent = `${box} ditambahkan ke daftar sementara. Tekan Simpan daftar untuk membagikan ke perangkat lain.`;
+    renderBoxRegistryManager();
+    input.focus();
+}
+
+async function saveBoxRegistryDraft() {
+    if (boxRegistryDraft.size === 0) return;
+    const status = document.getElementById('boxRegistryStatus');
+    if (boxRegistryDraft.size > 500) {
+        status.textContent = 'Maksimal 500 kode box per simpan. Hapus sebagian draft atau simpan dalam beberapa batch.';
+        showToast(status.textContent);
+        return;
+    }
+    status.textContent = 'Menyimpan daftar box ke server...';
+    try {
+        const response = await postWmsAction({ action: 'save_box_registry', data: [...boxRegistryDraft] });
+        const result = await response.json();
+        if (!response.ok || result.status !== 'success' || !Array.isArray(result.data)) {
+            throw new Error(result.message || 'Server gagal menyimpan daftar box.');
+        }
+        boxRegistry = [...new Set(result.data.map(normalizeBoxCode).filter(Boolean))].sort();
+        boxRegistryDraft.clear();
+        renderRakDashboard();
+        renderBoxRegistryManager();
+        status.textContent = `${result.added || 0} box baru disimpan dan tersedia di perangkat lain.`;
+    } catch (error) {
+        console.error('Gagal menyimpan daftar box:', error);
+        status.textContent = `Gagal menyimpan daftar box: ${error.message}`;
+        showToast(`Gagal menyimpan daftar box: ${error.message}`);
+    }
+}
+
+async function deleteBoxRegistry(box) {
+    const contents = localItems.filter(item => isSparepartBaik(item)
+        && Object.keys(item.locations || {}).some(location => normalizeBoxCode(location) === box));
+    const partNames = contents.map(item => item.partNo).filter(Boolean);
+    const details = partNames.length > 0
+        ? `\n\nData lokal perangkat ini menunjukkan ${partNames.length} part di box: ${partNames.slice(0, 12).join(', ')}${partNames.length > 12 ? ', ...' : ''}.`
+        : '\n\nBox ini terdeteksi kosong pada data lokal perangkat ini.';
+    const warning = `Hapus mapping ${box}?${details}\n\nPenghapusan hanya menghapus box dari daftar dashboard. Data part dan lokasi di DB_MASTER tidak akan diubah.`;
+    if (!confirm(warning)) return;
+
+    const status = document.getElementById('boxRegistryStatus');
+    status.textContent = `Menghapus mapping ${box}...`;
+    try {
+        const response = await postWmsAction({ action: 'delete_box_registry', boxCode: box });
+        const result = await response.json();
+        if (!response.ok || result.status !== 'success' || !Array.isArray(result.data)) {
+            throw new Error(result.message || 'Server gagal menghapus mapping box.');
+        }
+        boxRegistry = [...new Set(result.data.map(normalizeBoxCode).filter(Boolean))].sort();
+        renderRakDashboard();
+        renderBoxRegistryManager();
+        status.textContent = `${box} dihapus dari mapping; data part dan lokasi tetap utuh.`;
+    } catch (error) {
+        console.error(`Gagal menghapus mapping ${box}:`, error);
+        status.textContent = `Gagal menghapus ${box}: ${error.message}`;
+        showToast(`Gagal menghapus ${box}: ${error.message}`);
+    }
 }
 
 // ============================================

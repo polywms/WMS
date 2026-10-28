@@ -102,7 +102,13 @@ Buffer controls decrement X by one or reset that part to 0; each correction pers
   ↓
 Persist recent scan list in localStorage; IndexedDB `opnameCounts` is authoritative; an exact aggregate match to `SYS_QTY` is complete even if an empty box has no positive count entry
   ↓
-Clickable opname stats → filter by OK, selisih, belum, or counted quantity; rack modal continues to filter populated locations by rack/column/level
+Clickable opname stats → filter by OK, selisih, belum, or counted quantity
+  ↓
+Dashboard Lokasi → heatmap jumlah part unik per box, daftar part belum selesai opname, box kosong, dan ringkasan opname
+  ↓
+Registry box dibaca dari sheet BOX_REGISTRY; scan box baru lalu simpan sebagai batch, atau hapus mapping dengan konfirmasi tanpa mengubah lokasi/part di DB_MASTER
+  ↓
+Klik box dashboard → setOpnameBoxFilter() → OPNAME pada box pilihan
   ↓
 Changing locations through SIMPAN invalidates affected per-part counts; OPNAME never changes location membership
   ↓
@@ -120,6 +126,7 @@ Cloud schema stores `OPNAME_COUNTS`; legacy `OPNAME_COMPLETED` values remain acc
 - Download selalu menerapkan `SYS_QTY` cloud ke lokal, termasuk pada record ber-outbox, dan memperbarui snapshot antrean tanpa mengubah revision.
 - `LOCATIONS` menyimpan membership box/tingkat; `OPNAME_COUNTS` menyimpan hitungan positif per target. Total positif yang tepat sama dengan `SYS_QTY` dianggap selesai meski ada box kosong tanpa hitungan positif; selain itu part belum lengkap tetap ditampilkan `-/SYS_QTY`.
 - Status OPNAME langsung match saat total hitungan fisik positif sama dengan `SYS_QTY`; jika belum match, semua lokasi harus memiliki hitungan atau tercakup hitungan rak agar status tidak pending. Upload hasil tetap manual.
+- `BOX_REGISTRY` menyimpan kode box yang discan sebagai daftar bersama. Penambahan dilakukan append-only dalam satu batch; penghapusan mapping terpisah dari DB_MASTER dan tidak mengubah part/lokasi.
 
 ### Flow 3: Off BS (Off-Balance-Sheet)
 ```
@@ -379,6 +386,8 @@ WMS/
 - `checkSimpanConflict(item, newBox)` — Prompt move/split decision
 - `handleOpnameRender()` / `setOpnameFilter()` — Filter Opname by final comparison/count status; rack scans show naturally sorted box groups with per-group difference/uncounted totals, and only one group opens at a time
 - `openRakModal()` / `renderRakSummary()` — List populated racks and summarize OK, selisih, belum, and counted pcs by location
+- `renderRakDashboard()` / `renderRakHeatmap()` / `renderRakUncounted()` / `renderRakEmptyBoxes()` — Heatmap part unik, part belum selesai opname, dan box kosong berdasarkan registry cloud
+- `loadBoxRegistry()` / `saveBoxRegistryDraft()` / `deleteBoxRegistry()` — Read shared box mapping; append scanned boxes or remove a mapping after confirmation without changing stock locations
 - `getOpnameBufferQty(itemId, item)` — Read the active box/rack aggregate, including prior child-box counts before rack-level counting starts
 - `getOpnameTotalCount(item)` — Sum persisted physical counts across locations without double-counting rack aggregates; the active-box badge still includes counts from other boxes
 - `saveManualEdit()` — Edit the active box/rack physical Opname count without changing locations
@@ -469,6 +478,7 @@ WMS/
 **Caller**: database.js (manual `downloadFromServer()` and `processSyncQueue()`)
 **Sheets Used**:
 - `DB_MASTER` — Master item data (id, partNo, desc, locType, techName, sysQty, locations membership JSON in column G, labelIssues JSON, opnameCounts JSON in column J, `REVISION` in column L, and `OPNAME_COMPLETED` JSON in column M)
+- `BOX_REGISTRY` — Shared scanned box codes (`BOX_CODE`); batch append and confirmed mapping deletion run under ScriptLock, without rewriting DB_MASTER
 - `LOG_SCAN` — Audit log (partNo, action, detail, timestamp)
 - `TEMP_OFF_BS` — Off-balance-sheet staging (time, box, partNo, qty, docNo, qr, updated_at timestamp)
 - `WMS_USER_ROLE` — Protected, hidden Admin password hash + salt (never plaintext)
@@ -477,6 +487,7 @@ WMS/
 - `sync` — Validate expected revisions under ScriptLock; return conflicts without writes when stale, otherwise merge and return new revisions
 - `sync_off_bs` — Append off BS items, detect duplicates via (partNo_docNo)
 - `bulk_import` — Merge hasil Excel ke DB_MASTER, increment revisions, preserve existing locations, and return canonical IDs/revisions
+- `get_box_registry` / `save_box_registry` / `delete_box_registry` — Authenticated shared box registry reads, append-only batch saves, and mapping-only deletes
 - `sync` — Terima lokasi dari alur scan/pindah aplikasi; tidak digunakan untuk impor Excel
 - `DB_MASTER` column G — Protected from direct edits by spreadsheet editors; code locations are changed through scanned app workflows (spreadsheet owners retain Google owner privileges)
 - `delete_off_bs` — Remove items from TEMP_OFF_BS by QR

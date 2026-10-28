@@ -2,7 +2,7 @@
     Tujuan: Entry point UI untuk workflow WMS Magelang.
     Caller: Browser/PWA shell; event handlers diteruskan ke main.js dan core.js.
     Dependensi: css/style.css, Font Awesome, dan modul JavaScript di js/.
-    Main Functions: Menyediakan role gate Admin/User, navigasi mobile collapsible, Cari, SIMPAN/OPNAME per box/rak dengan Multi-Scan Move/Split per part, edit opname dengan mode keyboard dan salin nomor part, rincian antrean sync, impor/ekspor, dan resolusi konflik data.
+    Main Functions: Menyediakan role gate Admin/User, navigasi mobile collapsible, Cari, SIMPAN/OPNAME per box/rak dengan dashboard heatmap dan registry box bersama, Multi-Scan Move/Split per part, edit opname, rincian antrean sync, impor/ekspor, dan resolusi konflik data.
     Side Effects: Mengubah DOM, memicu scan, penyimpanan lokal, dan sinkronisasi cloud melalui handler.
 -->
 <!-- WMS Magelang - Entry point UI -->
@@ -669,16 +669,59 @@
         <div class="overlay" id="rakModal">
             <div class="modal">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
-                    <h3 style="margin:0;"><i class="fas fa-search"></i> Filter Opname per Lokasi</h3>
+                    <h3 style="margin:0;"><i class="fas fa-chart-pie"></i> Dashboard Lokasi</h3>
                     <button class="icon-only" onclick="document.getElementById('rakModal').style.display='none'" style="border:none; background:none; font-size:1.5rem; color:var(--danger);"><i class="fas fa-times"></i></button>
                 </div>
-                <div class="rak-filter-fields">
-                    <label>Rak<select id="rakSelect" onchange="document.getElementById('opnameColumnSelect').value=''; document.getElementById('opnameLevelSelect').value=''; renderRakSummary()"><option value="">Semua rak</option></select></label>
-                    <label>Kolom<select id="opnameColumnSelect" onchange="document.getElementById('opnameLevelSelect').value=''; renderRakSummary()"><option value="">Semua kolom</option></select></label>
-                    <label>Tingkat<select id="opnameLevelSelect" onchange="renderRakSummary()"><option value="">Semua tingkat</option></select></label>
+                <div class="rak-dashboard-toolbar">
+                    <span>Daftar box bersama dari server</span>
+                    <button type="button" class="btn-sm btn-outline" onclick="toggleBoxRegistryManager()"><i class="fas fa-list-check" aria-hidden="true"></i> Kelola daftar box</button>
                 </div>
-                <p class="sync-modal-note">Pilih salah satu ringkasan untuk menerapkan filter lokasi dan status ke daftar Opname.</p>
-                <div id="rakSummaryList" style="margin-top:15px; max-height:55vh; overflow-y:auto; display:flex; flex-direction:column; gap:8px;"></div>
+                <section id="boxRegistryManager" class="box-registry-manager" hidden>
+                    <h4>Kelola daftar box</h4>
+                    <p class="sync-modal-note">Scan kode box satu per satu ke kolom ini (maks. 500 kode per simpan), lalu tekan Simpan daftar. Penghapusan hanya menghapus mapping; data part dan lokasi tetap utuh.</p>
+                    <div class="box-registry-add">
+                        <input id="boxRegistryInput" type="text" autocomplete="off" placeholder="Scan kode box, lalu Enter" aria-label="Kode box hasil scan" onkeydown="if(event.key === 'Enter'){event.preventDefault();addBoxRegistryDraft()}">
+                        <button type="button" class="btn-sm btn-primary" onclick="addBoxRegistryDraft()"><i class="fas fa-plus" aria-hidden="true"></i> Tambahkan</button>
+                    </div>
+                    <div id="boxRegistryStatus" class="sync-modal-note" role="status"></div>
+                    <div class="box-registry-section">
+                        <strong>Box baru · belum disimpan</strong>
+                        <div id="boxRegistryDraftList" class="box-registry-list"></div>
+                    </div>
+                    <button id="saveBoxRegistryButton" type="button" class="btn btn-primary" onclick="saveBoxRegistryDraft()" disabled><i class="fas fa-cloud-arrow-up" aria-hidden="true"></i> Simpan daftar</button>
+                    <div class="box-registry-section">
+                        <strong>Box terdaftar</strong>
+                        <div id="boxRegistryList" class="box-registry-list"></div>
+                    </div>
+                </section>
+                <div class="rak-dashboard-tabs" role="tablist" aria-label="Dashboard lokasi">
+                    <button type="button" class="active" role="tab" aria-selected="true" onclick="setRakDashboardTab('heatmap')">Heatmap</button>
+                    <button type="button" role="tab" aria-selected="false" onclick="setRakDashboardTab('uncounted')">Belum Opname</button>
+                    <button type="button" role="tab" aria-selected="false" onclick="setRakDashboardTab('empty')">Box Kosong</button>
+                    <button type="button" role="tab" aria-selected="false" onclick="setRakDashboardTab('summary')">Ringkasan Opname</button>
+                </div>
+                <div class="rak-filter-fields">
+                    <label>Rak<select id="rakSelect" onchange="document.getElementById('opnameColumnSelect').value=''; document.getElementById('opnameLevelSelect').value=''; renderRakDashboard()"><option value="">Semua rak</option></select></label>
+                    <label>Kolom<select id="opnameColumnSelect" onchange="document.getElementById('opnameLevelSelect').value=''; renderRakDashboard()"><option value="">Semua kolom</option></select></label>
+                    <label>Tingkat<select id="opnameLevelSelect" onchange="renderRakDashboard()"><option value="">Semua tingkat</option></select></label>
+                </div>
+                <section id="rakPanelHeatmap" class="rak-dashboard-panel" role="tabpanel">
+                    <p class="sync-modal-note">Warna menunjukkan jumlah jenis part unik per box: putih = kosong, merah muda = 1, semakin merah = semakin padat, merah tua = 5+.</p>
+                    <div id="rakHeatmap" class="rak-heatmap"></div>
+                </section>
+                <section id="rakPanelUncounted" class="rak-dashboard-panel" role="tabpanel" hidden>
+                    <p id="rakUncountedCount" class="sync-modal-note"></p>
+                    <div id="rakUncountedList" class="rak-dashboard-list"></div>
+                    <button id="rakUncountedMore" type="button" class="btn-sm btn-outline" onclick="showMoreUncountedParts()" hidden>Tampilkan berikutnya</button>
+                </section>
+                <section id="rakPanelEmpty" class="rak-dashboard-panel" role="tabpanel" hidden>
+                    <p class="sync-modal-note">Box kosong dihitung dari daftar box yang sudah didaftarkan dan tidak memiliki part SPAREPART BAIK.</p>
+                    <div id="rakEmptyBoxList" class="rak-dashboard-list"></div>
+                </section>
+                <section id="rakPanelSummary" class="rak-dashboard-panel" role="tabpanel" hidden>
+                    <p class="sync-modal-note">Pilih ringkasan untuk menerapkan filter lokasi dan status ke daftar Opname.</p>
+                    <div id="rakSummaryList" class="rak-dashboard-list"></div>
+                </section>
             </div>
         </div>
         

@@ -3,7 +3,7 @@
              * Tujuan: Menyediakan sistem visual responsif untuk workflow WMS.
              * Caller: index.html dan seluruh komponen UI berbasis class.
              * Dependensi: Variabel tema, Font Awesome, dan CSS layout native.
-             * Main Functions: Responsive application layout, compact header, sync queue tables, per-part multi-scan actions, collapsible mobile navigation and rack lists, opname stats, and rack filters.
+             * Main Functions: Responsive application layout, compact header, sync queue tables, per-part multi-scan actions, collapsible mobile navigation and rack lists, opname stats, and rack dashboard/registry views.
              * Side Effects: Mengubah tampilan dan spacing tanpa mengubah state aplikasi.
              */
             :root {
@@ -758,6 +758,43 @@
             .rak-summary-entry.match { border-left-color: var(--success); }
             .rak-summary-entry.diff { border-left-color: var(--danger); }
             .rak-summary-entry.zero { border-left-color: #94a3b8; }
+            .rak-summary-entry.pending { border-left-color: #94a3b8; }
+            .rak-dashboard-toolbar { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:10px; color:var(--text-secondary); font-size:.78rem; }
+            .rak-dashboard-tabs { display:flex; gap:6px; overflow-x:auto; margin:0 -2px 12px; padding:2px; }
+            .rak-dashboard-tabs button { flex:0 0 auto; padding:8px 11px; border:1px solid var(--border); border-radius:7px; background:var(--card); color:var(--text); font-size:.78rem; font-weight:700; cursor:pointer; }
+            .rak-dashboard-tabs button.active { border-color:var(--primary); background:var(--primary); color:#fff; }
+            .rak-dashboard-panel { min-width:0; }
+            .rak-heatmap { display:grid; grid-template-columns:repeat(auto-fill,minmax(98px,1fr)); gap:8px; max-height:48vh; overflow-y:auto; padding:2px; }
+            .rak-heatmap-box { min-height:72px; display:flex; flex-direction:column; justify-content:center; gap:5px; padding:8px; border:1px solid var(--border); border-radius:8px; color:var(--text); text-align:center; cursor:pointer; }
+            .rak-heatmap-box strong { overflow-wrap:anywhere; font-size:.8rem; }
+            .rak-heatmap-box span { font-size:.72rem; }
+            .rak-heatmap-box.level-0 { background:#fff; }
+            .rak-heatmap-box.level-1 { background:#fff1f2; border-color:#fecdd3; }
+            .rak-heatmap-box.level-2 { background:#ffe4e6; border-color:#fda4af; }
+            .rak-heatmap-box.level-3 { background:#fda4af; border-color:#fb7185; }
+            .rak-heatmap-box.level-4 { background:#f87171; border-color:#ef4444; color:#fff; }
+            .rak-heatmap-box.level-5 { background:#b91c1c; border-color:#991b1b; color:#fff; }
+            .rak-dashboard-list { display:flex; flex-direction:column; gap:7px; max-height:48vh; overflow-y:auto; }
+            .rak-dashboard-row { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:9px; border:1px solid var(--border); border-radius:7px; background:var(--card); }
+            .rak-dashboard-row-main { min-width:0; overflow-wrap:anywhere; font-size:.8rem; }
+            .rak-dashboard-row-main small { display:block; margin-top:3px; color:var(--text-secondary); }
+            .rak-dashboard-row-actions { display:flex; flex-wrap:wrap; gap:5px; justify-content:flex-end; }
+            .rak-dashboard-row-actions button { padding:6px 8px; border:1px solid var(--border); border-radius:6px; background:var(--bg-secondary); color:var(--text); font-size:.72rem; cursor:pointer; }
+            .box-registry-manager { margin:0 0 12px; padding:11px; border:1px solid var(--border); border-radius:8px; background:var(--bg-secondary); }
+            .box-registry-manager h4 { margin:0 0 6px; }
+            .box-registry-add { display:flex; gap:6px; margin:8px 0; }
+            .box-registry-add input { flex:1; min-width:0; padding:9px; border:1px solid var(--border); border-radius:6px; background:var(--card); color:var(--text); }
+            .box-registry-section { margin:10px 0; font-size:.78rem; }
+            .box-registry-section strong { display:block; margin-bottom:5px; }
+            .box-registry-list { display:flex; flex-direction:column; gap:5px; max-height:22vh; overflow:auto; }
+            .box-registry-row { display:flex; justify-content:space-between; align-items:center; gap:8px; padding:6px 8px; border-radius:6px; background:var(--card); font-size:.78rem; }
+            .box-registry-row button { padding:5px 8px; border:1px solid #fecaca; border-radius:5px; background:#fff1f2; color:var(--danger); cursor:pointer; }
+            @media (max-width: 520px) {
+                .rak-dashboard-toolbar { align-items:flex-start; flex-direction:column; }
+                .rak-heatmap { grid-template-columns:repeat(auto-fill,minmax(82px,1fr)); }
+                .rak-dashboard-row { align-items:flex-start; flex-direction:column; }
+                .rak-dashboard-row-actions { justify-content:flex-start; }
+            }
             .segment-control { 
             display: flex; 
             width: 100%; 

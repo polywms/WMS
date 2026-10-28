@@ -1,15 +1,17 @@
 /*
- * Tujuan: Endpoint Google Apps Script untuk otorisasi sesi Admin, sinkronisasi lokasi/hitungan opname, dan import SYS_QTY.
- * Caller: js/database.js melalui Google Sheets API.
+ * Tujuan: Endpoint Google Apps Script untuk otorisasi Admin, sync lokasi/opname, import SYS_QTY, dan registry box bersama.
+ * Caller: js/core.js melalui postWmsAction() untuk registry box dan js/database.js untuk operasi sync.
  * Dependensi: SpreadsheetApp, ContentService, sheet DB_MASTER/LOG_SCAN.
- * Main Functions: doGet()/doPost() expose cloud-owned SYS_QTY, validate new box destinations including buffer-stock codes, normalize LOCATIONS, OPNAME_COUNTS, and OPNAME_COMPLETED, handle stock import, and enforce revision conflicts.
- * Side Effects: Membaca/menulis Google Sheets dan mengirim respons HTTP.
+ * Main Functions: doGet()/doPost() expose cloud-owned SYS_QTY, manage the shared BOX_REGISTRY, validate box destinations, normalize LOCATIONS/OPNAME_COUNTS, handle stock import, and enforce revision conflicts.
+ * Side Effects: Membaca/menulis Google Sheets termasuk BOX_REGISTRY, menggunakan ScriptLock untuk perubahan registry, dan mengirim respons HTTP.
  */
 
 // Konfigurasi Nama Sheet
 const SHEET_DB = "DB_MASTER";
 const SHEET_LOG = "LOG_SCAN";
 const SHEET_ROLE = "WMS_USER_ROLE";
+const SHEET_BOX_REGISTRY = "BOX_REGISTRY";
+const BOX_REGISTRY_CODE_PATTERN = /^(?:[A-Z][0-9]{0,2}-[0-9]{2,3}|[A-Z]-[A-Z][0-9]-[0-9]{2}|SPARE-[A-Z][0-9]-[0-9]{2}|[A-Z0-9]+-[A-Z]-[A-Z][0-9]-[0-9]{2})$/;
 const ADMIN_SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 const PASSWORD_HASH_ITERATIONS = 12000;
 const ADMIN_PASSWORD_MIN_LENGTH = 4;
@@ -290,6 +292,44 @@ function ensureDbMasterLocationProtection(sheet) {
   protection.addEditor(effectiveUser);
 }
 
+function normalizeBoxRegistryCode(value) {
+  const normalized = String(value || "")
+    .normalize("NFKC")
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .replace(/[\u2010-\u2015\u2212\uFE58\uFE63\uFF0D]/g, "-")
+    .replace(/\s*-\s*/g, "-")
+    .trim()
+    .toUpperCase();
+  return BOX_REGISTRY_CODE_PATTERN.test(normalized) ? normalized : null;
+}
+
+function getBoxRegistrySheet(spreadsheet, createIfMissing) {
+  let sheet = spreadsheet.getSheetByName(SHEET_BOX_REGISTRY);
+  if (!sheet && createIfMissing) sheet = spreadsheet.insertSheet(SHEET_BOX_REGISTRY);
+  if (!sheet) return null;
+  if (sheet.getLastRow() === 0) {
+    if (!createIfMissing) return sheet;
+    sheet.getRange(1, 1).setValue("BOX_CODE");
+  } else if (String(sheet.getRange(1, 1).getValue()).trim() !== "BOX_CODE") {
+    throw new Error("Header sheet BOX_REGISTRY tidak valid; kolom pertama harus BOX_CODE.");
+  }
+  return sheet;
+}
+
+function readBoxRegistryCodes(sheet) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+  const values = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+  const codes = new Set();
+  values.forEach((row, index) => {
+    if (row[0] === "" || row[0] === null) return;
+    const code = normalizeBoxRegistryCode(row[0]);
+    if (!code) throw new Error("Kode box tidak valid di BOX_REGISTRY baris " + (index + 2) + ".");
+    codes.add(code);
+  });
+  return [...codes].sort();
+}
+
 function doPost(e) {
   try {
     const payload = JSON.parse(e.postData.contents);
@@ -307,6 +347,65 @@ function doPost(e) {
     if (action === "admin_logout") {
       revokeAdminSession(payload.authToken);
       return ContentService.createTextOutput(JSON.stringify({ status: "success" })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (action === "get_box_registry") {
+      const sheet = getBoxRegistrySheet(ss, false);
+      const data = sheet ? readBoxRegistryCodes(sheet) : [];
+      return ContentService.createTextOutput(JSON.stringify({ status: "success", data: data })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (action === "save_box_registry") {
+      if (!Array.isArray(items) || items.length > 500) throw new Error("Daftar box harus berupa array dengan maksimal 500 kode per simpan.");
+      const incomingCodes = items.map(normalizeBoxRegistryCode);
+      if (incomingCodes.some(code => !code)) throw new Error("Ada kode box yang tidak valid dalam daftar.");
+
+      const writeLock = LockService.getScriptLock();
+      if (!writeLock.tryLock(30000)) throw new Error("Daftar box sedang diperbarui. Coba lagi sebentar.");
+      try {
+        const sheet = getBoxRegistrySheet(ss, true);
+        const existingCodes = new Set(readBoxRegistryCodes(sheet));
+        const codesToAdd = [...new Set(incomingCodes)].filter(code => !existingCodes.has(code));
+        if (codesToAdd.length > 0) {
+          sheet.getRange(sheet.getLastRow() + 1, 1, codesToAdd.length, 1).setValues(codesToAdd.map(code => [code]));
+        }
+        return ContentService.createTextOutput(JSON.stringify({
+          status: "success",
+          added: codesToAdd.length,
+          data: readBoxRegistryCodes(sheet)
+        })).setMimeType(ContentService.MimeType.JSON);
+      } finally {
+        writeLock.releaseLock();
+      }
+    }
+
+    if (action === "delete_box_registry") {
+      const boxCode = normalizeBoxRegistryCode(payload.boxCode);
+      if (!boxCode) throw new Error("Kode box untuk dihapus tidak valid.");
+
+      const writeLock = LockService.getScriptLock();
+      if (!writeLock.tryLock(30000)) throw new Error("Daftar box sedang diperbarui. Coba lagi sebentar.");
+      try {
+        const sheet = getBoxRegistrySheet(ss, false);
+        let deleted = 0;
+        if (sheet && sheet.getLastRow() > 1) {
+          const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getValues();
+          for (let index = values.length - 1; index >= 0; index--) {
+            if (normalizeBoxRegistryCode(values[index][0]) === boxCode) {
+              sheet.deleteRow(index + 2);
+              deleted++;
+            }
+          }
+        }
+        const data = sheet ? readBoxRegistryCodes(sheet) : [];
+        return ContentService.createTextOutput(JSON.stringify({
+          status: "success",
+          deleted: deleted,
+          data: data
+        })).setMimeType(ContentService.MimeType.JSON);
+      } finally {
+        writeLock.releaseLock();
+      }
     }
 
     // =====================================
