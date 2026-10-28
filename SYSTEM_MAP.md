@@ -387,7 +387,7 @@ WMS/
 - `handleOpnameRender()` / `setOpnameFilter()` — Filter Opname by final comparison/count status; rack scans show naturally sorted box groups with per-group difference/uncounted totals, and only one group opens at a time
 - `openRakModal()` / `renderRakSummary()` — List populated racks and summarize OK, selisih, belum, and counted pcs by location
 - `renderRakDashboard()` / `renderRakHeatmap()` / `renderRakUncounted()` / `renderRakEmptyBoxes()` — Heatmap part unik, part belum selesai opname, dan box kosong berdasarkan registry cloud
-- `loadBoxRegistry()` / `saveBoxRegistryDraft()` / `deleteBoxRegistry()` — Read shared box mapping; append scanned boxes or remove a mapping after confirmation without changing stock locations
+- `loadBoxRegistry()` / `saveBoxRegistryDraft()` / `deleteBoxRegistry()` — Read shared box mapping; append scanned boxes or remove a mapping after confirmation without changing stock locations; registry codes are validated as `X-XY-YY` with an optional prefix and filtered by rack group
 - `getOpnameBufferQty(itemId, item)` — Read the active box/rack aggregate, including prior child-box counts before rack-level counting starts
 - `getOpnameTotalCount(item)` — Sum persisted physical counts across locations without double-counting rack aggregates; the active-box badge still includes counts from other boxes
 - `saveManualEdit()` — Edit the active box/rack physical Opname count without changing locations
@@ -780,6 +780,7 @@ const QR_PARSERS = {
 - Legacy box: `/^[A-Z][0-9]{0,2}-[0-9]{2,3}$/` (e.g., A-01, A2-01, K-999)
 - New box: `/^[A-Z]-[A-Z][0-9]-[0-9]{2}$/` (e.g., A-A3-01)
 - Buffer stock: `/^[A-Z0-9]+-[A-Z]-[A-Z][0-9]-[0-9]{2}$/` (e.g., BUFFER-E-A1-01); supported by client and server validation
+- Shared BOX_REGISTRY accepts `X-XY-YY` (e.g. `A-A1-01`) or the same format after a prefix (e.g. `BUFFER-A-A1-01`); the registry manager groups prefixed codes under Buffer and filters both saved and draft lists by rack group
 - Destructive Move/Split, Box-to-box, Multi-Scan, and Opname removal actions require explicit confirmation; buffer boxes and last-location removals show additional warnings
 - OFF BS box: Must start with `RTF` (e.g., RTF-001, RTF-A05)
 

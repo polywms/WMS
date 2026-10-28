@@ -786,6 +786,8 @@
             .box-registry-add input { flex:1; min-width:0; padding:9px; border:1px solid var(--border); border-radius:6px; background:var(--card); color:var(--text); }
             .box-registry-section { margin:10px 0; font-size:.78rem; }
             .box-registry-section strong { display:block; margin-bottom:5px; }
+            .box-registry-filter-label { display:block; margin:4px 0; color:var(--text-secondary); font-size:.75rem; font-weight:700; }
+            .box-registry-filter { width:100%; margin-bottom:8px; padding:8px; border:1px solid var(--border); border-radius:6px; background:var(--card); color:var(--text); }
             .box-registry-list { display:flex; flex-direction:column; gap:5px; max-height:22vh; overflow:auto; }
             .box-registry-row { display:flex; justify-content:space-between; align-items:center; gap:8px; padding:6px 8px; border-radius:6px; background:var(--card); font-size:.78rem; }
             .box-registry-row button { padding:5px 8px; border:1px solid #fecaca; border-radius:5px; background:#fff1f2; color:var(--danger); cursor:pointer; }

@@ -678,19 +678,21 @@
                 </div>
                 <section id="boxRegistryManager" class="box-registry-manager" hidden>
                     <h4>Kelola daftar box</h4>
-                    <p class="sync-modal-note">Scan kode box satu per satu ke kolom ini (maks. 500 kode per simpan), lalu tekan Simpan daftar. Penghapusan hanya menghapus mapping; data part dan lokasi tetap utuh.</p>
+                    <p class="sync-modal-note">Format: Rak-KolomTingkat-NomorBox (contoh A-A1-01); box Buffer memakai prefix, misalnya BUFFER-A-A1-01.</p>
                     <div class="box-registry-add">
-                        <input id="boxRegistryInput" type="text" autocomplete="off" placeholder="Scan kode box, lalu Enter" aria-label="Kode box hasil scan" onkeydown="if(event.key === 'Enter'){event.preventDefault();addBoxRegistryDraft()}">
+                        <input id="boxRegistryInput" type="text" autocomplete="off" placeholder="Scan kode box (A-A1-01)" aria-label="Kode box hasil scan" onkeydown="if(event.key === 'Enter'){event.preventDefault();addBoxRegistryDraft()}">
                         <button type="button" class="btn-sm btn-primary" onclick="addBoxRegistryDraft()"><i class="fas fa-plus" aria-hidden="true"></i> Tambahkan</button>
                     </div>
                     <div id="boxRegistryStatus" class="sync-modal-note" role="status"></div>
                     <div class="box-registry-section">
-                        <strong>Box baru · belum disimpan</strong>
+                        <strong id="boxRegistryDraftCount">Box baru · belum disimpan</strong>
                         <div id="boxRegistryDraftList" class="box-registry-list"></div>
                     </div>
                     <button id="saveBoxRegistryButton" type="button" class="btn btn-primary" onclick="saveBoxRegistryDraft()" disabled><i class="fas fa-cloud-arrow-up" aria-hidden="true"></i> Simpan daftar</button>
                     <div class="box-registry-section">
-                        <strong>Box terdaftar</strong>
+                        <label class="box-registry-filter-label" for="boxRegistryRackFilter">Filter kode rak</label>
+                        <select id="boxRegistryRackFilter" class="box-registry-filter" aria-label="Filter kode rak" onchange="setBoxRegistryFilter(this.value)"><option value="all">Semua kode rak</option></select>
+                        <strong id="boxRegistryRegisteredCount">Box terdaftar</strong>
                         <div id="boxRegistryList" class="box-registry-list"></div>
                     </div>
                 </section>

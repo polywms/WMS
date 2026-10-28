@@ -20,7 +20,7 @@
  * QR Parser Config:
  * - QR_PARSERS: Object dengan pattern & extract function per format
  * - Supported formats: standard (baru), sclMGL (lama), scl2025 (legacy), simple (fallback)
- * - Box codes: legacy, standard new, SPARE, and PREFIX-X-XY-YY buffer stock; rack-level targets are recognized separately in SIMPAN/OPNAME
+ * - Box codes: legacy and standard scan formats; shared registry accepts X-XY-YY or PREFIX-X-XY-YY only
  * - BUFFER_STOCK_BOX_PATTERN identifies buffer-stock locations for destructive-action warnings
  * - Priority: standard → sclMGL → scl2025 → simple (first match wins)
  * 
@@ -38,6 +38,7 @@ const API_URL = "https://script.google.com/macros/s/AKfycbxdGnnZunAV5rr_2FN3nQ4k
 const MAX_SYNC_BATCH = 100;      // Max items per sync POST
 const MAX_QUEUE_SIZE = 500;      // Prevent queue overflow
 const BOX_CODE_PATTERN = /^(?:[A-Z][0-9]{0,2}-[0-9]{2,3}|[A-Z]-[A-Z][0-9]-[0-9]{2}|SPARE-[A-Z][0-9]-[0-9]{2}|[A-Z0-9]+-[A-Z]-[A-Z][0-9]-[0-9]{2})$/;
+const BOX_REGISTRY_CODE_PATTERN = /^(?:[A-Z]-[A-Z][0-9]-[0-9]{2}|[A-Z0-9]+-[A-Z]-[A-Z][0-9]-[0-9]{2})$/;
 const LEGACY_BOX_CODE_PATTERN = /^[A-Z][0-9]{0,2}-[0-9]{2,3}$/;
 const NEW_BOX_CODE_PATTERN = /^(?:[A-Z]-[A-Z][0-9]-[0-9]{2}|SPARE-[A-Z][0-9]-[0-9]{2}|[A-Z0-9]+-[A-Z]-[A-Z][0-9]-[0-9]{2})$/;
 const BUFFER_STOCK_BOX_PATTERN = /^[A-Z0-9]+-[A-Z]-[A-Z][0-9]-[0-9]{2}$/;

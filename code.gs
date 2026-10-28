@@ -2,7 +2,7 @@
  * Tujuan: Endpoint Google Apps Script untuk otorisasi Admin, sync lokasi/opname, import SYS_QTY, dan registry box bersama.
  * Caller: js/core.js melalui postWmsAction() untuk registry box dan js/database.js untuk operasi sync.
  * Dependensi: SpreadsheetApp, ContentService, sheet DB_MASTER/LOG_SCAN.
- * Main Functions: doGet()/doPost() expose cloud-owned SYS_QTY, manage the shared BOX_REGISTRY, validate box destinations, normalize LOCATIONS/OPNAME_COUNTS, handle stock import, and enforce revision conflicts.
+ * Main Functions: doGet()/doPost() expose cloud-owned SYS_QTY, validate X-XY-YY shared BOX_REGISTRY codes, manage rack-grouped registry data, validate box destinations, normalize LOCATIONS/OPNAME_COUNTS, handle stock import, and enforce revision conflicts.
  * Side Effects: Membaca/menulis Google Sheets termasuk BOX_REGISTRY, menggunakan ScriptLock untuk perubahan registry, dan mengirim respons HTTP.
  */
 
@@ -11,7 +11,8 @@ const SHEET_DB = "DB_MASTER";
 const SHEET_LOG = "LOG_SCAN";
 const SHEET_ROLE = "WMS_USER_ROLE";
 const SHEET_BOX_REGISTRY = "BOX_REGISTRY";
-const BOX_REGISTRY_CODE_PATTERN = /^(?:[A-Z][0-9]{0,2}-[0-9]{2,3}|[A-Z]-[A-Z][0-9]-[0-9]{2}|SPARE-[A-Z][0-9]-[0-9]{2}|[A-Z0-9]+-[A-Z]-[A-Z][0-9]-[0-9]{2})$/;
+const BOX_REGISTRY_CODE_PATTERN = /^(?:[A-Z]-[A-Z][0-9]-[0-9]{2}|[A-Z0-9]+-[A-Z]-[A-Z][0-9]-[0-9]{2})$/;
+const BOX_REGISTRY_PREVIOUS_CODE_PATTERN = /^(?:[A-Z][0-9]{0,2}-[0-9]{2,3}|SPARE-[A-Z][0-9]-[0-9]{2})$/;
 const ADMIN_SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 const PASSWORD_HASH_ITERATIONS = 12000;
 const ADMIN_PASSWORD_MIN_LENGTH = 4;
@@ -303,6 +304,19 @@ function normalizeBoxRegistryCode(value) {
   return BOX_REGISTRY_CODE_PATTERN.test(normalized) ? normalized : null;
 }
 
+function normalizeStoredBoxRegistryCode(value) {
+  const normalized = String(value || "")
+    .normalize("NFKC")
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .replace(/[\u2010-\u2015\u2212\uFE58\uFE63\uFF0D]/g, "-")
+    .replace(/\s*-\s*/g, "-")
+    .trim()
+    .toUpperCase();
+  return BOX_REGISTRY_CODE_PATTERN.test(normalized) || BOX_REGISTRY_PREVIOUS_CODE_PATTERN.test(normalized)
+    ? normalized
+    : null;
+}
+
 function getBoxRegistrySheet(spreadsheet, createIfMissing) {
   let sheet = spreadsheet.getSheetByName(SHEET_BOX_REGISTRY);
   if (!sheet && createIfMissing) sheet = spreadsheet.insertSheet(SHEET_BOX_REGISTRY);
@@ -323,7 +337,7 @@ function readBoxRegistryCodes(sheet) {
   const codes = new Set();
   values.forEach((row, index) => {
     if (row[0] === "" || row[0] === null) return;
-    const code = normalizeBoxRegistryCode(row[0]);
+    const code = normalizeStoredBoxRegistryCode(row[0]);
     if (!code) throw new Error("Kode box tidak valid di BOX_REGISTRY baris " + (index + 2) + ".");
     codes.add(code);
   });
@@ -380,7 +394,7 @@ function doPost(e) {
     }
 
     if (action === "delete_box_registry") {
-      const boxCode = normalizeBoxRegistryCode(payload.boxCode);
+      const boxCode = normalizeStoredBoxRegistryCode(payload.boxCode);
       if (!boxCode) throw new Error("Kode box untuk dihapus tidak valid.");
 
       const writeLock = LockService.getScriptLock();

@@ -32,7 +32,7 @@
  * - confirmOpnameOverScan()/decrementOpnameBuffer() — Confirm over-target scans and correct counted quantity
  * - addToOpnameBuffer() — Persist every cumulative scan immediately to the active box
  * - setOpnameFilter()/openRakModal() — Dashboard heatmap, uncounted parts, empty boxes, and populated rack/column/level filters
- * - loadBoxRegistry()/saveBoxRegistryDraft()/deleteBoxRegistry() — Manage shared box registry and open selected location in Opname
+ * - loadBoxRegistry()/saveBoxRegistryDraft()/deleteBoxRegistry() — Validate X-XY-YY registry codes, filter box lists by rack/prefix group, and manage shared box registry
  * - getOpnameTotalCount(item) — Sum physical counts across the item's assigned boxes
  * - saveManualEdit() — Edit the active box's physical count without changing locations
  * - openEditModal()/copyEditPartNo() — Edit a part and copy its part number; Opname opens keyboard mode
@@ -82,6 +82,7 @@ let opnameScanQueue = Promise.resolve();
 let opnameLocationFilter = { rack: '', column: '', level: '' };
 let boxRegistry = [];
 let boxRegistryDraft = new Set();
+let boxRegistryFilter = 'all';
 let rakUncountedLimit = 50;
 
 // ===== QR CODE PARSER =====
@@ -2803,7 +2804,9 @@ async function loadBoxRegistry() {
     if (!response.ok || result.status !== 'success' || !Array.isArray(result.data)) {
         throw new Error(result.message || 'Respons server untuk daftar box tidak valid.');
     }
-    boxRegistry = [...new Set(result.data.map(normalizeBoxCode).filter(Boolean))].sort();
+    const codes = result.data.map(normalizeStoredBoxRegistryCode);
+    if (codes.some(code => !code)) throw new Error('Daftar server berisi kode di luar format box yang didukung.');
+    boxRegistry = [...new Set(codes)].sort();
 }
 
 function getRakLocationFilter() {
@@ -3042,9 +3045,33 @@ function renderBoxRegistryManager() {
     const draftList = document.getElementById('boxRegistryDraftList');
     const registeredList = document.getElementById('boxRegistryList');
     const saveButton = document.getElementById('saveBoxRegistryButton');
+    const filterSelect = document.getElementById('boxRegistryRackFilter');
+    const allBoxes = [...new Set([...boxRegistry, ...boxRegistryDraft])];
+    const groupCounts = new Map();
+    allBoxes.forEach(box => {
+        const group = getBoxRegistryGroup(box);
+        groupCounts.set(group, (groupCounts.get(group) || 0) + 1);
+    });
+    const groups = [...groupCounts.keys()].sort((left, right) => {
+        if (left === 'Buffer') return -1;
+        if (right === 'Buffer') return 1;
+        return left.localeCompare(right);
+    });
+    filterSelect.replaceChildren(new Option('Semua kode rak', 'all'));
+    groups.forEach(group => filterSelect.add(new Option(`${group} (${groupCounts.get(group)})`, group)));
+    if (boxRegistryFilter !== 'all' && !groupCounts.has(boxRegistryFilter)) boxRegistryFilter = 'all';
+    filterSelect.value = boxRegistryFilter;
+
+    const visibleDraft = [...boxRegistryDraft]
+        .filter(box => boxRegistryFilter === 'all' || getBoxRegistryGroup(box) === boxRegistryFilter)
+        .sort();
+    const visibleRegistered = boxRegistry
+        .filter(box => boxRegistryFilter === 'all' || getBoxRegistryGroup(box) === boxRegistryFilter)
+        .sort();
     draftList.replaceChildren();
     registeredList.replaceChildren();
-    [...boxRegistryDraft].sort().forEach(box => {
+    document.getElementById('boxRegistryDraftCount').textContent = `Box baru · belum disimpan (${visibleDraft.length})`;
+    visibleDraft.forEach(box => {
         const row = document.createElement('div');
         row.className = 'box-registry-row';
         const label = document.createElement('span');
@@ -3059,8 +3086,13 @@ function renderBoxRegistryManager() {
         row.append(label, remove);
         draftList.appendChild(row);
     });
-    if (boxRegistryDraft.size === 0) draftList.textContent = 'Belum ada box baru.';
-    boxRegistry.forEach(box => {
+    if (visibleDraft.length === 0) {
+        draftList.textContent = boxRegistryDraft.size === 0
+            ? 'Belum ada box baru.'
+            : 'Tidak ada draft pada filter kode rak ini.';
+    }
+    document.getElementById('boxRegistryRegisteredCount').textContent = `Box terdaftar (${visibleRegistered.length})`;
+    visibleRegistered.forEach(box => {
         const row = document.createElement('div');
         row.className = 'box-registry-row';
         const label = document.createElement('span');
@@ -3073,15 +3105,40 @@ function renderBoxRegistryManager() {
         row.append(label, remove);
         registeredList.appendChild(row);
     });
-    if (boxRegistry.length === 0) registeredList.textContent = 'Belum ada box terdaftar.';
+    if (visibleRegistered.length === 0) {
+        registeredList.textContent = boxRegistry.length === 0
+            ? 'Belum ada box terdaftar.'
+            : 'Tidak ada box terdaftar pada filter kode rak ini.';
+    }
     saveButton.disabled = boxRegistryDraft.size === 0;
+}
+
+function normalizeBoxRegistryCode(rawCode) {
+    const normalized = normalizeBoxCode(rawCode);
+    return normalized && BOX_REGISTRY_CODE_PATTERN.test(normalized) ? normalized : null;
+}
+
+function normalizeStoredBoxRegistryCode(rawCode) {
+    const normalized = normalizeBoxCode(rawCode);
+    return normalized && BOX_CODE_PATTERN.test(normalized) ? normalized : null;
+}
+
+function getBoxRegistryGroup(box) {
+    const parts = box.split('-');
+    if (parts.length === 4 && BOX_REGISTRY_CODE_PATTERN.test(box)) return 'Buffer';
+    return BOX_REGISTRY_CODE_PATTERN.test(box) ? parts[0] : 'Kode lama';
+}
+
+function setBoxRegistryFilter(group) {
+    boxRegistryFilter = group;
+    renderBoxRegistryManager();
 }
 
 function addBoxRegistryDraft() {
     const input = document.getElementById('boxRegistryInput');
-    const box = normalizeBoxCode(input.value);
+    const box = normalizeBoxRegistryCode(input.value);
     if (!box) {
-        showToast('Kode tidak dikenali sebagai box yang valid.');
+        showToast('Format kode tidak valid. Gunakan A-A1-01 atau prefix seperti BUFFER-A-A1-01.');
         input.focus();
         return;
     }
@@ -3113,7 +3170,9 @@ async function saveBoxRegistryDraft() {
         if (!response.ok || result.status !== 'success' || !Array.isArray(result.data)) {
             throw new Error(result.message || 'Server gagal menyimpan daftar box.');
         }
-        boxRegistry = [...new Set(result.data.map(normalizeBoxCode).filter(Boolean))].sort();
+        const codes = result.data.map(normalizeStoredBoxRegistryCode);
+        if (codes.some(code => !code)) throw new Error('Server mengembalikan kode box di luar format yang didukung.');
+        boxRegistry = [...new Set(codes)].sort();
         boxRegistryDraft.clear();
         renderRakDashboard();
         renderBoxRegistryManager();
@@ -3143,7 +3202,9 @@ async function deleteBoxRegistry(box) {
         if (!response.ok || result.status !== 'success' || !Array.isArray(result.data)) {
             throw new Error(result.message || 'Server gagal menghapus mapping box.');
         }
-        boxRegistry = [...new Set(result.data.map(normalizeBoxCode).filter(Boolean))].sort();
+        const codes = result.data.map(normalizeStoredBoxRegistryCode);
+        if (codes.some(code => !code)) throw new Error('Server mengembalikan kode box di luar format yang didukung.');
+        boxRegistry = [...new Set(codes)].sort();
         renderRakDashboard();
         renderBoxRegistryManager();
         status.textContent = `${box} dihapus dari mapping; data part dan lokasi tetap utuh.`;
