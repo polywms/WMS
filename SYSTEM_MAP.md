@@ -68,8 +68,12 @@ saveDB(item) [database.js] — Write to IndexedDB immediately + persist sync que
   ↓
 renderSimpanList() [core.js] — Update UI
   ↓
-User opens sync dialog → Upload to server [database.js] — POST queued records only
+User opens sync status → Sync dialog [database.js] — show queued location and Opname tables; canceling a part restores the latest Cloud record (or removes an unpublished local record)
+  ↓
+Upload lokasi box & hasil Opname [database.js] — POST queued records only
 ```
+
+**Multi-Scan alternative**: Buffer selected parts, scan a destination, then choose Move/Split per conflicting part or apply either action to all conflicts; parts without a conflicting location are added directly.
 
 ### Flow 2: Opname (Inventory Check)
 ```
@@ -84,7 +88,7 @@ handleOpnameRender() — Show all registered parts at the active location; rack 
 Scan part QR → handleOpnameScan() — Reject parts not registered directly or in a child box of the active rack
   ↓
 Each box/rack remains membership-only in `locations`; the active box or rack aggregate is stored in `item.opnameCounts[target]`
-  (a missing count is uncounted and displays as `-/SYS_QTY`)
+  (a missing count is uncounted and displays as `-/SYS_QTY`; an exact positive aggregate match to `SYS_QTY` counts as complete even when another registered box has zero stock)
   ↓
 Each scan reads saved target count, adds 1, and persists immediately; badge count sums physical counts across locations and uses gray for uncounted, green for exact match, and light red for a partial/different total; rack counts aggregate any prior child-box counts and replace those child counts after the first rack-level scan
   ↓
@@ -96,7 +100,7 @@ Confirmed scan beyond Y also persists X+1 immediately
   ↓
 Buffer controls decrement X by one or reset that part to 0; each correction persists immediately
   ↓
-Persist recent scan list in localStorage; IndexedDB `opnameCounts` is authoritative; comparison against `SYS_QTY` is deferred until every registered location has a saved count (or is covered by a rack aggregate)
+Persist recent scan list in localStorage; IndexedDB `opnameCounts` is authoritative; an exact aggregate match to `SYS_QTY` is complete even if an empty box has no positive count entry
   ↓
 Clickable opname stats → filter by OK, selisih, belum, or counted quantity; rack modal continues to filter populated locations by rack/column/level
   ↓
@@ -111,10 +115,11 @@ Cloud schema stores `OPNAME_COUNTS`; legacy `OPNAME_COMPLETED` values remain acc
 
 ### Simplified Sync Rules (current)
 - Upload perubahan lokal menulis `LOCATIONS` dan `OPNAME_COUNTS`; legacy `OPNAME_COMPLETED` is retained for compatibility; identity and revision are used only for matching and conflict detection.
+- The local outbox records pending `location`/`opname` categories for the sync dialog; those display-only categories are not sent in the Cloud payload. Canceling a part removes its full pending snapshot and restores its latest Cloud row; a part absent from Cloud is removed locally.
 - Upload normal tidak menulis `SYS_QTY` atau metadata master. Import stock adalah alur yang mengubah `SYS_QTY` di cloud.
 - Download selalu menerapkan `SYS_QTY` cloud ke lokal, termasuk pada record ber-outbox, dan memperbarui snapshot antrean tanpa mengubah revision.
-- `LOCATIONS` menyimpan membership box/tingkat; `OPNAME_COUNTS` menyimpan hitungan positif per target. Part yang belum dihitung ditampilkan `-/SYS_QTY`, bukan dianggap nol.
-- Status perbandingan OPNAME terhadap `SYS_QTY` cloud final setelah setiap lokasi item memiliki hitungan atau tercakup hitungan rak; upload hasil tetap manual.
+- `LOCATIONS` menyimpan membership box/tingkat; `OPNAME_COUNTS` menyimpan hitungan positif per target. Total positif yang tepat sama dengan `SYS_QTY` dianggap selesai meski ada box kosong tanpa hitungan positif; selain itu part belum lengkap tetap ditampilkan `-/SYS_QTY`.
+- Status OPNAME langsung match saat total hitungan fisik positif sama dengan `SYS_QTY`; jika belum match, semua lokasi harus memiliki hitungan atau tercakup hitungan rak agar status tidak pending. Upload hasil tetap manual.
 
 ### Flow 3: Off BS (Off-Balance-Sheet)
 ```

@@ -25,7 +25,7 @@
  * - updateBoxToBoxIndicator() — Render box asal/tujuan; pertahankan pasangan valid sampai scan box berikutnya
  * - getBoxToBoxItems() — Temukan part sumber berdasarkan kode box yang dinormalisasi
  * - confirmBoxToBoxYesToAll() — Setujui semua part dan lewati konfirmasi hingga mode B2B dimatikan
- * - handleOpnameScan()/handleOpnameRender() — OPNAME per box/rak, grouped physical summaries, and comparison after all locations are counted
+ * - handleOpnameScan()/handleOpnameRender() — OPNAME per box/rak, grouped physical summaries, and match when the aggregate physical count equals system quantity
  * - handleOpnameScan() — Reject part scans that do not belong to the active box
  * - getOpnameBufferQty(itemId, item) — Read the latest saved cumulative count for the active box
  * - resetCurrentBoxOpname()/clearCurrentBoxOpnameContents() — Reset counts or remove active-box membership
@@ -38,7 +38,7 @@
  * - removeOpnamePartFromActiveBox() — Remove a part from only the active OPNAME box
  * - updateActivePartPanel(item) — Display part detail (location-only view)
  * - selectPartSimpan(item) — Select part dari list
- * - addToMultiScan()/processMultiScan(box) — Buffer dan relokasi batch SIMPAN
+ * - addToMultiScan()/processMultiScan(box)/applyMultiScanActions() — Buffer dan relokasi batch SIMPAN dengan pilihan Move/Split per part
  * - renderMultiScanList()/removeFromMultiScan() — Kelola daftar batch terpilih
  * - getSimilarParts(partNo) — Find parts dengan nomor gudang sama
  * - clearActivePart() — Hide panel + reset selection
@@ -62,13 +62,14 @@
  * - REMOVED: All qty calculations, progress badge (X/Y), overflow checks
  * - KEPT: saveDB() and addHistoryLog() for location recording
  * - SIMPLIFIED: processScan() SIMPAN branch - part→detail, box→save location
- * - MULTI-SCAN: Scan part ke buffer, scan box lalu konfirmasi relokasi batch
+ * - MULTI-SCAN: Scan part ke buffer, scan box, lalu pilih Move/Split per konflik atau terapkan ke semua
  * - BOX TO BOX: Mode tetap aktif setelah tujuan dipindai; sumber direset untuk pasangan berikutnya dan Yes to all berlaku sampai mode dimatikan
  * ========================================
  */
 
 // js/core.js
 let pendingOpnameOverScan = null;
+let pendingMultiScanBatch = null;
 let opnameBufferStarted = false;
 let opnameCommitInProgress = false;
 let opnameScanQueue = Promise.resolve();
@@ -206,7 +207,7 @@ function toggleMultipleScanMode() {
     if (panel) panel.style.display = enabling || multiScanBuffer.length > 0 ? 'block' : 'none';
     const instruction = panel && panel.querySelector('.multi-scan-instruction');
     if (instruction) instruction.textContent = enabling
-        ? 'SCAN BOX TUJUAN UNTUK KONFIRMASI PINDAH'
+        ? 'SCAN BOX TUJUAN UNTUK PILIH MOVE/SPLIT'
         : 'Buffer dipertahankan; aktifkan Multi-Scan untuk melanjutkan.';
     updateSimpanModeControls();
     if (enabling) showToast('<i class="fas fa-layer-group"></i> Multi-Scan aktif - scan part lalu scan box tujuan');
@@ -440,7 +441,7 @@ function applyBoxToBoxSelection(sourceBox, targetBox, selectedItems, isYesToAll 
         item.lastBox = targetBox;
 
         if (JSON.stringify(item.locations) !== JSON.stringify(oldLocations)) {
-            saveDB(item);
+            saveDB(item, 'LOCATION', `Box ke Box ${sourceBox} ke ${targetBox}`);
             affectedCount++;
         }
     });
@@ -555,6 +556,11 @@ function processScan(code) {
         return;
     }
     if (!requireAdminAccess('melakukan scan atau mengubah data')) return;
+    if (pendingMultiScanBatch) {
+        feedback('warning');
+        showToast('Selesaikan atau batalkan pilihan Move/Split sebelum scan berikutnya.');
+        return;
+    }
     let rawCode = String(code || '').trim().toUpperCase();
     let parsedCode = rawCode.includes('|') ? rawCode.split('|')[0].trim() : rawCode;
     const normalizedBoxCode = normalizeBoxCode(parsedCode)
@@ -762,7 +768,7 @@ if (currentTab === 'packing') {
                 activeItem.locations[boxCode] = true;
                 activeItem.opnameCompleted = {};
                 activeItem.lastBox = boxCode;
-                saveDB(activeItem);
+                saveDB(activeItem, 'LOCATION', `Masuk ke box ${boxCode}`);
                 addHistoryLog(activeItem.partNo, boxCode);
                 
                 feedback('success');
@@ -1082,7 +1088,7 @@ function renderMultiScanList() {
         const checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
         checkbox.checked = bufferItem.selected !== false;
-        checkbox.setAttribute('aria-label', `Pilih ${bufferItem.item.partNo} untuk dipindahkan`);
+        checkbox.setAttribute('aria-label', `Pilih ${bufferItem.item.partNo} untuk Multi-Scan`);
         checkbox.addEventListener('change', () => {
             bufferItem.selected = checkbox.checked;
             persistMultiScanBuffer();
@@ -1175,46 +1181,196 @@ async function processMultiScan(boxCode) {
         return;
     }
 
-    const sourceSummary = rebasedItems.map(({ currentItem }) =>
-        `${currentItem.partNo}: ${Object.keys(currentItem.locations || {}).join(', ') || '(belum ada lokasi)'}`
-    ).join('\n');
-    const bufferWarning = BUFFER_STOCK_BOX_PATTERN.test(boxCode)
-        || rebasedItems.some(({ currentItem }) => Object.keys(currentItem.locations || {}).some(box => BUFFER_STOCK_BOX_PATTERN.test(box)))
-        ? '\nPERHATIAN: Aksi melibatkan box buffer. Pastikan box utama dan tujuan sudah benar.'
-        : '';
-    const confirmed = confirm(`KONFIRMASI PINDAH ${selectedItems.length} PART\n\nLokasi lama setiap part akan diganti ke ${boxCode}.${bufferWarning}\n\n${sourceSummary}\n\nLanjutkan?`);
-    if (!confirmed) return;
+    const targetKey = String(boxCode).trim().toUpperCase();
+    pendingMultiScanBatch = {
+        boxCode,
+        entries: rebasedItems.map(({ bufferItem, currentItem }) => {
+            const locations = Object.keys(currentItem.locations || {});
+            const alreadyAtTarget = locations.some(location => String(location).trim().toUpperCase() === targetKey);
+            return {
+                bufferItem,
+                currentItem,
+                alreadyAtTarget,
+                conflict: !alreadyAtTarget && locations.length > 0,
+                action: null
+            };
+        })
+    };
 
-    const updatedItems = rebasedItems.map(({ bufferItem, currentItem }) => {
-        bufferItem.item = currentItem;
-        bufferItem.sourceLocations = Object.keys(currentItem.locations || {});
-        return {
-            ...currentItem,
-            locations: { [boxCode]: true },
-            lastBox: boxCode
-        };
-    });
-    persistMultiScanBuffer();
-    let savedItems;
-    try {
-        savedItems = await saveDBBatch(updatedItems, 'MOVE', `Multi-Scan ke ${boxCode}`);
-    } catch (error) {
-        console.error('Pemindahan Multi-Scan gagal disimpan:', error);
-        feedback('error');
-        showToast('Pemindahan gagal disimpan. Buffer tetap dipertahankan; coba lagi.');
+    if (pendingMultiScanBatch.entries.some(entry => entry.conflict)) {
+        renderMultiScanConflictChoices();
+        const modal = document.getElementById('multiScanConflictModal');
+        if (modal) modal.style.display = 'flex';
         return;
     }
+    await applyMultiScanActions();
+}
+
+function renderMultiScanConflictChoices() {
+    const container = document.getElementById('multiScanConflictList');
+    const destination = document.getElementById('multiScanConflictDestination');
+    const applyButton = document.getElementById('multiScanApplyButton');
+    if (!container || !pendingMultiScanBatch) return;
+
+    container.replaceChildren();
+    if (destination) destination.textContent = pendingMultiScanBatch.boxCode;
+    const conflicts = pendingMultiScanBatch.entries.filter(entry => entry.conflict);
+    conflicts.forEach(entry => {
+        const row = document.createElement('div');
+        row.className = 'multi-scan-conflict-row';
+        const details = document.createElement('div');
+        details.className = 'multi-scan-conflict-details';
+        const part = document.createElement('strong');
+        part.textContent = entry.currentItem.partNo;
+        const source = document.createElement('span');
+        source.className = 'multi-scan-conflict-source';
+        source.textContent = `Lokasi saat ini: ${Object.keys(entry.currentItem.locations || {}).join(', ')}`;
+        details.append(part, source);
+
+        const actions = document.createElement('div');
+        actions.className = 'multi-scan-conflict-actions';
+        [
+            ['move', 'Move', 'btn-warning'],
+            ['split', 'Split', 'btn-success']
+        ].forEach(([action, label, style]) => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = `btn-sm ${style}${entry.action === action ? ' is-selected' : ''}`;
+            button.textContent = label;
+            button.setAttribute('aria-pressed', String(entry.action === action));
+            button.addEventListener('click', () => setMultiScanActionForItem(entry.currentItem.id, action));
+            actions.appendChild(button);
+        });
+        row.append(details, actions);
+        container.appendChild(row);
+    });
+
+    if (applyButton) applyButton.disabled = conflicts.some(entry => !entry.action);
+}
+
+function setMultiScanActionForItem(itemId, action) {
+    if (!pendingMultiScanBatch || !['move', 'split'].includes(action)) return;
+    const entry = pendingMultiScanBatch.entries.find(candidate => String(candidate.currentItem.id) === String(itemId));
+    if (!entry || !entry.conflict) return;
+    entry.action = action;
+    renderMultiScanConflictChoices();
+}
+
+function setMultiScanActionForAll(action) {
+    if (!pendingMultiScanBatch || !['move', 'split'].includes(action)) return;
+    pendingMultiScanBatch.entries
+        .filter(entry => entry.conflict)
+        .forEach(entry => { entry.action = action; });
+    renderMultiScanConflictChoices();
+}
+
+function closeMultiScanConflictModal() {
+    const modal = document.getElementById('multiScanConflictModal');
+    if (modal) modal.style.display = 'none';
+    pendingMultiScanBatch = null;
+    document.getElementById('mainInput')?.focus();
+}
+
+async function applyMultiScanActions() {
+    if (!pendingMultiScanBatch || !requireAdminAccess('memindahkan part')) return;
+    const batch = pendingMultiScanBatch;
+    const conflicts = batch.entries.filter(entry => entry.conflict);
+    if (conflicts.some(entry => !entry.action)) {
+        feedback('warning');
+        showToast('Pilih Move atau Split untuk setiap part yang konflik, atau gunakan tombol aksi semua.');
+        return;
+    }
+
+    const counts = { move: 0, split: 0, add: 0, unchanged: 0 };
+    const changedEntries = batch.entries.filter(entry => !entry.alreadyAtTarget);
+    changedEntries.forEach(entry => {
+        if (entry.conflict) counts[entry.action]++;
+        else counts.add++;
+    });
+    counts.unchanged = batch.entries.length - changedEntries.length;
+
+    const sourceSummary = batch.entries.map(entry => {
+        const source = Object.keys(entry.currentItem.locations || {}).join(', ') || '(belum ada lokasi)';
+        const action = entry.alreadyAtTarget ? 'sudah ada di tujuan' : entry.action || 'tambah lokasi';
+        return `${entry.currentItem.partNo}: ${source} → ${batch.boxCode} (${action})`;
+    }).join('\n');
+    const bufferWarning = BUFFER_STOCK_BOX_PATTERN.test(batch.boxCode)
+        || batch.entries.some(entry => Object.keys(entry.currentItem.locations || {}).some(box => BUFFER_STOCK_BOX_PATTERN.test(box)))
+        ? '\nPERHATIAN: Aksi melibatkan box buffer. Pastikan box utama dan tujuan sudah benar.'
+        : '';
+    if (changedEntries.length > 0 && !confirm(
+        `KONFIRMASI MULTI-SCAN\n\nMove: ${counts.move} part • Split: ${counts.split} part • Tambah lokasi: ${counts.add} part • Sudah di tujuan: ${counts.unchanged} part\nTujuan: ${batch.boxCode}${bufferWarning}\n\n${sourceSummary}\n\nLanjutkan?`
+    )) return;
+
+    const selectedIds = new Set(batch.entries.map(entry => String(entry.currentItem.id)));
+    if (changedEntries.length === 0) {
+        multiScanBuffer = multiScanBuffer.filter(bufferItem => !selectedIds.has(String(bufferItem.item.id)));
+        persistMultiScanBuffer();
+        pendingMultiScanBatch = null;
+        const modal = document.getElementById('multiScanConflictModal');
+        if (modal) modal.style.display = 'none';
+        renderMultiScanList();
+        showToast('Semua part terpilih sudah ada di box tujuan.');
+        document.getElementById('mainInput')?.focus();
+        return;
+    }
+
+    const actionById = new Map(batch.entries.map(entry => [
+        String(entry.currentItem.id),
+        entry.conflict
+            ? entry.action
+            : Object.keys(entry.currentItem.locations || {}).length > 0 ? 'move' : 'add'
+    ]));
+    const updatedItems = changedEntries.map(entry => {
+        const currentItem = entry.currentItem;
+        const action = actionById.get(String(currentItem.id));
+        const locations = { ...(currentItem.locations || {}) };
+        let opnameCounts = currentItem.opnameCounts || {};
+        let opnameCompleted = currentItem.opnameCompleted || {};
+        if (action === 'move') {
+            Object.keys(locations).forEach(location => delete locations[location]);
+            opnameCounts = {};
+            opnameCompleted = {};
+        }
+        locations[batch.boxCode] = true;
+        return { ...currentItem, locations, opnameCounts, opnameCompleted, lastBox: batch.boxCode };
+    });
+
+    let savedItems;
+    try {
+        savedItems = await saveDBBatch(
+            updatedItems,
+            'LOCATION',
+            item => {
+                const action = actionById.get(String(item.id));
+                const label = action === 'split' ? 'Split' : action === 'add' ? 'tambah lokasi' : 'Move';
+                return `Multi-Scan ${label} ke ${batch.boxCode}`;
+            }
+        );
+    } catch (error) {
+        console.error('Penyimpanan Multi-Scan gagal:', error);
+        feedback('error');
+        showToast('Penyimpanan gagal. Buffer tetap dipertahankan; periksa koneksi penyimpanan lalu coba lagi.');
+        if (conflicts.length === 0) pendingMultiScanBatch = null;
+        return;
+    }
+
     savedItems.forEach(item => {
         const localIndex = localItems.findIndex(candidate => candidate.id === item.id);
         if (localIndex >= 0) localItems[localIndex] = item;
         const filteredIndex = filteredItems.findIndex(candidate => candidate.id === item.id);
         if (filteredIndex >= 0) filteredItems[filteredIndex] = item;
-        addHistoryLog(item.partNo, boxCode);
+        const action = actionById.get(String(item.id));
+        const historyAction = action === 'split' ? 'SPLIT' : action === 'add' ? 'MASUK' : 'MOVE';
+        addHistoryLog(item.partNo, `${historyAction} ke ${batch.boxCode}`);
     });
-    multiScanBuffer = multiScanBuffer.filter(bufferItem => bufferItem.selected === false);
+    multiScanBuffer = multiScanBuffer.filter(bufferItem => !selectedIds.has(String(bufferItem.item.id)));
     persistMultiScanBuffer();
+    pendingMultiScanBatch = null;
+    const modal = document.getElementById('multiScanConflictModal');
+    if (modal) modal.style.display = 'none';
     feedback('success');
-    showToast(`${selectedItems.length} part dipindahkan ke ${boxCode}`);
+    showToast(`Multi-Scan selesai: Move ${counts.move}, Split ${counts.split}, tambah lokasi ${counts.add}.`);
     renderMultiScanList();
     renderSimpanList(false);
     document.getElementById('mainInput')?.focus();
@@ -1312,7 +1468,7 @@ function executeSimpanAction(action) {
     
     // Save and record
     item.lastBox = newBox;
-    saveDB(item);
+    saveDB(item, action === 'move' ? 'MOVE' : 'SPLIT', `${action === 'move' ? 'Pindah' : 'Tambah lokasi'} ke ${newBox}`);
     addHistoryLog(item.partNo, `${action === 'move' ? 'PINDAH' : 'SPLIT'} ke ${newBox}`);
     feedback('success');
     
@@ -1504,6 +1660,8 @@ function getOpnameRackCountConflict(item, target) {
 function isOpnameItemFullyCounted(item) {
     const locations = Object.keys(item?.locations || {});
     const countedLocations = Object.keys(item?.opnameCounts || {});
+    const totalCount = getOpnameTotalCount(item);
+    if (locations.length > 0 && totalCount > 0 && totalCount === getOpnameTargetQty(item)) return true;
     return locations.length > 0 && locations.every(location => {
         const normalizedLocation = String(location).toUpperCase();
         return countedLocations.some(target => {

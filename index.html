@@ -2,7 +2,7 @@
     Tujuan: Entry point UI untuk workflow WMS Magelang.
     Caller: Browser/PWA shell; event handlers diteruskan ke main.js dan core.js.
     Dependensi: css/style.css, Font Awesome, dan modul JavaScript di js/.
-    Main Functions: Menyediakan role gate Admin/User, navigasi mobile collapsible, Cari, SIMPAN/OPNAME per box/rak dengan daftar rak collapsible, edit opname dengan mode keyboard dan salin nomor part, pilihan sinkronisasi, impor/ekspor, dan resolusi konflik data.
+    Main Functions: Menyediakan role gate Admin/User, navigasi mobile collapsible, Cari, SIMPAN/OPNAME per box/rak dengan Multi-Scan Move/Split per part, edit opname dengan mode keyboard dan salin nomor part, rincian antrean sync, impor/ekspor, dan resolusi konflik data.
     Side Effects: Mengubah DOM, memicu scan, penyimpanan lokal, dan sinkronisasi cloud melalui handler.
 -->
 <!-- WMS Magelang - Entry point UI -->
@@ -55,7 +55,7 @@
                 </div>
             </div>
             <div class="sync-status-row">
-                <span id="syncStatus" role="status" aria-live="polite"><i class="fas fa-cloud-check" aria-hidden="true"></i><span>Status antrean...</span></span>
+                <button type="button" id="syncStatus" aria-live="polite" aria-haspopup="dialog" aria-controls="syncModal" title="Buka rincian antrean sinkronisasi" onclick="manualSync()"><i class="fas fa-cloud-check" aria-hidden="true"></i><span>Status antrean...</span></button>
             </div>
         </header>
 
@@ -66,19 +66,40 @@
                     <button type="button" class="icon-only" onclick="closeSyncModal()" aria-label="Tutup pilihan sinkronisasi"><i class="fas fa-times"></i></button>
                 </div>
                 <p id="syncQueueSummary" class="sync-modal-note" style="line-height:1.5; color:var(--secondary);">Perubahan lokal menunggu upload.</p>
+                <div class="sync-queue-sections">
+                    <section class="sync-queue-group" aria-labelledby="syncLocationQueueTitle">
+                        <h4 id="syncLocationQueueTitle"><i class="fas fa-box" aria-hidden="true"></i> Perubahan lokasi / masuk ke box</h4>
+                        <div class="sync-queue-table-wrap">
+                            <table class="sync-queue-table">
+                                <thead><tr><th scope="col">Part</th><th scope="col">Lokasi</th><th scope="col">Aksi</th></tr></thead>
+                                <tbody id="syncLocationQueueList"></tbody>
+                            </table>
+                        </div>
+                    </section>
+                    <section class="sync-queue-group" aria-labelledby="syncOpnameQueueTitle">
+                        <h4 id="syncOpnameQueueTitle"><i class="fas fa-clipboard-check" aria-hidden="true"></i> Hasil opname</h4>
+                        <div class="sync-queue-table-wrap">
+                            <table class="sync-queue-table">
+                                <thead><tr><th scope="col">Part</th><th scope="col">Hitungan per lokasi</th><th scope="col">Aksi</th></tr></thead>
+                                <tbody id="syncOpnameQueueList"></tbody>
+                            </table>
+                        </div>
+                    </section>
+                </div>
+                <p class="sync-queue-warning">Membatalkan satu part akan menghapus semua perubahan tertundanya (lokasi dan opname) dan memulihkan data dari server. Memerlukan koneksi internet.</p>
                 <div class="sync-action-list">
                     <button type="button" class="btn btn-primary sync-action-button" onclick="uploadToServer()">
                         <i class="fas fa-cloud-arrow-up" aria-hidden="true"></i>
                         <span class="sync-action-copy">
-                            <strong>Upload ke server</strong>
-                            <small>Kirim perubahan lokal yang menunggu, termasuk lokasi box dan hasil stock opname.</small>
+                            <strong>Upload lokasi box &amp; hasil opname</strong>
+                            <small>Kirim perubahan lokasi box dan hasil stock opname yang masih menunggu upload.</small>
                         </span>
                     </button>
                     <button type="button" class="btn btn-outline sync-action-button" onclick="downloadFromServer()">
                         <i class="fas fa-cloud-arrow-down" aria-hidden="true"></i>
                         <span class="sync-action-copy">
-                            <strong>Perbarui data lokal dari server</strong>
-                            <small>Ambil data terbaru, termasuk qty stok. Perubahan lokal yang menunggu upload tetap dijaga.</small>
+                            <strong>Download / perbarui data stok</strong>
+                            <small>Ambil qty stok terbaru dari server tanpa menghapus perubahan lokal yang menunggu upload.</small>
                         </span>
                     </button>
                 </div>
@@ -243,7 +264,26 @@
                         <button class="btn-sm btn-danger" onclick="clearMultiScan()">Clear</button>
                     </div>
                     <div id="multiTagsContainer" style="max-height:200px; overflow-y:auto; padding-bottom:5px; display:flex; flex-direction:column; gap:6px;"></div>
-                    <div class="multi-scan-instruction" style="margin-top:10px; font-size:0.9rem; font-weight:bold; color:var(--purple); animation: pulse 2s infinite; text-align:center;"><i class="fas fa-arrow-right"></i> SCAN BOX TUJUAN UNTUK KONFIRMASI PINDAH</div>
+                    <div class="multi-scan-instruction" style="margin-top:10px; font-size:0.9rem; font-weight:bold; color:var(--purple); animation: pulse 2s infinite; text-align:center;"><i class="fas fa-arrow-right"></i> SCAN BOX TUJUAN UNTUK PILIH MOVE/SPLIT</div>
+                </div>
+                <div class="overlay multi-scan-conflict-overlay" id="multiScanConflictModal" role="dialog" aria-modal="true" aria-labelledby="multiScanConflictTitle" style="display:none; z-index:1450;">
+                    <div class="modal multi-scan-conflict-modal">
+                        <div class="sync-modal-header">
+                            <h3 id="multiScanConflictTitle"><i class="fas fa-map-location-dot" aria-hidden="true"></i> Pilih aksi lokasi per part</h3>
+                            <button type="button" class="icon-only" onclick="closeMultiScanConflictModal()" aria-label="Tutup pilihan lokasi"><i class="fas fa-times" aria-hidden="true"></i></button>
+                        </div>
+                        <p class="sync-modal-note">Pilih Move atau Split untuk setiap part yang sudah punya lokasi. Pilihan Move/Split semua berlaku untuk semua konflik di daftar.</p>
+                        <p class="multi-scan-destination">Box tujuan: <strong id="multiScanConflictDestination"></strong></p>
+                        <div id="multiScanConflictList" class="multi-scan-conflict-list"></div>
+                        <div class="multi-scan-bulk-actions">
+                            <button type="button" class="btn btn-warning" onclick="setMultiScanActionForAll('move')"><i class="fas fa-dolly" aria-hidden="true"></i> Move semua</button>
+                            <button type="button" class="btn btn-success" onclick="setMultiScanActionForAll('split')"><i class="fas fa-columns" aria-hidden="true"></i> Split semua</button>
+                        </div>
+                        <div class="multi-scan-conflict-footer">
+                            <button type="button" class="btn btn-outline" onclick="closeMultiScanConflictModal()">Batal</button>
+                            <button type="button" id="multiScanApplyButton" class="btn btn-primary" onclick="applyMultiScanActions()" disabled>Terapkan pilihan</button>
+                        </div>
+                    </div>
                 </div>
                 <!-- Smart Suggestion Panel -->
                 <div id="smartSuggestionPanel" style="display:none; background:#fffbeb; padding:8px 12px; margin:8px 16px 0; border-radius:6px; border:1px solid #fcd34d;">

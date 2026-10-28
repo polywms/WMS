@@ -2,7 +2,7 @@
  * Tujuan: Persistensi IndexedDB, sinkronisasi Admin, dan refresh baca otomatis untuk User.
  * Caller: main.js, core.js, dan handler kontrol sinkronisasi di index.html.
  * Dependensi: auth.js (Admin-authorized writes), config.js (db, antrean, sesi), IndexedDB, API_URL.
- * Main Functions: initDB() migrates the IndexedDB outbox and location/count schema; saveDB()/saveDBBatch() atomically store records and queue; sync uploads locations, Opname counts, and completed-location status, with per-record or batch Cloud/Local conflict resolution.
+ * Main Functions: initDB() migrates the IndexedDB outbox and location/count schema; saveDB()/saveDBBatch() atomically store records and queue; manual sync reviews location and Opname queues, uploads both, downloads stock, and restores server data when a queued part is canceled.
  * Side Effects: IndexedDB item/outbox read/write, sync-log localStorage, background User GET, and user-triggered Admin POST/GET requests.
  */
 // js/database.js
@@ -33,6 +33,176 @@ function updateLocalSyncStatus() {
         updateSyncUI(`<i class="fas fa-cloud-arrow-up"></i> ${syncQueue.length} menunggu upload`);
     } else {
         updateSyncUI('<i class="fas fa-cloud-check"></i> 0 perubahan menunggu');
+    }
+}
+
+function getPendingSyncCategories(queueItem) {
+    const categories = getPendingSyncCategoryList(queueItem);
+    return {
+        location: categories.includes('location'),
+        opname: categories.includes('opname')
+    };
+}
+
+function renderSyncQueueTable(containerId, entries, category) {
+    const body = document.getElementById(containerId);
+    if (!body) return;
+    body.replaceChildren();
+
+    const filteredEntries = entries.filter(entry => getPendingSyncCategories(entry)[category]);
+    if (filteredEntries.length === 0) {
+        const row = document.createElement('tr');
+        const empty = document.createElement('td');
+        empty.colSpan = 3;
+        empty.className = 'sync-queue-empty';
+        empty.textContent = 'Tidak ada perubahan menunggu.';
+        row.appendChild(empty);
+        body.appendChild(row);
+        return;
+    }
+
+    filteredEntries.forEach(entry => {
+        const row = document.createElement('tr');
+        const part = document.createElement('td');
+        part.textContent = entry.partNo || `ID ${entry.id}`;
+        const detail = document.createElement('td');
+        if (category === 'location') {
+            detail.textContent = Object.keys(entry.locations || {}).join(', ') || 'Belum ada lokasi';
+        } else {
+            const counts = Object.entries(entry.opnameCounts || {})
+                .map(([location, quantity]) => `${location}: ${Number(quantity) || 0}`)
+                .join(' • ');
+            detail.textContent = counts || '0 / belum ada hitungan positif';
+        }
+        const action = document.createElement('td');
+        const removeButton = document.createElement('button');
+        removeButton.type = 'button';
+        removeButton.className = 'btn-sm btn-outline sync-queue-remove';
+        removeButton.textContent = 'Batalkan part';
+        removeButton.setAttribute('aria-label', `Batalkan semua perubahan tertunda untuk ${entry.partNo || `ID ${entry.id}`}`);
+        removeButton.title = 'Memulihkan data part dari server; perubahan lokasi dan opname ikut dibatalkan';
+        removeButton.disabled = !navigator.onLine || isCloudSyncing || isSyncing;
+        removeButton.addEventListener('click', () => removeQueuedChange(entry.id));
+        action.appendChild(removeButton);
+        row.append(part, detail, action);
+        body.appendChild(row);
+    });
+}
+
+function renderSyncQueueTables() {
+    renderSyncQueueTable('syncLocationQueueList', syncQueue, 'location');
+    renderSyncQueueTable('syncOpnameQueueList', syncQueue, 'opname');
+}
+
+async function removeQueuedChange(id) {
+    if (!requireAdminAccess('membatalkan perubahan antrean')) return false;
+    if (!navigator.onLine) {
+        showToast('Pembatalan memerlukan koneksi internet agar data dapat dipulihkan dari server.');
+        return false;
+    }
+    if (isSyncing || isCloudSyncing) {
+        showToast('Sinkronisasi sedang berjalan. Tunggu hingga selesai.');
+        return false;
+    }
+    const queuedItem = syncQueue.find(item => String(item.id) === String(id));
+    if (!queuedItem) {
+        showToast('Part tidak ditemukan di antrean. Muat ulang rincian sync.');
+        renderSyncQueueTables();
+        return false;
+    }
+    if (!confirm(
+        `Batalkan semua perubahan tertunda untuk ${queuedItem.partNo || `ID ${queuedItem.id}`}?\n\nPerubahan lokasi dan opname part ini akan dihapus dari antrean. Data lokal dipulihkan dari server; jika part belum ada di server, data lokal part ini juga dihapus.`
+    )) return false;
+
+    isCloudSyncing = true;
+    setSyncBusy(true);
+    renderSyncQueueTables();
+    updateSyncUI('<i class="fas fa-spinner fa-spin"></i> Memulihkan data part dari server...');
+    let timeoutId;
+    let cancellationCommitted = false;
+    try {
+        const controller = new AbortController();
+        timeoutId = setTimeout(() => controller.abort(), 30000);
+        const response = await fetch(API_URL, { redirect: 'follow', signal: controller.signal });
+        clearTimeout(timeoutId);
+        if (!response.ok) throw new Error(`Cloud returned ${response.status}`);
+        const result = await response.json();
+        if (result.status !== 'success' || !Array.isArray(result.data)) {
+            throw new Error(result.message || 'Respons data cloud tidak valid.');
+        }
+
+        const cloudItem = result.data.find(item => String(item.id) === String(queuedItem.id))
+            || result.data.find(item => getWmsItemIdentityKey(item) === getWmsItemIdentityKey(queuedItem));
+        let restoredItem = cloudItem
+            ? normalizeWmsItemMaps({ ...cloudItem, id: queuedItem.id })
+            : null;
+        if (restoredItem) delete restoredItem.localVersion;
+
+        await new Promise((resolve, reject) => {
+            let tx;
+            try {
+                tx = db.transaction(['items', 'outbox'], 'readwrite');
+                const itemsStore = tx.objectStore('items');
+                const outboxStore = tx.objectStore('outbox');
+                const queuedRequest = outboxStore.get(queuedItem.id);
+                queuedRequest.onsuccess = () => {
+                    const currentQueueItem = queuedRequest.result;
+                    const sameSnapshot = currentQueueItem && (queuedItem.localVersion
+                        ? currentQueueItem.localVersion === queuedItem.localVersion
+                        : areWmsRecordsEqual(currentQueueItem, queuedItem));
+                    if (!sameSnapshot) {
+                        tx.abort();
+                        return;
+                    }
+                    if (restoredItem) itemsStore.put(restoredItem);
+                    else itemsStore.delete(queuedItem.id);
+                    outboxStore.delete(queuedItem.id);
+                };
+                queuedRequest.onerror = () => tx.abort();
+            } catch (error) {
+                reject(error);
+                return;
+            }
+            tx.oncomplete = resolve;
+            tx.onerror = () => reject(tx.error || new Error('Gagal membatalkan perubahan lokal.'));
+            tx.onabort = () => reject(tx.error || new Error('Antrean berubah saat pemulihan; tidak ada perubahan yang dibatalkan.'));
+        });
+        cancellationCommitted = true;
+        syncQueue = syncQueue.filter(item => String(item.id) !== String(queuedItem.id));
+
+        syncLogs = syncLogs.filter(log =>
+            String(log.partNo || '').trim().toUpperCase() !== String(queuedItem.partNo || '').trim().toUpperCase()
+        );
+        try { localStorage.setItem('wms_syncLogs', JSON.stringify(syncLogs)); }
+        catch (error) { console.warn('Log lokal gagal diperbarui setelah pembatalan antrean:', error); }
+        pendingSyncConflicts = pendingSyncConflicts.filter(conflict => String(conflict.clientId) !== String(queuedItem.id));
+        await loadSyncQueueFromOutbox();
+        await loadDataFromLocal();
+        renderSyncConflicts();
+        renderSyncQueueTables();
+        updateLocalSyncStatus();
+        if (currentTab === 'opname' && typeof handleOpnameRender === 'function') handleOpnameRender(true);
+        else if (currentTab === 'simpan' && typeof renderSimpanList === 'function') renderSimpanList(false);
+        else if (currentTab === 'data' && typeof renderDataList === 'function') renderDataList(true);
+        feedback('success');
+        showToast(restoredItem
+            ? `Perubahan ${queuedItem.partNo} dibatalkan; data lokal dipulihkan dari server.`
+            : `${queuedItem.partNo} tidak ada di server; data lokal dan antreannya dihapus.`);
+        return true;
+    } catch (error) {
+        if (timeoutId) clearTimeout(timeoutId);
+        console.error('Pembatalan perubahan antrean gagal:', error);
+        updateSyncUI(error.name === 'AbortError'
+            ? `<i class="fas fa-times-circle"></i> Pemulihan timeout; ${cancellationCommitted ? 'muat ulang data lokal' : 'antrean tetap aman'}`
+            : `<i class="fas fa-times-circle"></i> Pemulihan gagal; ${cancellationCommitted ? 'muat ulang data lokal' : 'antrean tetap aman'}`);
+        showToast(cancellationCommitted
+            ? `Pembatalan sudah tersimpan di perangkat, tetapi tampilan gagal diperbarui: ${error.message}. Muat ulang aplikasi.`
+            : `Pembatalan gagal: ${error.message}. Data lokal dan antrean tetap tersimpan.`);
+        return false;
+    } finally {
+        isCloudSyncing = false;
+        setSyncBusy(false);
+        renderSyncQueueTables();
     }
 }
 
@@ -388,6 +558,20 @@ function mergeWmsOpnameCompletedMaps(...maps) {
     return merged;
 }
 
+function mergePendingSyncCategories(queuedItem, actionName) {
+    const categories = new Set(getPendingSyncCategoryList(queuedItem));
+    categories.add(String(actionName || '').toUpperCase() === 'OPNAME' ? 'opname' : 'location');
+    return Array.from(categories);
+}
+
+function getPendingSyncCategoryList(queuedItem) {
+    const categories = Array.isArray(queuedItem?.pendingSyncCategories)
+        ? queuedItem.pendingSyncCategories.filter(category => category === 'location' || category === 'opname')
+        : [];
+    if (categories.length > 0 || !queuedItem) return categories;
+    return ['location', 'opname'];
+}
+
 function dedupeLocalItemsByIdentity(items) {
     const merged = new Map();
     const rows = Array.isArray(items) ? items : [];
@@ -458,7 +642,11 @@ function dedupeSyncQueueByIdentity(queue) {
             revision: Math.max(Number(existing.revision) || 0, Number(item.revision) || 0),
             locations: mergeWmsLocationMaps(existing.locations || {}, item.locations || {}),
             opnameCounts: mergeWmsOpnameCountMaps(existing.opnameCounts || {}, item.opnameCounts || {}),
-            opnameCompleted: mergeWmsOpnameCompletedMaps(existing.opnameCompleted || {}, item.opnameCompleted || {})
+            opnameCompleted: mergeWmsOpnameCompletedMaps(existing.opnameCompleted || {}, item.opnameCompleted || {}),
+            pendingSyncCategories: Array.from(new Set([
+                ...getPendingSyncCategoryList(existing),
+                ...getPendingSyncCategoryList(item)
+            ]))
         };
         merged.set(key, normalizeWmsItemMaps(candidate));
     });
@@ -772,12 +960,23 @@ function saveDB(item, actionName = "UPDATE", actionDetail = "") {
     const record = { ...normalizeWmsItemMaps(item), updated_at: Date.now(), revision: Number(item.revision) || 0, localVersion: `${Date.now()}-${Math.random()}` };
     Object.assign(item, record);
     const tx = db.transaction(['items', 'outbox'], 'readwrite');
-    tx.objectStore('items').put(record);
-    tx.objectStore('outbox').put(record);
+    const itemsStore = tx.objectStore('items');
+    const outboxStore = tx.objectStore('outbox');
+    let queuedRecord = { ...record, pendingSyncCategories: mergePendingSyncCategories(null, actionName) };
+    const queuedRequest = outboxStore.get(record.id);
+    queuedRequest.onsuccess = () => {
+        queuedRecord = {
+            ...record,
+            pendingSyncCategories: mergePendingSyncCategories(queuedRequest.result, actionName)
+        };
+        itemsStore.put(record);
+        outboxStore.put(queuedRecord);
+    };
+    queuedRequest.onerror = () => tx.abort();
     tx.oncomplete = () => {
         const queuedIndex = syncQueue.findIndex(queuedItem => queuedItem.id === record.id);
-        if (queuedIndex >= 0) syncQueue[queuedIndex] = record;
-        else syncQueue.push(record);
+        if (queuedIndex >= 0) syncQueue[queuedIndex] = queuedRecord;
+        else syncQueue.push(queuedRecord);
         syncLogs.push({ partNo: record.partNo, action: actionName, detail: actionDetail || "Update Qty/Lokasi", timestamp: Date.now() });
         syncLogs = syncLogs.slice(-100);
         try { localStorage.setItem('wms_syncLogs', JSON.stringify(syncLogs)); } catch (error) { console.warn('Log lokal gagal disimpan:', error); }
@@ -805,13 +1004,23 @@ function saveDBBatch(items, actionName = "UPDATE", actionDetail = "") {
     }));
     return new Promise((resolve, reject) => {
         let tx;
+        const queuedRecordsById = new Map();
         try {
             tx = db.transaction(['items', 'outbox'], 'readwrite');
             const store = tx.objectStore('items');
             const outbox = tx.objectStore('outbox');
             records.forEach(item => {
                 store.put(item);
-                outbox.put(item);
+                const queuedRequest = outbox.get(item.id);
+                queuedRequest.onsuccess = () => {
+                    const queuedRecord = {
+                        ...item,
+                        pendingSyncCategories: mergePendingSyncCategories(queuedRequest.result, actionName)
+                    };
+                    queuedRecordsById.set(String(item.id), queuedRecord);
+                    outbox.put(queuedRecord);
+                };
+                queuedRequest.onerror = () => tx.abort();
             });
         } catch (error) {
             reject(error);
@@ -820,9 +1029,10 @@ function saveDBBatch(items, actionName = "UPDATE", actionDetail = "") {
 
         tx.oncomplete = () => {
             records.forEach(item => {
+                const queuedRecord = queuedRecordsById.get(String(item.id)) || item;
                 const queuedIndex = syncQueue.findIndex(queuedItem => queuedItem.id === item.id);
-                if (queuedIndex >= 0) syncQueue[queuedIndex] = item;
-                else syncQueue.push(item);
+                if (queuedIndex >= 0) syncQueue[queuedIndex] = queuedRecord;
+                else syncQueue.push(queuedRecord);
                 syncLogs.push({
                     partNo: item.partNo,
                     action: actionName,
@@ -1478,7 +1688,8 @@ async function uploadToServer() {
 window.manualSync = function() {
     if (!requireAdminAccess('membuka sinkronisasi')) return;
     const summary = document.getElementById('syncQueueSummary');
-    if (summary) summary.textContent = `${syncQueue.length} perubahan lokal menunggu upload.`;
+    if (summary) summary.textContent = `${syncQueue.length} part menunggu upload. Part yang muncul di dua tabel tetap dihitung sebagai satu entri antrean.`;
+    renderSyncQueueTables();
     document.getElementById('syncModal').style.display = 'flex';
 };
 window.closeSyncModal = function() {

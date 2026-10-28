@@ -3,7 +3,7 @@
              * Tujuan: Menyediakan sistem visual responsif untuk workflow WMS.
              * Caller: index.html dan seluruh komponen UI berbasis class.
              * Dependensi: Variabel tema, Font Awesome, dan CSS layout native.
-             * Main Functions: Responsive application layout, compact header, distinct sync actions, collapsible mobile navigation and rack lists, opname stats, and rack filters.
+             * Main Functions: Responsive application layout, compact header, sync queue tables, per-part multi-scan actions, collapsible mobile navigation and rack lists, opname stats, and rack filters.
              * Side Effects: Mengubah tampilan dan spacing tanpa mengubah state aplikasi.
              */
             :root {
@@ -3010,6 +3010,152 @@
             .sync-modal .sync-action-button.btn-outline:hover {
                 border-color: #94a3b8;
                 background: var(--bg);
+            }
+
+            #syncStatus {
+                border: 0;
+                color: inherit;
+                cursor: pointer;
+                font: inherit;
+                text-align: left;
+            }
+
+            #syncStatus:focus-visible {
+                outline: 2px solid currentColor;
+                outline-offset: 2px;
+            }
+
+            .sync-modal {
+                max-height: 88vh;
+                overflow-y: auto;
+            }
+
+            .sync-queue-sections {
+                display: grid;
+                gap: 14px;
+                margin: 14px 0;
+            }
+
+            .sync-queue-group {
+                min-width: 0;
+            }
+
+            .sync-queue-group h4 {
+                margin: 0 0 7px;
+                font-size: 0.88rem;
+            }
+
+            .sync-queue-table-wrap {
+                max-height: 180px;
+                overflow: auto;
+                border: 1px solid var(--border);
+                border-radius: 7px;
+                background: var(--card);
+            }
+
+            .sync-queue-table {
+                width: 100%;
+                min-width: 420px;
+                border-collapse: collapse;
+                font-size: 0.78rem;
+            }
+
+            .sync-queue-table th,
+            .sync-queue-table td {
+                padding: 7px 8px;
+                border-bottom: 1px solid var(--border);
+                text-align: left;
+                vertical-align: top;
+            }
+
+            .sync-queue-table th {
+                position: sticky;
+                top: 0;
+                z-index: 1;
+                background: var(--bg-secondary);
+            }
+
+            .sync-queue-table tr:last-child td {
+                border-bottom: 0;
+            }
+
+            .sync-queue-empty {
+                color: var(--text-secondary);
+                text-align: center !important;
+            }
+
+            .sync-queue-warning {
+                margin: 10px 0;
+                color: var(--text-secondary);
+                font-size: 0.76rem;
+                line-height: 1.45;
+            }
+
+            .sync-queue-remove {
+                white-space: nowrap;
+            }
+
+            .multi-scan-conflict-modal {
+                max-height: 88vh;
+                overflow-y: auto;
+            }
+
+            .multi-scan-destination {
+                padding: 9px 11px;
+                border-radius: 6px;
+                background: var(--bg-secondary);
+            }
+
+            .multi-scan-conflict-list {
+                display: grid;
+                gap: 8px;
+                max-height: 42vh;
+                overflow-y: auto;
+            }
+
+            .multi-scan-conflict-row {
+                display: grid;
+                grid-template-columns: minmax(0, 1fr) auto;
+                align-items: center;
+                gap: 10px;
+                padding: 9px;
+                border: 1px solid var(--border);
+                border-radius: 7px;
+            }
+
+            .multi-scan-conflict-details {
+                min-width: 0;
+                overflow-wrap: anywhere;
+            }
+
+            .multi-scan-conflict-source {
+                display: block;
+                margin-top: 3px;
+                color: var(--text-secondary);
+                font-size: 0.76rem;
+            }
+
+            .multi-scan-conflict-actions,
+            .multi-scan-bulk-actions,
+            .multi-scan-conflict-footer {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 7px;
+            }
+
+            .multi-scan-bulk-actions {
+                justify-content: flex-end;
+                margin-top: 12px;
+            }
+
+            .multi-scan-conflict-footer {
+                justify-content: flex-end;
+                margin-top: 14px;
+            }
+
+            .multi-scan-conflict-actions .is-selected {
+                outline: 2px solid var(--primary-dark);
+                outline-offset: 1px;
             }
 
             .bottom-nav-toggle {
