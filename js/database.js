@@ -2,7 +2,7 @@
  * Tujuan: Persistensi IndexedDB, sinkronisasi Admin, dan refresh baca otomatis untuk User.
  * Caller: main.js, core.js, dan handler kontrol sinkronisasi di index.html.
  * Dependensi: auth.js (Admin-authorized writes), config.js (db, antrean, sesi), IndexedDB, API_URL.
- * Main Functions: initDB() migrates the IndexedDB outbox and location/count schema; saveDB()/saveDBBatch() atomically store records and queue; manual sync reviews location and Opname queues, uploads both, downloads stock, and restores server data when a queued part is canceled.
+ * Main Functions: initDB() migrates the IndexedDB outbox and location/count schema; saveDB()/saveDBBatch() atomically store records and queue; manual Admin download refreshes stock and can apply Cloud locations, while User refresh preserves local locations.
  * Side Effects: IndexedDB item/outbox read/write, sync-log localStorage, background User GET, and user-triggered Admin POST/GET requests.
  */
 // js/database.js
@@ -829,12 +829,12 @@ async function downloadFromServer(options = {}) {
                         locType: cloudItem.locType || localItem.locType || '',
                         techName: cloudItem.techName || localItem.techName || '',
                         sysQty: getCloudSysQty(cloudItem, localItem),
-                        locations: localItem.locations || cloudItem.locations || {},
+                        locations: backgroundUserRefresh ? localLocations : cloudLocations,
                         opnameCounts: localItem.opnameCounts || cloudItem.opnameCounts || {},
                         opnameCompleted: localItem.opnameCompleted || cloudItem.opnameCompleted || {},
                         updated_at: Math.max(localUpdatedAt, cloudUpdatedAt)
                     };
-                    return { cloudItem, merged: mergedLocal, locationConflict: false };
+                    return { cloudItem, localItem, merged: mergedLocal, locationConflict };
                 }
                 const merged = {
                     ...localItem,
@@ -844,7 +844,7 @@ async function downloadFromServer(options = {}) {
                     locType: cloudItem.locType || localItem.locType || '',
                     techName: cloudItem.techName || localItem.techName || '',
                     sysQty: getCloudSysQty(cloudItem, localItem),
-                    locations: localItem.locations || cloudItem.locations || {},
+                    locations: backgroundUserRefresh ? localLocations : cloudLocations,
                     opnameCounts: localItem.opnameCounts || cloudItem.opnameCounts || {},
                     opnameCompleted: cloudItem.opnameCompleted || localItem.opnameCompleted || {},
                     updated_at: Math.max(localUpdatedAt, cloudUpdatedAt)
@@ -855,9 +855,9 @@ async function downloadFromServer(options = {}) {
         const pendingCloudUpdates = mergeCandidates.filter(candidate => candidate?.pending);
         const conflictCandidates = candidates.filter(candidate => candidate.locationConflict);
         const useCloudLocations = !backgroundUserRefresh && conflictCandidates.length > 0
-            && confirm(`Cloud dan lokal memiliki lokasi berbeda pada ${conflictCandidates.length} part. Gunakan lokasi dari Cloud untuk part tersebut? Pilih Batal untuk mempertahankan lokasi lokal yang konflik.`);
+            && confirm(`Cloud dan lokal memiliki lokasi berbeda pada ${conflictCandidates.length} part. Sinkronkan lokasi dari Cloud? Pilih Batal untuk mempertahankan lokasi lokal.`);
         const mergedItems = candidates.map(candidate => {
-            if (candidate.locationConflict && !backgroundUserRefresh && !useCloudLocations) {
+            if (candidate.locationConflict && !useCloudLocations) {
                 candidate.merged.locations = candidate.localItem.locations || {};
             }
             return candidate.merged;

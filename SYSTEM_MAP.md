@@ -30,7 +30,7 @@ Arsitektur layering sederhana: View (HTML/Tab) → Controller (core.js processSc
 **Role & Lokasi Fisik**
 - Startup meminta pilihan Admin (password diverifikasi server) atau User (langsung ke Cari).
 - Password Admin dibuat lewat `setupAdminPassword()` dengan minimum 4 karakter; password yang lebih panjang tetap diterima dan server memvalidasi batas minimum saat setup serta login.
-- User hanya dapat mencari data lokal dengan mengetik atau scan kamera; navigasi dan handler membatasi tab serta aksi tulis. Pilihan User diingat, data lokal tampil segera, lalu GET read-only memeriksa update di latar belakang; bila data baru tersimpan, halaman reload otomatis ke Cari.
+- User hanya dapat mencari data lokal dengan mengetik atau scan kamera; navigasi dan handler membatasi tab serta aksi tulis. Pilihan User diingat, data lokal tampil segera, lalu GET read-only memeriksa update di latar belakang; bila data baru tersimpan, halaman reload otomatis ke Cari. Refresh User hanya memperbarui stok dan mempertahankan lokasi lokal.
 - Refresh User tidak menampilkan kontrol sinkronisasi manual dan tidak menulis ke cloud. `SYS_QTY` selalu mengikuti cloud, termasuk untuk record berantrean; lokasi dan hitungan opname lokal tetap dipertahankan.
 - Filter lokasi Admin memilih `SPAREPART BAIK` sebagai default saat tersedia. SIMPAN, relokasi, edit hitungan Opname aktif, dan OPNAME hanya menerima item dengan `LOC_TYPE` tersebut; jenis lain tetap tersedia untuk pencarian DATA.
 - Sesi Admin berlaku 8 jam; semua POST tulis diverifikasi token di `code.gs`. Guard UI tidak menggantikan validasi server.
@@ -123,7 +123,7 @@ Cloud schema stores `OPNAME_COUNTS`; legacy `OPNAME_COMPLETED` values remain acc
 - Upload perubahan lokal menulis `LOCATIONS` dan `OPNAME_COUNTS`; legacy `OPNAME_COMPLETED` is retained for compatibility; identity and revision are used only for matching and conflict detection.
 - The local outbox records pending `location`/`opname` categories for the sync dialog; those display-only categories are not sent in the Cloud payload. Canceling a part removes its full pending snapshot and restores its latest Cloud row; a part absent from Cloud is removed locally.
 - Upload normal tidak menulis `SYS_QTY` atau metadata master. Import stock adalah alur yang mengubah `SYS_QTY` di cloud.
-- Download selalu menerapkan `SYS_QTY` cloud ke lokal, termasuk pada record ber-outbox, dan memperbarui snapshot antrean tanpa mengubah revision.
+- Download selalu menerapkan `SYS_QTY` cloud ke lokal, termasuk pada record ber-outbox, dan memperbarui snapshot antrean tanpa mengubah revision. Download manual Admin dapat menerapkan `LOCATIONS` cloud setelah konfirmasi konflik; record dengan perubahan pending tetap mempertahankan lokasi lokal. Refresh User hanya memperbarui stok dan tidak menyinkronkan lokasi.
 - `LOCATIONS` menyimpan membership box/tingkat; `OPNAME_COUNTS` menyimpan hitungan positif per target. Total positif yang tepat sama dengan `SYS_QTY` dianggap selesai meski ada box kosong tanpa hitungan positif; selain itu part belum lengkap tetap ditampilkan `-/SYS_QTY`.
 - Status OPNAME langsung match saat total hitungan fisik positif sama dengan `SYS_QTY`; jika belum match, semua lokasi harus memiliki hitungan atau tercakup hitungan rak agar status tidak pending. Upload hasil tetap manual.
 - `BOX_REGISTRY` menyimpan kode box yang discan sebagai daftar bersama. Penambahan dilakukan append-only dalam satu batch; penghapusan mapping terpisah dari DB_MASTER dan tidak mengubah part/lokasi.
@@ -361,7 +361,7 @@ WMS/
 - `processSyncQueue()` — Upload outbox snapshots, accept revision acknowledgments, retain failures/conflicts
 - `resolveSyncConflict()` / `resolveAllSyncConflicts()` — Per-record or atomic batch priority for Cloud vs. Local conflict resolution
 - `uploadToServer()` — Upload pending master records from the sync dialog
-- `downloadFromServer()` — GET and merge cloud records without deleting local-only or pending data
+- `downloadFromServer()` — GET and merge cloud records without deleting local-only or pending data; manual Admin download can apply Cloud locations after confirmation, while User refresh preserves local locations
 - `refreshUserDataInBackground()` — User-only read refresh; keeps cached data visible and reloads only after changed cloud data is committed locally
 - `window.manualSync()` — Open the manual Upload/Download dialog
 
@@ -500,7 +500,7 @@ WMS/
 **Strategi Caching**: Network-first dengan fallback ke cache  
 **Cache Name**: `wms-cache-<app-version>` (versioned from version.json)
 **Version Alignment**: `version.json.version` is passed to `sw.js?v=...`; keep the service-worker fallback release version aligned with it.
-**Current Release**: `version.json` and the `sw.js` fallback are aligned at `1.5.23`; bump both for each cache-affecting release.
+**Current Release**: `version.json` and the `sw.js` fallback are aligned at `1.5.26`; bump both for each cache-affecting release.
 
 **Cached Assets** (on install):
 - Local app shell: `index.html`, CSS, JavaScript, manifest, icons, `version.json`
@@ -725,7 +725,7 @@ Not found — Pure client-side app; no server-side artifacts.
 - No cloud request runs automatically on startup, timer, or `online` event.
 - The header sync button opens a dialog with separate manual upload and download actions.
 - Upload removes acknowledged records from the pending queue but keeps inventory in IndexedDB and local scan/session data.
-- Download is an upsert merge: local-only records and pending upload records are preserved; newer local records win timestamp conflicts.
+- Download is an upsert merge: local-only records and pending upload records are preserved; newer local stock/master fields win timestamp conflicts. Admin can apply Cloud locations after confirmation, while User refresh preserves local locations.
 
 **Error Handling**:
 - Network error → Keep queue in syncQueue for the next manual upload
