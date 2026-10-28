@@ -489,6 +489,7 @@ WMS/
 **Strategi Caching**: Network-first dengan fallback ke cache  
 **Cache Name**: `wms-cache-<app-version>` (versioned from version.json)
 **Version Alignment**: `version.json.version` is passed to `sw.js?v=...`; keep the service-worker fallback release version aligned with it.
+**Current Release**: `version.json` and the `sw.js` fallback are aligned at `1.5.23`; bump both for each cache-affecting release.
 
 **Cached Assets** (on install):
 - Local app shell: `index.html`, CSS, JavaScript, manifest, icons, `version.json`
