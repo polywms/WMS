@@ -2,7 +2,7 @@
  * Tujuan: Persistensi IndexedDB, sinkronisasi Admin, dan refresh baca otomatis untuk User.
  * Caller: main.js, core.js, dan handler kontrol sinkronisasi di index.html.
  * Dependensi: auth.js (Admin-authorized writes), config.js (db, antrean, sesi), IndexedDB, API_URL.
- * Main Functions: initDB() migrates the IndexedDB outbox and location/count schema; saveDB()/saveDBBatch() atomically store records and queue; manual Admin download and automatic User refresh apply Cloud locations without overwriting pending local edits.
+ * Main Functions: initDB() migrates the IndexedDB outbox and location/count schema; saveDB()/saveDBBatch() atomically store records and queue; Admin cloud actions require a valid session, while User refresh remains read-only.
  * Side Effects: IndexedDB item/outbox read/write, sync-log localStorage, background User GET, and user-triggered Admin POST/GET requests.
  */
 // js/database.js
@@ -1173,12 +1173,13 @@ async function processSyncQueue() {
 }
 
 async function fetchCloudOffBs() {
+    if (!requireAdminAccess('melihat data OFF BS dari cloud')) return;
     if (!navigator.onLine) { if(typeof showToast === 'function') showToast("Gagal: Koneksi internet terputus!"); return; }
     const modal = document.getElementById('cloudOffBsModal'); const content = document.getElementById('cloudOffBsContent');
     modal.style.display = 'flex';
     content.innerHTML = `<div style="text-align:center; padding:40px; color:#64748b;"><i class="fas fa-sync fa-spin fa-2x" style="color:var(--offbs); margin-bottom:15px;"></i><div>Sedang memuat data dari Google Sheets...</div></div>`;
     try {
-        const response = await postWmsAction({ action: "get_cloud_off_bs" }, false);
+        const response = await postWmsAction({ action: "get_cloud_off_bs" });
         const result = await response.json();
         if (result.status === "success" && Array.isArray(result.data)) {
             lastFetchedCloudOffBs = result.data; renderCloudAccordion(result.data);

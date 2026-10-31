@@ -2,7 +2,7 @@
  * Tujuan: Endpoint Google Apps Script untuk otorisasi Admin, sync lokasi/opname, import SYS_QTY, dan registry box bersama.
  * Caller: js/core.js melalui postWmsAction() untuk registry box dan js/database.js untuk operasi sync.
  * Dependensi: SpreadsheetApp, ContentService, sheet DB_MASTER/LOG_SCAN.
- * Main Functions: doGet()/doPost() expose cloud-owned SYS_QTY, validate X-XY-YY shared BOX_REGISTRY codes, manage rack-grouped registry data, validate box destinations, normalize LOCATIONS/OPNAME_COUNTS, handle stock import, and enforce revision conflicts.
+ * Main Functions: doGet() serves read-only data; doPost() requires an Admin session for every action except admin_login, and manages box registry, stock import, sync, and revision conflicts.
  * Side Effects: Membaca/menulis Google Sheets termasuk BOX_REGISTRY, menggunakan ScriptLock untuk perubahan registry, dan mengirim respons HTTP.
  */
 
@@ -352,8 +352,7 @@ function doPost(e) {
     const logs = payload.logs || [];
 
     if (action === "admin_login") return handleAdminLogin(payload.password);
-    const readOnlyActions = ["get_cloud_off_bs", "get_cloud_packing"];
-    if (!readOnlyActions.includes(action) && !validateAdminSession(payload.authToken)) {
+    if (!validateAdminSession(payload.authToken)) {
       throw new Error("Aksi ditolak: sesi Admin tidak valid atau sudah kedaluwarsa.");
     }
 

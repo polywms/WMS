@@ -33,7 +33,7 @@ Arsitektur layering sederhana: View (HTML/Tab) → Controller (core.js processSc
 - User hanya dapat mencari data lokal dengan mengetik atau scan kamera; navigasi dan handler membatasi tab serta aksi tulis. Pilihan User diingat, data lokal tampil segera, lalu GET read-only memperbarui stok dan lokasi dari cloud di latar belakang; bila data berubah dan tersimpan, halaman reload otomatis ke Cari.
 - Refresh User tidak menampilkan kontrol sinkronisasi manual dan tidak menulis ke cloud. `SYS_QTY` dan `LOCATIONS` mengikuti cloud; record dengan perubahan lokal pending tetap mempertahankan lokasi lokal, sementara `SYS_QTY` tetap diperbarui.
 - Filter lokasi Admin memilih `SPAREPART BAIK` sebagai default saat tersedia. SIMPAN, relokasi, edit hitungan Opname aktif, dan OPNAME hanya menerima item dengan `LOC_TYPE` tersebut; jenis lain tetap tersedia untuk pencarian DATA.
-- Sesi Admin berlaku 8 jam; semua POST tulis diverifikasi token di `code.gs`. Guard UI tidak menggantikan validasi server.
+- Sesi Admin berlaku 8 jam; semua POST selain `admin_login` diverifikasi token di `code.gs`, termasuk endpoint baca OFF BS/Packing. Guard UI tidak menggantikan validasi server. GET read-only tetap dipakai untuk pencarian User.
 - Import stock mencocokkan identitas part, memperbarui hanya qty dan timestamp sinkronisasi server untuk record lama, menambah record baru tanpa lokasi, dan merekonsiliasi ID server.
 - Kolom G `DB_MASTER` diproteksi dari editor spreadsheet. Import tidak menulis ulang kolom G record lama; part baru diinisialisasi dengan lokasi kosong. Lokasi hanya berubah lewat alur scan SIMPAN.
 - Kode lokasi legacy dapat menjadi sumber pemindahan keluar, tetapi tidak dapat menjadi tujuan baru.
