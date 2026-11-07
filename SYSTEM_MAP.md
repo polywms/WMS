@@ -123,6 +123,7 @@ Cloud schema stores `OPNAME_COUNTS`; legacy `OPNAME_COMPLETED` values remain acc
 - Upload perubahan lokal menulis `LOCATIONS` dan `OPNAME_COUNTS`; legacy `OPNAME_COMPLETED` is retained for compatibility; identity and revision are used only for matching and conflict detection.
 - The local outbox records pending `location`/`opname` categories for the sync dialog; those display-only categories are not sent in the Cloud payload. Canceling a part removes its full pending snapshot and restores its latest Cloud row; a part absent from Cloud is removed locally.
 - Upload normal tidak menulis `SYS_QTY` atau metadata master. Import stock adalah alur yang mengubah `SYS_QTY` di cloud.
+- Resolusi konflik dengan prioritas Local mempertahankan `LOCATIONS` dan `OPNAME_COUNTS` lokal, memakai `SYS_QTY` serta revision terbaru dari Cloud, lalu langsung mencoba upload ulang. Jika masih konflik/gagal, antrean lokal tetap pending.
 - Download selalu menerapkan `SYS_QTY` cloud ke lokal, termasuk pada record ber-outbox, dan memperbarui snapshot antrean tanpa mengubah revision. Download manual Admin dapat menerapkan `LOCATIONS` cloud setelah konfirmasi konflik; refresh User menerapkan lokasi cloud otomatis. Record dengan perubahan pending mempertahankan lokasi lokal.
 - `LOCATIONS` menyimpan membership box/tingkat; `OPNAME_COUNTS` menyimpan hitungan positif per target. Total positif yang tepat sama dengan `SYS_QTY` dianggap selesai meski ada box kosong tanpa hitungan positif; selain itu part belum lengkap tetap ditampilkan `-/SYS_QTY`.
 - Status OPNAME langsung match saat total hitungan fisik positif sama dengan `SYS_QTY`; jika belum match, semua lokasi harus memiliki hitungan atau tercakup hitungan rak agar status tidak pending. Upload hasil tetap manual.
@@ -296,6 +297,7 @@ Fresh version loaded
 ```
 WMS/
 ├─ index.html                  # Entry point HTML
+├─ index-single.html           # One-file hosting variant without PWA
 ├─ manifest.json              # PWA manifest
 ├─ sw.js                       # Service Worker (offline cache)
 ├─ SYSTEM_MAP.md              # Dokumentasi ini
@@ -359,7 +361,7 @@ WMS/
 - `loadDataFromLocal()` — Read all items dari IndexedDB → localItems
 - `saveDB()` / `saveDBBatch()` — Atomically write item and outbox entry
 - `processSyncQueue()` — Upload outbox snapshots, accept revision acknowledgments, retain failures/conflicts
-- `resolveSyncConflict()` / `resolveAllSyncConflicts()` — Per-record or atomic batch priority for Cloud vs. Local conflict resolution
+- `resolveSyncConflict()` / `resolveAllSyncConflicts()` — Per-record or atomic batch priority for Cloud vs. Local; Local keeps physical counts but adopts Cloud `SYS_QTY`/revision and retries upload immediately
 - `uploadToServer()` — Upload pending master records from the sync dialog
 - `downloadFromServer()` — GET and merge cloud records without deleting local-only or pending data; Admin can apply Cloud locations after confirmation and User refresh applies them automatically for non-pending records
 - `refreshUserDataInBackground()` — User-only read refresh; keeps cached data visible and reloads only after changed cloud data is committed locally
@@ -542,6 +544,13 @@ WMS/
 **Peran**: View layer; all UI elements & form inputs  
 **Caller**: HTML onclick handlers, JS event listeners  
 **Side Effects**: DOM manipulation, modal display
+
+### [index-single.html](index-single.html) — Single-File Hosting Variant
+- Inline copy of the app CSS and JavaScript for static hosts that accept only HTML files.
+- Does not include the PWA manifest, service-worker registration, or version-update check.
+- Font Awesome, SheetJS, and html5-qrcode remain CDN dependencies; cloud API access is unchanged.
+- Keeps the responsive mobile navigation, `100dvh` layout, and `viewport-fit=cover`; camera use still requires HTTPS and browser permission.
+- This is a bundled snapshot: changes to `index.html`, `css/style.css`, or `js/*.js` must also be carried into this file.
 
 ---
 

@@ -2,7 +2,7 @@
  * Tujuan: Persistensi IndexedDB, sinkronisasi Admin, dan refresh baca otomatis untuk User.
  * Caller: main.js, core.js, dan handler kontrol sinkronisasi di index.html.
  * Dependensi: auth.js (Admin-authorized writes), config.js (db, antrean, sesi), IndexedDB, API_URL.
- * Main Functions: initDB() migrates the IndexedDB outbox and location/count schema; saveDB()/saveDBBatch() atomically store records and queue; Admin cloud actions require a valid session, while User refresh remains read-only.
+ * Main Functions: initDB() migrates the IndexedDB outbox and location/count schema; saveDB()/saveDBBatch() atomically store records and queue; local-priority conflict resolution preserves local Opname counts, keeps Cloud SYS_QTY, and retries the outbox.
  * Side Effects: IndexedDB item/outbox read/write, sync-log localStorage, background User GET, and user-triggered Admin POST/GET requests.
  */
 // js/database.js
@@ -266,7 +266,16 @@ async function resolveSyncConflict(clientId, resolution) {
 
     const resolvedItem = resolution === 'cloud'
         ? { ...localItem, ...cloudItem, id: cloudItem.id }
-        : { ...localItem, id: cloudItem.id, revision: conflict.revision };
+        : {
+            ...localItem,
+            ...cloudItem,
+            id: cloudItem.id,
+            sysQty: cloudItem.sysQty,
+            locations: localItem.locations,
+            opnameCounts: localItem.opnameCounts,
+            opnameCompleted: localItem.opnameCompleted,
+            revision: conflict.revision
+        };
     if (resolution === 'cloud') delete resolvedItem.localVersion;
     try {
         await new Promise((resolve, reject) => {
@@ -295,9 +304,18 @@ async function resolveSyncConflict(clientId, resolution) {
         await loadDataFromLocal();
         updateLocalSyncStatus();
         renderSyncConflicts();
+        if (resolution === 'local') {
+            const uploaded = await processSyncQueue();
+            if (!uploaded) {
+                showToast(pendingSyncConflicts.length > 0
+                    ? `Upload ulang tertahan oleh ${pendingSyncConflicts.length} konflik berikutnya; antrean lokal tetap tersimpan.`
+                    : 'Upload ulang gagal; hitungan lokal tetap tersimpan di antrean.');
+                return;
+            }
+        }
         showToast(resolution === 'cloud'
             ? `${cloudItem.partNo}: versi Cloud diterapkan.`
-            : `${localItem.partNo}: versi lokal dipertahankan untuk upload ulang.`);
+            : `${localItem.partNo}: hitungan lokal dikirim ulang; Qty sistem mengikuti Cloud.`);
     } catch (error) {
         console.error('Resolusi konflik gagal:', error);
         showToast(`Resolusi konflik gagal: ${error.message}. Antrean tetap tersimpan.`);
@@ -324,7 +342,16 @@ async function resolveAllSyncConflicts(resolution) {
         if (!localItem || !cloudItem) return null;
         const resolvedItem = resolution === 'cloud'
             ? { ...localItem, ...cloudItem, id: cloudItem.id }
-            : { ...localItem, id: cloudItem.id, revision: conflict.revision };
+            : {
+                ...localItem,
+                ...cloudItem,
+                id: cloudItem.id,
+                sysQty: cloudItem.sysQty,
+                locations: localItem.locations,
+                opnameCounts: localItem.opnameCounts,
+                opnameCompleted: localItem.opnameCompleted,
+                revision: conflict.revision
+            };
         if (resolution === 'cloud') delete resolvedItem.localVersion;
         return { localItem, cloudItem, resolvedItem };
     });
@@ -365,6 +392,15 @@ async function resolveAllSyncConflicts(resolution) {
         await loadDataFromLocal();
         updateLocalSyncStatus();
         renderSyncConflicts();
+        if (resolution === 'local') {
+            const uploaded = await processSyncQueue();
+            if (!uploaded) {
+                showToast(pendingSyncConflicts.length > 0
+                    ? `Upload ulang tertahan oleh ${pendingSyncConflicts.length} konflik berikutnya; antrean lokal tetap tersimpan.`
+                    : 'Upload ulang gagal; hitungan lokal tetap tersimpan di antrean.');
+                return;
+            }
+        }
         showToast(`${conflicts.length} konflik diselesaikan dengan prioritas ${resolution === 'cloud' ? 'Cloud' : 'Local'}.`);
     } catch (error) {
         console.error('Resolusi massal konflik gagal:', error);
