@@ -48,7 +48,7 @@ User Scan Code
   ↓
 handleInputKeyDown() [core.js]
   ↓
-(optional) Box-to-Box Merge Mode [core.js] — saat aktif tampilkan box asal dan tujuan di bawah scanner; validasi box asal terhadap part lokal saat discan dan cocokkan key lokasi tanpa membedakan kapital/spasi; tujuan oranye saat standby/invalid dan hijau setelah scan tujuan valid; pasangan yang selesai tetap ditampilkan hijau beserta asal/tujuannya; scan box berikutnya memulai pasangan baru dan mengembalikan tujuan ke oranye; pasangan valid meminta konfirmasi pertama kali, lalu Yes to All melewati konfirmasi untuk pasangan berikutnya hingga mode dimatikan; hitungan opname per part ikut dipindahkan dan ditambahkan ke hitungan box tujuan.
+(optional) Box-to-Box Merge Mode [core.js] — saat aktif tampilkan box asal dan tujuan di bawah scanner; validasi box asal berdasarkan membership lokasi part SPAREPART BAIK (tidak bergantung pada SYS_QTY), cocokkan key lokasi tanpa membedakan kapital/spasi; tujuan oranye saat standby/invalid dan hijau setelah scan tujuan valid; pasangan yang selesai tetap ditampilkan hijau beserta asal/tujuannya; scan box berikutnya memulai pasangan baru dan mengembalikan tujuan ke oranye; pasangan valid meminta konfirmasi pertama kali, lalu Yes to All melewati konfirmasi untuk pasangan berikutnya hingga mode dimatikan; hitungan opname per part ikut dipindahkan dan ditambahkan ke hitungan box tujuan.
   ↓
 processScan(code) [core.js] — Parse & route per tab
   ↓
@@ -60,7 +60,9 @@ selectPartSimpan(item) [core.js] — Select active part
   ↓
 User Scan Box or rack-level location / Input Location
   ↓
-checkSimpanConflict() [core.js] — Validate move/split
+If the part already belongs to the target box, report it without a confirmation; if it has no locations, save directly. For another target, choose Move/Split per source location or apply Move All/Split All, then confirm once.
+  ↓
+showSimpanConflictModal() [core.js] — Display Move/Split choices for each source location
   ↓
 executeSimpanAction() [core.js] — Update item.locations
   ↓
@@ -382,10 +384,11 @@ WMS/
 - `selectPartSimpan(item)` — Set active part, render suggestion panel; qty 0 tidak dirender di SIMPAN/OPNAME
 - `switchTab(id)` — Enforce User-only Cari and stop SIMPAN modes safely while preserving confirmed buffer
 - `toggleMultipleScanMode()` / `toggleBoxToBoxMode()` / `updateSimpanModeControls()` — Keep SIMPAN relocation modes visually synchronized and mutually exclusive
-- `applyBoxToBoxSelection()` — Move location membership and merge per-box OPNAME counts into the destination box
+- `getBoxToBoxItems()` / `applyBoxToBoxSelection()` — Select source parts by location membership and move membership plus per-box OPNAME counts to the destination
 - `confirmBoxToBoxYesToAll()` — Gabungkan semua part saat ini dan aktifkan auto-approval sampai mode dimatikan
 - `updateBoxToBoxIndicator()` — Render box sumber/tujuan dengan status validasi tujuan
-- `checkSimpanConflict(item, newBox)` — Prompt move/split decision
+- `showSimpanConflictModal()` / `renderSimpanConflictChoices()` / `setSimpanLocationAction()` — Choose Move or Split per source location, with Move All/Split All
+- `executeSimpanAction()` — Confirm and persist selected location changes, merging moved OPNAME counts into the destination
 - `handleOpnameRender()` / `setOpnameFilter()` — Filter Opname by final comparison/count status; rack scans show naturally sorted box groups with per-group difference/uncounted totals, and only one group opens at a time
 - `openRakModal()` / `renderRakSummary()` — List populated racks and summarize OK, selisih, belum, and counted pcs by location
 - `renderRakDashboard()` / `renderRakHeatmap()` / `renderRakUncounted()` / `renderRakEmptyBoxes()` — Heatmap part unik, part belum selesai opname, dan box kosong berdasarkan registry cloud

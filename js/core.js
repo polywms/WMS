@@ -18,12 +18,12 @@
  * Main Functions:
  * - toggleMobileNavigation() â€” Collapse or expand mobile navigation without changing the selected tab
  * - processScan(code)/normalizeBoxCode() — Normalize box QR dan route scan per tab
- * - executeSimpanAction()/applyBoxToBoxSelection() — Confirm before replacing or removing box membership
+ * - executeSimpanAction()/applyBoxToBoxSelection() — Confirm per-source location moves or splits
  * - isSparepartBaik(item)/populateFilters() — Terapkan filter awal dan izin lokasi hanya untuk SPAREPART BAIK
  * - switchTab(id) — Enforce User-only Cari and stop SIMPAN modes safely when leaving
  * - toggleMultipleScanMode()/toggleBoxToBoxMode()/updateSimpanModeControls() — Mutually exclusive SIMPAN relocation modes
  * - updateBoxToBoxIndicator() — Render box asal/tujuan; pertahankan pasangan valid sampai scan box berikutnya
- * - getBoxToBoxItems() — Temukan part sumber berdasarkan kode box yang dinormalisasi
+ * - getBoxToBoxItems() — Temukan part sumber berdasarkan membership lokasi (tanpa syarat SYS_QTY positif)
  * - confirmBoxToBoxYesToAll() — Setujui semua part dan lewati konfirmasi hingga mode B2B dimatikan
  * - handleOpnameScan()/handleOpnameRender() — OPNAME per box/rak, grouped physical summaries, and match when the aggregate physical count equals system quantity
  * - handleOpnameScan() — Reject part scans that do not belong to the active box
@@ -70,6 +70,9 @@
  * Recent Changes (2026-10-28):
  * - Dashboard lokasi heatmap/part belum opname/box kosong menggunakan BOX_REGISTRY yang disinkronkan bersama
  * - Hapus mapping box memerlukan konfirmasi dan tidak mengubah part/lokasi di DB_MASTER
+ *
+ * Recent Changes (2026-11-16):
+ * - SIMPAN conflict lets users choose Move/Split per source location, or apply either action to all
  * ========================================
  */
 
@@ -366,7 +369,7 @@ function getBoxToBoxLocationKey(locations, boxCode) {
 
 function getBoxToBoxItems(sourceBox) {
     return localItems.filter(item => {
-        if (!isSparepartBaik(item) || !item.locations || Number(item.sysQty) <= 0) return false;
+        if (!isSparepartBaik(item) || !item.locations) return false;
         const locationKey = getBoxToBoxLocationKey(item.locations, sourceBox);
         return locationKey !== undefined && Boolean(item.locations[locationKey]);
     });
@@ -771,7 +774,8 @@ if (currentTab === 'packing') {
             }
             
             const boxCode = parsedCode.toUpperCase();
-            const existingLocations = Object.keys(activeItem.locations);
+            const existingLocations = Object.keys(activeItem.locations)
+                .filter(location => activeItem.locations[location]);
             
             // Case 1: Part belum pernah tersimpan → Direct save
             if (existingLocations.length === 0) {
@@ -791,7 +795,8 @@ if (currentTab === 'packing') {
             }
             
             // Case 2: Target box SAMA dengan existing location → Skip, no modal needed
-            if (existingLocations.includes(boxCode)) {
+            const existingTargetLocation = getBoxToBoxLocationKey(activeItem.locations, boxCode);
+            if (existingTargetLocation !== undefined && activeItem.locations[existingTargetLocation]) {
                 feedback('scan');
                 showToast(`Part sudah ada di ${boxCode}`);
                 clearActivePart();  // Hide panel setelah scan box yang sama
@@ -1416,24 +1421,83 @@ function showSimpanConflictModal(item, newBox) {
         showToast(`Lokasi legacy ${newBox} sudah ditutup sebagai lokasi tujuan.`);
         return;
     }
-    // Store current conflict context
-    simpanConflictData = { item, newBox };
-    
-    // Hide active part panel sebelum buka modal
+    const sourceLocations = Object.keys(item.locations || {})
+        .filter(location => item.locations[location]);
+    if (sourceLocations.length === 0) {
+        feedback('warning');
+        showToast(`Part ${item.partNo} belum memiliki lokasi asal untuk dipindahkan.`);
+        return;
+    }
+
+    simpanConflictData = {
+        item,
+        newBox,
+        sourceActions: sourceLocations.map(location => ({ location, action: null }))
+    };
+
     clearActivePart();
-    
-    // Display modal with part info
-    document.getElementById('simpanConflictModal').style.display = 'flex';
     document.getElementById('scmPart').innerText = item.partNo;
-    document.getElementById('scmOldLoc').innerText = Object.keys(item.locations).join(', ');
     document.getElementById('scmNewBox').innerText = newBox;
-    
+    renderSimpanConflictChoices();
+    document.getElementById('simpanConflictModal').style.display = 'flex';
     feedback('error');
+}
+
+function renderSimpanConflictChoices() {
+    if (!simpanConflictData) return;
+    const container = document.getElementById('scmSourceOptions');
+    const applyButton = document.getElementById('simpanConflictApplyButton');
+    if (!container) return;
+
+    container.replaceChildren();
+    simpanConflictData.sourceActions.forEach(sourceAction => {
+        const row = document.createElement('div');
+        row.className = 'multi-scan-conflict-row';
+
+        const details = document.createElement('div');
+        details.className = 'multi-scan-conflict-details';
+        const part = document.createElement('strong');
+        part.textContent = simpanConflictData.item.partNo;
+        const source = document.createElement('span');
+        source.className = 'multi-scan-conflict-source';
+        source.textContent = `Lokasi asal: ${sourceAction.location}`;
+        details.append(part, source);
+
+        const actions = document.createElement('div');
+        actions.className = 'multi-scan-conflict-actions';
+        [
+            ['move', 'Move', 'btn-warning'],
+            ['split', 'Split', 'btn-success']
+        ].forEach(([action, label, style]) => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = `btn-sm ${style}${sourceAction.action === action ? ' is-selected' : ''}`;
+            button.textContent = label;
+            button.setAttribute('aria-pressed', String(sourceAction.action === action));
+            button.addEventListener('click', () => setSimpanLocationAction(sourceAction.location, action));
+            actions.appendChild(button);
+        });
+
+        row.append(details, actions);
+        container.appendChild(row);
+    });
+
+    if (applyButton) {
+        applyButton.disabled = simpanConflictData.sourceActions.some(sourceAction => !sourceAction.action);
+    }
+}
+
+function setSimpanLocationAction(sourceLocation, action) {
+    if (!simpanConflictData || !['move', 'split'].includes(action)) return;
+    const sourceAction = simpanConflictData.sourceActions.find(entry => entry.location === sourceLocation);
+    if (!sourceAction) return;
+    sourceAction.action = action;
+    renderSimpanConflictChoices();
 }
 
 function executeSimpanAction(action) {
     if (!simpanConflictData) return;
-    const { item, newBox } = simpanConflictData;
+    const { item, newBox, sourceActions } = simpanConflictData;
     if (!requireAdminAccess('memindahkan part')) return;
     if (!isSparepartBaik(item)) {
         closeSimpanConflictModal();
@@ -1447,42 +1511,75 @@ function executeSimpanAction(action) {
         showToast(`Lokasi legacy ${newBox} sudah ditutup sebagai lokasi tujuan.`);
         return;
     }
-    const oldLocs = Object.keys(item.locations);
-    const bufferWarning = oldLocs.some(box => BUFFER_STOCK_BOX_PATTERN.test(box))
-        || BUFFER_STOCK_BOX_PATTERN.test(newBox)
-        ? '\nPERHATIAN: Aksi melibatkan box buffer. Pastikan lokasi utama part tetap terlacak.'
+    if (action === 'move' || action === 'move-all') {
+        sourceActions.forEach(sourceAction => { sourceAction.action = 'move'; });
+    } else if (action === 'split' || action === 'split-all') {
+        sourceActions.forEach(sourceAction => { sourceAction.action = 'split'; });
+    } else if (action !== 'apply') {
+        feedback('error');
+        showToast('Aksi lokasi tidak dikenali.');
+        return;
+    }
+
+    if (sourceActions.some(sourceAction => !['move', 'split'].includes(sourceAction.action))) {
+        feedback('warning');
+        showToast('Pilih Move atau Split untuk setiap lokasi asal, atau gunakan aksi semua.');
+        renderSimpanConflictChoices();
+        return;
+    }
+
+    const currentSourceActions = sourceActions.filter(sourceAction => item.locations[sourceAction.location]);
+    if (currentSourceActions.length === 0) {
+        feedback('warning');
+        showToast('Lokasi asal sudah berubah. Scan part dan box tujuan kembali.');
+        closeSimpanConflictModal();
+        return;
+    }
+    const moveLocations = currentSourceActions
+        .filter(sourceAction => sourceAction.action === 'move')
+        .map(sourceAction => sourceAction.location);
+    const splitLocations = currentSourceActions
+        .filter(sourceAction => sourceAction.action === 'split')
+        .map(sourceAction => sourceAction.location);
+    const bufferWarning = [...moveLocations, ...splitLocations, newBox]
+        .some(box => BUFFER_STOCK_BOX_PATTERN.test(box))
+        ? '\nPERHATIAN: Aksi melibatkan box buffer. Pastikan lokasi asal dan tujuan sudah benar.'
         : '';
-    const actionWarning = action === 'move'
-        ? `LOKASI ASAL AKAN DIHAPUS: ${oldLocs.join(', ')}. Hanya ${newBox} yang tersisa.`
-        : `Lokasi asal tetap dipertahankan; ${newBox} akan ditambahkan.`;
-    if (!confirm(`KONFIRMASI ${action === 'move' ? 'PINDAH' : 'TAMBAH LOKASI'}\n\nPart: ${item.partNo}\n${actionWarning}${bufferWarning}\n\nLanjutkan?`)) return;
-    
-    if (action === 'move') {
-        // MOVE: Replace old location(s) with new one
-        // Delete all old locations
-        oldLocs.forEach(loc => delete item.locations[loc]);
-        // Add new location
-        item.locations[newBox] = true;
-        item.opnameCounts = {};
-        
-        showToast(`✓ ${item.partNo} dipindah ke ${newBox}`);
-    } else if (action === 'split') {
-        // SPLIT: Keep old locations, add new one
-        if (!item.locations[newBox]) {
-            item.locations[newBox] = true;
+    const actionSummary = [
+        moveLocations.length ? `Pindah (lokasi asal dihapus): ${moveLocations.join(', ')}` : '',
+        splitLocations.length ? `Split (lokasi asal dipertahankan): ${splitLocations.join(', ')}` : ''
+    ].filter(Boolean).join('\n');
+    if (!confirm(`KONFIRMASI PERUBAHAN LOKASI\n\nPart: ${item.partNo}\nTujuan: ${newBox}\n${actionSummary}${bufferWarning}\n\nLanjutkan?`)) return;
+
+    const destinationKey = getBoxToBoxLocationKey(item.locations, newBox) || newBox;
+    if (!item.locations[destinationKey]) item.locations[destinationKey] = true;
+    if (moveLocations.length > 0) {
+        moveLocations.forEach(location => { delete item.locations[location]; });
+        if (item.opnameCounts) {
+            item.opnameCounts = { ...item.opnameCounts };
+            const movedCount = moveLocations.reduce(
+                (total, location) => total + Math.max(0, Number(item.opnameCounts[location]) || 0),
+                0
+            );
+            moveLocations.forEach(location => { delete item.opnameCounts[location]; });
+            const destinationCount = Math.max(0, Number(item.opnameCounts[destinationKey]) || 0) + movedCount;
+            if (destinationCount > 0) item.opnameCounts[destinationKey] = destinationCount;
+            else delete item.opnameCounts[destinationKey];
         }
-        
-        showToast(`✓ ${item.partNo} disimpan di ${newBox} (+ lokasi lama)`);
     }
     item.opnameCompleted = {};
-    
-    // Save and record
     item.lastBox = newBox;
-    saveDB(item, action === 'move' ? 'MOVE' : 'SPLIT', `${action === 'move' ? 'Pindah' : 'Tambah lokasi'} ke ${newBox}`);
-    addHistoryLog(item.partNo, `${action === 'move' ? 'PINDAH' : 'SPLIT'} ke ${newBox}`);
+    const saveAction = moveLocations.length > 0 && splitLocations.length > 0
+        ? 'LOCATION'
+        : moveLocations.length > 0 ? 'MOVE' : 'SPLIT';
+    const historyAction = [
+        moveLocations.length ? `PINDAH ${moveLocations.join(', ')}` : '',
+        splitLocations.length ? `SPLIT ${splitLocations.join(', ')}` : ''
+    ].filter(Boolean).join(' / ');
+    saveDB(item, saveAction, `${historyAction} ke ${newBox}`);
+    addHistoryLog(item.partNo, `${historyAction} ke ${newBox}`);
     feedback('success');
-    
-    // Clean up UI
+    showToast(`✓ ${item.partNo}: ${moveLocations.length} lokasi dipindah, ${splitLocations.length} lokasi dipertahankan di ${newBox}`);
     closeSimpanConflictModal();
     tempPart = null;
     clearActivePart();
@@ -1492,7 +1589,7 @@ function executeSimpanAction(action) {
 function closeSimpanConflictModal() {
     document.getElementById('simpanConflictModal').style.display = 'none';
     simpanConflictData = null;
-    document.getElementById('mainInput').focus();
+    document.getElementById('mainInput')?.focus();
 }
 
 function addToMultiBuffer(item) {
