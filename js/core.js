@@ -32,7 +32,7 @@
  * - confirmOpnameOverScan()/decrementOpnameBuffer() — Confirm over-target scans and correct counted quantity
  * - addToOpnameBuffer() — Persist every cumulative scan immediately to the active box
  * - setOpnameFilter()/openRakModal() — Dashboard heatmap, uncounted parts, empty boxes, and populated rack/column/level filters
- * - loadBoxRegistry()/saveBoxRegistryDraft()/deleteBoxRegistry() — Validate X-XY-YY registry codes, filter box lists by rack/prefix group, and manage shared box registry
+ * - loadBoxRegistry()/saveBoxRegistryDraft()/deleteBoxRegistry() — Validate standard box codes and one arbitrary prefix, filter box lists by rack/prefix group, and manage shared box registry
  * - getOpnameTotalCount(item) — Sum physical counts across the item's assigned boxes
  * - saveManualEdit() — Edit the active box's physical count without changing locations
  * - openEditModal()/copyEditPartNo() — Edit a part and copy its part number; Opname opens keyboard mode
@@ -3125,7 +3125,7 @@ function normalizeStoredBoxRegistryCode(rawCode) {
 
 function getBoxRegistryGroup(box) {
     const parts = box.split('-');
-    if (parts.length === 4 && BOX_REGISTRY_CODE_PATTERN.test(box)) return 'Buffer';
+    if (BUFFER_STOCK_BOX_PATTERN.test(box)) return 'Buffer';
     return BOX_REGISTRY_CODE_PATTERN.test(box) ? parts[0] : 'Kode lama';
 }
 
@@ -3138,7 +3138,7 @@ function addBoxRegistryDraft() {
     const input = document.getElementById('boxRegistryInput');
     const box = normalizeBoxRegistryCode(input.value);
     if (!box) {
-        showToast('Format kode tidak valid. Gunakan A-A1-01 atau prefix seperti BUFFER-A-A1-01.');
+        showToast('Format kode tidak valid. Gunakan A-A1-01 atau satu prefix seperti SPARE-A-A1-01 / BUF-E-01-01.');
         input.focus();
         return;
     }
