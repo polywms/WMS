@@ -505,10 +505,11 @@ WMS/
 **Strategi Caching**: Network-first dengan fallback ke cache  
 **Cache Name**: `wms-cache-<app-version>` (versioned from version.json)
 **Version Alignment**: `version.json.version` is passed to `sw.js?v=...`; keep the service-worker fallback release version aligned with it.
-**Current Release**: `version.json` and the `sw.js` fallback are aligned at `1.5.28`; bump both for each cache-affecting release.
+**Current Release**: `version.json` and the `sw.js` fallback are aligned at `1.5.32`; bump both for each cache-affecting release.
 
 **Cached Assets** (on install):
 - Local app shell: `index.html`, CSS, JavaScript, manifest, icons, `version.json`
+- App-shell precache uses `Request(..., { cache: 'reload' })` to bypass stale browser HTTP cache when installing a new cache version
 - Best-effort CDN cache: Font Awesome, SheetJS, and html5-qrcode
 - CDN cache failures do not block installation of the local app shell
 
