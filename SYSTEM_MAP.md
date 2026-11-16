@@ -60,9 +60,9 @@ selectPartSimpan(item) [core.js] — Select active part
   ↓
 User Scan Box or rack-level location / Input Location
   ↓
-If the part already belongs to the target box, report it without a confirmation; if it has no locations, save directly. For another target, choose Move/Split per source location or apply Move All/Split All, then confirm once.
+If the part already belongs to the target box, report it without a confirmation; if it has no locations, save directly. For another target, choose Stay/Move/Split per source location or apply Move All/Split All; Stay preserves the source and does not add the target. All-Stay is a no-op; other changes are confirmed once.
   ↓
-showSimpanConflictModal() [core.js] — Display Move/Split choices for each source location
+showSimpanConflictModal() [core.js] — Display Stay/Move/Split choices for each source location
   ↓
 executeSimpanAction() [core.js] — Update item.locations
   ↓
@@ -387,8 +387,8 @@ WMS/
 - `getBoxToBoxItems()` / `applyBoxToBoxSelection()` — Select source parts by location membership and move membership plus per-box OPNAME counts to the destination
 - `confirmBoxToBoxYesToAll()` — Gabungkan semua part saat ini dan aktifkan auto-approval sampai mode dimatikan
 - `updateBoxToBoxIndicator()` — Render box sumber/tujuan dengan status validasi tujuan
-- `showSimpanConflictModal()` / `renderSimpanConflictChoices()` / `setSimpanLocationAction()` — Choose Move or Split per source location, with Move All/Split All
-- `executeSimpanAction()` — Confirm and persist selected location changes, merging moved OPNAME counts into the destination
+- `showSimpanConflictModal()` / `renderSimpanConflictChoices()` / `setSimpanLocationAction()` — Choose Stay/Move/Split per source location, with Move All/Split All
+- `executeSimpanAction()` — Confirm selected changes, leave Stay unchanged, and merge moved OPNAME counts into the destination
 - `handleOpnameRender()` / `setOpnameFilter()` — Filter Opname by final comparison/count status; rack scans show naturally sorted box groups with per-group difference/uncounted totals, and only one group opens at a time
 - `openRakModal()` / `renderRakSummary()` — List populated racks and summarize OK, selisih, belum, and counted pcs by location
 - `renderRakDashboard()` / `renderRakHeatmap()` / `renderRakUncounted()` / `renderRakEmptyBoxes()` — Heatmap part unik, part belum selesai opname, dan box kosong berdasarkan registry cloud

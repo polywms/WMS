@@ -18,7 +18,7 @@
  * Main Functions:
  * - toggleMobileNavigation() â€” Collapse or expand mobile navigation without changing the selected tab
  * - processScan(code)/normalizeBoxCode() — Normalize box QR dan route scan per tab
- * - executeSimpanAction()/applyBoxToBoxSelection() — Confirm per-source location moves or splits
+ * - executeSimpanAction()/applyBoxToBoxSelection() — Confirm per-source Stay/Move/Split decisions
  * - isSparepartBaik(item)/populateFilters() — Terapkan filter awal dan izin lokasi hanya untuk SPAREPART BAIK
  * - switchTab(id) — Enforce User-only Cari and stop SIMPAN modes safely when leaving
  * - toggleMultipleScanMode()/toggleBoxToBoxMode()/updateSimpanModeControls() — Mutually exclusive SIMPAN relocation modes
@@ -72,7 +72,7 @@
  * - Hapus mapping box memerlukan konfirmasi dan tidak mengubah part/lokasi di DB_MASTER
  *
  * Recent Changes (2026-11-16):
- * - SIMPAN conflict lets users choose Move/Split per source location, or apply either action to all
+ * - SIMPAN conflict lets users choose Stay/Move/Split per source location, or apply Move/Split to all
  * ========================================
  */
 
@@ -1466,14 +1466,20 @@ function renderSimpanConflictChoices() {
         const actions = document.createElement('div');
         actions.className = 'multi-scan-conflict-actions';
         [
-            ['move', 'Move', 'btn-warning'],
-            ['split', 'Split', 'btn-success']
-        ].forEach(([action, label, style]) => {
+            ['stay', 'Stay', 'fa-solid fa-person', 'btn-outline'],
+            ['move', 'Move', 'fa-solid fa-person-walking', 'btn-warning'],
+            ['split', 'Split', 'fa-solid fa-people-arrows', 'btn-success']
+        ].forEach(([action, label, iconClass, style]) => {
             const button = document.createElement('button');
             button.type = 'button';
             button.className = `btn-sm ${style}${sourceAction.action === action ? ' is-selected' : ''}`;
-            button.textContent = label;
+            button.title = `${label} di ${sourceAction.location}`;
+            button.setAttribute('aria-label', `${label} di ${sourceAction.location}`);
             button.setAttribute('aria-pressed', String(sourceAction.action === action));
+            const icon = document.createElement('i');
+            icon.className = iconClass;
+            icon.setAttribute('aria-hidden', 'true');
+            button.appendChild(icon);
             button.addEventListener('click', () => setSimpanLocationAction(sourceAction.location, action));
             actions.appendChild(button);
         });
@@ -1483,12 +1489,13 @@ function renderSimpanConflictChoices() {
     });
 
     if (applyButton) {
-        applyButton.disabled = simpanConflictData.sourceActions.some(sourceAction => !sourceAction.action);
+        applyButton.disabled = simpanConflictData.sourceActions
+            .some(sourceAction => !['stay', 'move', 'split'].includes(sourceAction.action));
     }
 }
 
 function setSimpanLocationAction(sourceLocation, action) {
-    if (!simpanConflictData || !['move', 'split'].includes(action)) return;
+    if (!simpanConflictData || !['stay', 'move', 'split'].includes(action)) return;
     const sourceAction = simpanConflictData.sourceActions.find(entry => entry.location === sourceLocation);
     if (!sourceAction) return;
     sourceAction.action = action;
@@ -1521,9 +1528,9 @@ function executeSimpanAction(action) {
         return;
     }
 
-    if (sourceActions.some(sourceAction => !['move', 'split'].includes(sourceAction.action))) {
+    if (sourceActions.some(sourceAction => !['stay', 'move', 'split'].includes(sourceAction.action))) {
         feedback('warning');
-        showToast('Pilih Move atau Split untuk setiap lokasi asal, atau gunakan aksi semua.');
+        showToast('Pilih Stay, Move, atau Split untuk setiap lokasi asal, atau gunakan aksi semua.');
         renderSimpanConflictChoices();
         return;
     }
@@ -1541,13 +1548,24 @@ function executeSimpanAction(action) {
     const splitLocations = currentSourceActions
         .filter(sourceAction => sourceAction.action === 'split')
         .map(sourceAction => sourceAction.location);
-    const bufferWarning = [...moveLocations, ...splitLocations, newBox]
+    const stayLocations = currentSourceActions
+        .filter(sourceAction => sourceAction.action === 'stay')
+        .map(sourceAction => sourceAction.location);
+    if (moveLocations.length === 0 && splitLocations.length === 0) {
+        feedback('info');
+        showToast(`Semua lokasi ${item.partNo} tetap dipertahankan. Tidak ada perubahan.`);
+        closeSimpanConflictModal();
+        return;
+    }
+
+    const bufferWarning = [...currentSourceActions.map(sourceAction => sourceAction.location), newBox]
         .some(box => BUFFER_STOCK_BOX_PATTERN.test(box))
         ? '\nPERHATIAN: Aksi melibatkan box buffer. Pastikan lokasi asal dan tujuan sudah benar.'
         : '';
     const actionSummary = [
         moveLocations.length ? `Pindah (lokasi asal dihapus): ${moveLocations.join(', ')}` : '',
-        splitLocations.length ? `Split (lokasi asal dipertahankan): ${splitLocations.join(', ')}` : ''
+        splitLocations.length ? `Split (lokasi asal dipertahankan): ${splitLocations.join(', ')}` : '',
+        stayLocations.length ? `Stay (tidak diubah): ${stayLocations.join(', ')}` : ''
     ].filter(Boolean).join('\n');
     if (!confirm(`KONFIRMASI PERUBAHAN LOKASI\n\nPart: ${item.partNo}\nTujuan: ${newBox}\n${actionSummary}${bufferWarning}\n\nLanjutkan?`)) return;
 
@@ -1574,12 +1592,13 @@ function executeSimpanAction(action) {
         : moveLocations.length > 0 ? 'MOVE' : 'SPLIT';
     const historyAction = [
         moveLocations.length ? `PINDAH ${moveLocations.join(', ')}` : '',
-        splitLocations.length ? `SPLIT ${splitLocations.join(', ')}` : ''
+        splitLocations.length ? `SPLIT ${splitLocations.join(', ')}` : '',
+        stayLocations.length ? `STAY ${stayLocations.join(', ')}` : ''
     ].filter(Boolean).join(' / ');
     saveDB(item, saveAction, `${historyAction} ke ${newBox}`);
     addHistoryLog(item.partNo, `${historyAction} ke ${newBox}`);
     feedback('success');
-    showToast(`✓ ${item.partNo}: ${moveLocations.length} lokasi dipindah, ${splitLocations.length} lokasi dipertahankan di ${newBox}`);
+    showToast(`✓ ${item.partNo}: ${moveLocations.length} dipindah, ${splitLocations.length} split, ${stayLocations.length} tetap di ${newBox}`);
     closeSimpanConflictModal();
     tempPart = null;
     clearActivePart();

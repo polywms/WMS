@@ -2,7 +2,7 @@
     Tujuan: Entry point UI untuk workflow WMS Magelang.
     Caller: Browser/PWA shell; event handlers diteruskan ke main.js dan core.js.
     Dependensi: css/style.css, Font Awesome, dan modul JavaScript di js/.
-    Main Functions: Menyediakan role gate Admin/User, navigasi mobile collapsible, Cari, SIMPAN/OPNAME per box/rak dengan dashboard heatmap dan registry box bersama, pilihan Move/Split per lokasi asal dan per part, edit opname, rincian antrean sync, impor/ekspor, dan resolusi konflik data.
+    Main Functions: Menyediakan role gate Admin/User, navigasi mobile collapsible, Cari, SIMPAN/OPNAME per box/rak dengan dashboard heatmap dan registry box bersama, pilihan Stay/Move/Split per lokasi asal dan Move/Split massal, edit opname, rincian antrean sync, impor/ekspor, dan resolusi konflik data.
     Side Effects: Mengubah DOM, memicu scan, penyimpanan lokal, dan sinkronisasi cloud melalui handler.
 -->
 <!-- WMS Magelang - Entry point UI -->
@@ -609,10 +609,10 @@
                     <h3 id="simpanConflictTitle"><i class="fas fa-map-location-dot" aria-hidden="true"></i> Pilih aksi per lokasi asal</h3>
                     <button type="button" class="icon-only" onclick="closeSimpanConflictModal()" aria-label="Tutup pilihan lokasi"><i class="fas fa-times"></i></button>
                 </div>
-                <p class="sync-modal-note">Part <b id="scmPart"></b>. Pilih Move atau Split untuk setiap lokasi asal; Move/Split semua berlaku untuk seluruh daftar.</p>
+                <p class="sync-modal-note">Part <b id="scmPart"></b>. Pilih Stay, Move, atau Split untuk setiap lokasi asal. Stay mempertahankan lokasi tanpa menambah tujuan.</p>
                 <p class="multi-scan-destination">Box tujuan: <strong id="scmNewBox"></strong></p>
                 <div id="scmSourceOptions" class="multi-scan-conflict-list"></div>
-                <div class="multi-scan-bulk-actions">
+                <div class="multi-scan-bulk-actions" style="display:grid; grid-template-columns:repeat(2, minmax(0, 1fr));">
                     <button type="button" class="btn btn-warning" onclick="executeSimpanAction('move-all')"><i class="fas fa-dolly" aria-hidden="true"></i> Move semua</button>
                     <button type="button" class="btn btn-success" onclick="executeSimpanAction('split-all')"><i class="fas fa-columns" aria-hidden="true"></i> Split semua</button>
                 </div>
