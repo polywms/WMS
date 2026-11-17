@@ -2,7 +2,7 @@
     Tujuan: Entry point UI untuk workflow WMS Magelang.
     Caller: Browser/PWA shell; event handlers diteruskan ke main.js dan core.js.
     Dependensi: css/style.css, Font Awesome, dan modul JavaScript di js/.
-    Main Functions: Menyediakan role gate Admin/User, navigasi mobile collapsible, Cari, SIMPAN/OPNAME per box/rak dengan dashboard heatmap dan registry box bersama, pilihan Stay/Move/Split per lokasi asal dan Move/Split massal, edit opname, rincian antrean sync, impor/ekspor, dan resolusi konflik data.
+    Main Functions: Menyediakan role gate Admin/User, navigasi mobile collapsible, Cari, SIMPAN/OPNAME per box/rak dengan dashboard heatmap dan registry box bersama, pilihan Stay/Move/Split per lokasi asal pada scan tunggal dan multi-scan, edit opname, rincian antrean sync, impor/ekspor, dan resolusi konflik data.
     Side Effects: Mengubah DOM, memicu scan, penyimpanan lokal, dan sinkronisasi cloud melalui handler.
 -->
 <!-- WMS Magelang - Entry point UI -->
@@ -264,15 +264,15 @@
                         <button class="btn-sm btn-danger" onclick="clearMultiScan()">Clear</button>
                     </div>
                     <div id="multiTagsContainer" style="max-height:200px; overflow-y:auto; padding-bottom:5px; display:flex; flex-direction:column; gap:6px;"></div>
-                    <div class="multi-scan-instruction" style="margin-top:10px; font-size:0.9rem; font-weight:bold; color:var(--purple); animation: pulse 2s infinite; text-align:center;"><i class="fas fa-arrow-right"></i> SCAN BOX TUJUAN UNTUK PILIH MOVE/SPLIT</div>
+                    <div class="multi-scan-instruction" style="margin-top:10px; font-size:0.9rem; font-weight:bold; color:var(--purple); animation: pulse 2s infinite; text-align:center;"><i class="fas fa-arrow-right"></i> SCAN BOX TUJUAN UNTUK PILIH AKSI LOKASI</div>
                 </div>
                 <div class="overlay multi-scan-conflict-overlay" id="multiScanConflictModal" role="dialog" aria-modal="true" aria-labelledby="multiScanConflictTitle" style="display:none; z-index:1450;">
                     <div class="modal multi-scan-conflict-modal">
                         <div class="sync-modal-header">
-                            <h3 id="multiScanConflictTitle"><i class="fas fa-map-location-dot" aria-hidden="true"></i> Pilih aksi lokasi per part</h3>
+                            <h3 id="multiScanConflictTitle"><i class="fas fa-map-location-dot" aria-hidden="true"></i> Pilih aksi per lokasi asal</h3>
                             <button type="button" class="icon-only" onclick="closeMultiScanConflictModal()" aria-label="Tutup pilihan lokasi"><i class="fas fa-times" aria-hidden="true"></i></button>
                         </div>
-                        <p class="sync-modal-note">Pilih Move atau Split untuk setiap part yang sudah punya lokasi. Pilihan Move/Split semua berlaku untuk semua konflik di daftar.</p>
+                        <p class="sync-modal-note">Pilih Stay, Move, atau Split untuk setiap lokasi asal. Stay mempertahankan lokasi tanpa menambah tujuan; Move memindahkan lokasi terpilih; Split mempertahankan lokasi sekaligus menambah tujuan. Pilihan Move/Split semua berlaku untuk semua lokasi konflik.</p>
                         <p class="multi-scan-destination">Box tujuan: <strong id="multiScanConflictDestination"></strong></p>
                         <div id="multiScanConflictList" class="multi-scan-conflict-list"></div>
                         <div class="multi-scan-bulk-actions">

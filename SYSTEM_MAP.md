@@ -75,7 +75,7 @@ User opens sync status → Sync dialog [database.js] — show queued location an
 Upload lokasi box & hasil Opname [database.js] — POST queued records only
 ```
 
-**Multi-Scan alternative**: Buffer selected parts, scan a destination, then choose Move/Split per conflicting part or apply either action to all conflicts; parts without a conflicting location are added directly.
+**Multi-Scan alternative**: Buffer selected parts, scan a destination, then choose Stay/Move/Split for each source location of each conflicting part or apply Move/Split to all conflicts; Stay preserves that source and does not add the destination unless another source is moved/split. Parts without a conflicting location are added directly.
 
 ### Flow 2: Opname (Inventory Check)
 ```
@@ -160,7 +160,8 @@ Render rows with origin, checkbox, and remove control
   ↓
 Scan destination Box → validate and confirm batch move
   ↓
-  For checked parts: replace old locations with destination box
+  For conflicting parts: choose Stay/Move/Split per source location (Font Awesome icons), or apply Move/Split to every source location; Stay preserves its source and does not add the destination unless another source is moved/split
+  For checked parts without a conflicting location: add destination directly
   ↓
 saveDB() per item + history + sync queue
   ↓
@@ -404,7 +405,7 @@ WMS/
 - `renderDataList(reset)` — Display all items dengan search/filter
 - `switchTab(id)` — Change active tab & re-render
 - `addToMultiScan(item)` — Add part with source-location snapshot and selection state
-- `processMultiScan(box)` — Confirm and move selected parts as a batch
+- `processMultiScan(box)` / `applyMultiScanActions()` — Choose Stay/Move/Split per source location and apply batch location changes
 - `renderMultiScanList()/removeFromMultiScan()` — Render and manage buffered parts
 - Legacy location codes remain valid as move sources but are rejected as destinations in SIMPAN/client and server validation
 
@@ -505,7 +506,7 @@ WMS/
 **Strategi Caching**: Network-first dengan fallback ke cache  
 **Cache Name**: `wms-cache-<app-version>` (versioned from version.json)
 **Version Alignment**: `version.json.version` is passed to `sw.js?v=...`; keep the service-worker fallback release version aligned with it.
-**Current Release**: `version.json` and the `sw.js` fallback are aligned at `1.5.32`; bump both for each cache-affecting release.
+**Current Release**: `version.json` and the `sw.js` fallback are aligned at `1.5.33`; bump both for each cache-affecting release.
 
 **Cached Assets** (on install):
 - Local app shell: `index.html`, CSS, JavaScript, manifest, icons, `version.json`

@@ -39,7 +39,7 @@
  * - removeOpnamePartFromActiveBox() — Remove a part from only the active OPNAME box
  * - updateActivePartPanel(item) — Display part detail (location-only view)
  * - selectPartSimpan(item) — Select part dari list
- * - addToMultiScan()/processMultiScan(box)/applyMultiScanActions() — Buffer dan relokasi batch SIMPAN dengan pilihan Move/Split per part
+ * - addToMultiScan()/processMultiScan(box)/applyMultiScanActions() — Buffer dan relokasi batch SIMPAN dengan pilihan Stay/Move/Split per lokasi asal
  * - renderMultiScanList()/removeFromMultiScan() — Kelola daftar batch terpilih
  * - getSimilarParts(partNo) — Find parts dengan nomor gudang sama
  * - clearActivePart() — Hide panel + reset selection
@@ -64,7 +64,7 @@
  * - REMOVED: All qty calculations, progress badge (X/Y), overflow checks
  * - KEPT: saveDB() and addHistoryLog() for location recording
  * - SIMPLIFIED: processScan() SIMPAN branch - part→detail, box→save location
- * - MULTI-SCAN: Scan part ke buffer, scan box, lalu pilih Move/Split per konflik atau terapkan ke semua
+ * - MULTI-SCAN: Scan part ke buffer, scan box, lalu pilih Stay/Move/Split per lokasi asal atau terapkan Move/Split ke semua
  * - BOX TO BOX: Mode tetap aktif setelah tujuan dipindai; sumber direset untuk pasangan berikutnya dan Yes to all berlaku sampai mode dimatikan
  * 
  * Recent Changes (2026-10-28):
@@ -1200,14 +1200,15 @@ async function processMultiScan(boxCode) {
     pendingMultiScanBatch = {
         boxCode,
         entries: rebasedItems.map(({ bufferItem, currentItem }) => {
-            const locations = Object.keys(currentItem.locations || {});
+            const locations = Object.keys(currentItem.locations || {})
+                .filter(location => currentItem.locations[location]);
             const alreadyAtTarget = locations.some(location => String(location).trim().toUpperCase() === targetKey);
             return {
                 bufferItem,
                 currentItem,
                 alreadyAtTarget,
                 conflict: !alreadyAtTarget && locations.length > 0,
-                action: null
+                sourceActions: locations.map(location => ({ location, action: null }))
             };
         })
     };
@@ -1231,43 +1232,61 @@ function renderMultiScanConflictChoices() {
     if (destination) destination.textContent = pendingMultiScanBatch.boxCode;
     const conflicts = pendingMultiScanBatch.entries.filter(entry => entry.conflict);
     conflicts.forEach(entry => {
-        const row = document.createElement('div');
-        row.className = 'multi-scan-conflict-row';
-        const details = document.createElement('div');
-        details.className = 'multi-scan-conflict-details';
-        const part = document.createElement('strong');
-        part.textContent = entry.currentItem.partNo;
-        const source = document.createElement('span');
-        source.className = 'multi-scan-conflict-source';
-        source.textContent = `Lokasi saat ini: ${Object.keys(entry.currentItem.locations || {}).join(', ')}`;
-        details.append(part, source);
+        entry.sourceActions.forEach(sourceAction => {
+            const row = document.createElement('div');
+            row.className = 'multi-scan-conflict-row';
+            const details = document.createElement('div');
+            details.className = 'multi-scan-conflict-details';
+            const part = document.createElement('strong');
+            part.textContent = entry.currentItem.partNo;
+            const source = document.createElement('span');
+            source.className = 'multi-scan-conflict-source';
+            source.textContent = `Lokasi asal: ${sourceAction.location}`;
+            details.append(part, source);
 
-        const actions = document.createElement('div');
-        actions.className = 'multi-scan-conflict-actions';
-        [
-            ['move', 'Move', 'btn-warning'],
-            ['split', 'Split', 'btn-success']
-        ].forEach(([action, label, style]) => {
-            const button = document.createElement('button');
-            button.type = 'button';
-            button.className = `btn-sm ${style}${entry.action === action ? ' is-selected' : ''}`;
-            button.textContent = label;
-            button.setAttribute('aria-pressed', String(entry.action === action));
-            button.addEventListener('click', () => setMultiScanActionForItem(entry.currentItem.id, action));
-            actions.appendChild(button);
+            const actions = document.createElement('div');
+            actions.className = 'multi-scan-conflict-actions';
+            [
+                ['stay', 'Stay', 'fa-solid fa-person', 'btn-outline'],
+                ['move', 'Move', 'fa-solid fa-person-walking', 'btn-warning'],
+                ['split', 'Split', 'fa-solid fa-people-arrows', 'btn-success']
+            ].forEach(([action, label, iconClass, style]) => {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = `btn-sm ${style}${sourceAction.action === action ? ' is-selected' : ''}`;
+                button.title = `${label} di ${sourceAction.location}`;
+                button.setAttribute('aria-label', `${label} di ${sourceAction.location}`);
+                button.setAttribute('aria-pressed', String(sourceAction.action === action));
+                const icon = document.createElement('i');
+                icon.className = iconClass;
+                icon.setAttribute('aria-hidden', 'true');
+                button.appendChild(icon);
+                button.addEventListener('click', () => setMultiScanActionForItem(
+                    entry.currentItem.id,
+                    sourceAction.location,
+                    action
+                ));
+                actions.appendChild(button);
+            });
+            row.append(details, actions);
+            container.appendChild(row);
         });
-        row.append(details, actions);
-        container.appendChild(row);
     });
 
-    if (applyButton) applyButton.disabled = conflicts.some(entry => !entry.action);
+    if (applyButton) {
+        applyButton.disabled = conflicts.some(entry =>
+            entry.sourceActions.some(sourceAction => !['stay', 'move', 'split'].includes(sourceAction.action))
+        );
+    }
 }
 
-function setMultiScanActionForItem(itemId, action) {
-    if (!pendingMultiScanBatch || !['move', 'split'].includes(action)) return;
+function setMultiScanActionForItem(itemId, sourceLocation, action) {
+    if (!pendingMultiScanBatch || !['stay', 'move', 'split'].includes(action)) return;
     const entry = pendingMultiScanBatch.entries.find(candidate => String(candidate.currentItem.id) === String(itemId));
     if (!entry || !entry.conflict) return;
-    entry.action = action;
+    const sourceAction = entry.sourceActions.find(candidate => candidate.location === sourceLocation);
+    if (!sourceAction) return;
+    sourceAction.action = action;
     renderMultiScanConflictChoices();
 }
 
@@ -1275,7 +1294,7 @@ function setMultiScanActionForAll(action) {
     if (!pendingMultiScanBatch || !['move', 'split'].includes(action)) return;
     pendingMultiScanBatch.entries
         .filter(entry => entry.conflict)
-        .forEach(entry => { entry.action = action; });
+        .forEach(entry => entry.sourceActions.forEach(sourceAction => { sourceAction.action = action; }));
     renderMultiScanConflictChoices();
 }
 
@@ -1290,23 +1309,38 @@ async function applyMultiScanActions() {
     if (!pendingMultiScanBatch || !requireAdminAccess('memindahkan part')) return;
     const batch = pendingMultiScanBatch;
     const conflicts = batch.entries.filter(entry => entry.conflict);
-    if (conflicts.some(entry => !entry.action)) {
+    if (conflicts.some(entry =>
+        entry.sourceActions.some(sourceAction => !['stay', 'move', 'split'].includes(sourceAction.action))
+    )) {
         feedback('warning');
-        showToast('Pilih Move atau Split untuk setiap part yang konflik, atau gunakan tombol aksi semua.');
+        showToast('Pilih Stay, Move, atau Split untuk setiap lokasi asal, atau gunakan tombol aksi semua.');
         return;
     }
 
-    const counts = { move: 0, split: 0, add: 0, unchanged: 0 };
-    const changedEntries = batch.entries.filter(entry => !entry.alreadyAtTarget);
-    changedEntries.forEach(entry => {
-        if (entry.conflict) counts[entry.action]++;
-        else counts.add++;
+    const counts = { move: 0, split: 0, stay: 0, add: 0, unchanged: 0 };
+    const changedEntries = batch.entries.filter(entry => {
+        if (entry.alreadyAtTarget) return false;
+        if (!entry.conflict) {
+            counts.add++;
+            return true;
+        }
+        const hasMove = entry.sourceActions.some(sourceAction => sourceAction.action === 'move');
+        const hasSplit = entry.sourceActions.some(sourceAction => sourceAction.action === 'split');
+        const hasStay = entry.sourceActions.some(sourceAction => sourceAction.action === 'stay');
+        if (hasMove) counts.move++;
+        if (hasSplit) counts.split++;
+        if (hasStay) counts.stay++;
+        return hasMove || hasSplit;
     });
-    counts.unchanged = batch.entries.length - changedEntries.length;
+    counts.unchanged = batch.entries.filter(entry => entry.alreadyAtTarget).length;
 
     const sourceSummary = batch.entries.map(entry => {
         const source = Object.keys(entry.currentItem.locations || {}).join(', ') || '(belum ada lokasi)';
-        const action = entry.alreadyAtTarget ? 'sudah ada di tujuan' : entry.action || 'tambah lokasi';
+        const action = entry.alreadyAtTarget
+            ? 'sudah ada di tujuan'
+            : entry.conflict
+                ? entry.sourceActions.map(sourceAction => `${sourceAction.action} ${sourceAction.location}`).join(', ')
+                : 'tambah lokasi';
         return `${entry.currentItem.partNo}: ${source} → ${batch.boxCode} (${action})`;
     }).join('\n');
     const bufferWarning = BUFFER_STOCK_BOX_PATTERN.test(batch.boxCode)
@@ -1314,7 +1348,7 @@ async function applyMultiScanActions() {
         ? '\nPERHATIAN: Aksi melibatkan box buffer. Pastikan box utama dan tujuan sudah benar.'
         : '';
     if (changedEntries.length > 0 && !confirm(
-        `KONFIRMASI MULTI-SCAN\n\nMove: ${counts.move} part • Split: ${counts.split} part • Tambah lokasi: ${counts.add} part • Sudah di tujuan: ${counts.unchanged} part\nTujuan: ${batch.boxCode}${bufferWarning}\n\n${sourceSummary}\n\nLanjutkan?`
+        `KONFIRMASI MULTI-SCAN\n\nMove: ${counts.move} part • Split: ${counts.split} part • Stay: ${counts.stay} part • Tambah lokasi: ${counts.add} part • Sudah di tujuan: ${counts.unchanged} part\nTujuan: ${batch.boxCode}${bufferWarning}\n\n${sourceSummary}\n\nLanjutkan?`
     )) return;
 
     const selectedIds = new Set(batch.entries.map(entry => String(entry.currentItem.id)));
@@ -1325,30 +1359,51 @@ async function applyMultiScanActions() {
         const modal = document.getElementById('multiScanConflictModal');
         if (modal) modal.style.display = 'none';
         renderMultiScanList();
-        showToast('Semua part terpilih sudah ada di box tujuan.');
+        showToast(counts.stay > 0
+            ? `Tidak ada perubahan lokasi; ${counts.stay} part tetap di lokasi asal.`
+            : 'Semua part terpilih sudah ada di box tujuan.');
         document.getElementById('mainInput')?.focus();
         return;
     }
 
-    const actionById = new Map(batch.entries.map(entry => [
+    const actionsById = new Map(batch.entries.map(entry => [
         String(entry.currentItem.id),
         entry.conflict
-            ? entry.action
-            : Object.keys(entry.currentItem.locations || {}).length > 0 ? 'move' : 'add'
+            ? entry.sourceActions
+            : Object.keys(entry.currentItem.locations || {}).length > 0
+                ? []
+                : [{ location: null, action: 'add' }]
     ]));
     const updatedItems = changedEntries.map(entry => {
         const currentItem = entry.currentItem;
-        const action = actionById.get(String(currentItem.id));
+        const sourceActions = actionsById.get(String(currentItem.id));
+        const moveLocations = sourceActions.filter(sourceAction => sourceAction.action === 'move')
+            .map(sourceAction => sourceAction.location);
+        const locationActions = sourceActions.filter(sourceAction => sourceAction.action !== 'stay');
         const locations = { ...(currentItem.locations || {}) };
-        let opnameCounts = currentItem.opnameCounts || {};
-        let opnameCompleted = currentItem.opnameCompleted || {};
-        if (action === 'move') {
-            Object.keys(locations).forEach(location => delete locations[location]);
-            opnameCounts = {};
-            opnameCompleted = {};
+        const opnameCounts = { ...(currentItem.opnameCounts || {}) };
+        const destinationKey = getBoxToBoxLocationKey(locations, batch.boxCode) || batch.boxCode;
+        if (moveLocations.length > 0) {
+            const movedCount = moveLocations.reduce(
+                (total, location) => total + Math.max(0, Number(opnameCounts[location]) || 0),
+                0
+            );
+            moveLocations.forEach(location => {
+                delete locations[location];
+                delete opnameCounts[location];
+            });
+            const destinationCount = Math.max(0, Number(opnameCounts[destinationKey]) || 0) + movedCount;
+            if (destinationCount > 0) opnameCounts[destinationKey] = destinationCount;
+            else delete opnameCounts[destinationKey];
         }
-        locations[batch.boxCode] = true;
-        return { ...currentItem, locations, opnameCounts, opnameCompleted, lastBox: batch.boxCode };
+        if (locationActions.length > 0) locations[destinationKey] = true;
+        return {
+            ...currentItem,
+            locations,
+            opnameCounts,
+            opnameCompleted: {},
+            lastBox: batch.boxCode
+        };
     });
 
     let savedItems;
@@ -1357,8 +1412,12 @@ async function applyMultiScanActions() {
             updatedItems,
             'LOCATION',
             item => {
-                const action = actionById.get(String(item.id));
-                const label = action === 'split' ? 'Split' : action === 'add' ? 'tambah lokasi' : 'Move';
+                const sourceActions = actionsById.get(String(item.id));
+                const moveLocations = sourceActions.filter(sourceAction => sourceAction.action === 'move').length;
+                const splitLocations = sourceActions.filter(sourceAction => sourceAction.action === 'split').length;
+                const label = moveLocations && splitLocations ? 'Move/Split'
+                    : moveLocations ? 'Move'
+                        : splitLocations ? 'Split' : 'tambah lokasi';
                 return `Multi-Scan ${label} ke ${batch.boxCode}`;
             }
         );
@@ -1375,8 +1434,19 @@ async function applyMultiScanActions() {
         if (localIndex >= 0) localItems[localIndex] = item;
         const filteredIndex = filteredItems.findIndex(candidate => candidate.id === item.id);
         if (filteredIndex >= 0) filteredItems[filteredIndex] = item;
-        const action = actionById.get(String(item.id));
-        const historyAction = action === 'split' ? 'SPLIT' : action === 'add' ? 'MASUK' : 'MOVE';
+        const sourceActions = actionsById.get(String(item.id));
+        const moveLocations = sourceActions.filter(sourceAction => sourceAction.action === 'move')
+            .map(sourceAction => sourceAction.location);
+        const splitLocations = sourceActions.filter(sourceAction => sourceAction.action === 'split')
+            .map(sourceAction => sourceAction.location);
+        const stayLocations = sourceActions.filter(sourceAction => sourceAction.action === 'stay')
+            .map(sourceAction => sourceAction.location);
+        const historyAction = [
+            moveLocations.length ? `PINDAH ${moveLocations.join(', ')}` : '',
+            splitLocations.length ? `SPLIT ${splitLocations.join(', ')}` : '',
+            stayLocations.length ? `STAY ${stayLocations.join(', ')}` : '',
+            sourceActions.some(sourceAction => sourceAction.action === 'add') ? 'MASUK' : ''
+        ].filter(Boolean).join(' / ');
         addHistoryLog(item.partNo, `${historyAction} ke ${batch.boxCode}`);
     });
     multiScanBuffer = multiScanBuffer.filter(bufferItem => !selectedIds.has(String(bufferItem.item.id)));
@@ -1385,7 +1455,7 @@ async function applyMultiScanActions() {
     const modal = document.getElementById('multiScanConflictModal');
     if (modal) modal.style.display = 'none';
     feedback('success');
-    showToast(`Multi-Scan selesai: Move ${counts.move}, Split ${counts.split}, tambah lokasi ${counts.add}.`);
+    showToast(`Multi-Scan selesai: Move ${counts.move} part, Split ${counts.split} part, Stay ${counts.stay} part, tambah ${counts.add} part.`);
     renderMultiScanList();
     renderSimpanList(false);
     document.getElementById('mainInput')?.focus();
